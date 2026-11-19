@@ -6,6 +6,7 @@ use App\Enums\StationType;
 use App\Models\Department;
 use App\Models\Patient;
 use App\Models\Station;
+use App\Models\User;
 use App\Models\Workflow;
 use App\Models\WorkflowStep;
 
@@ -193,5 +194,11 @@ trait SetupKiyuHospital
             'email' => 'budi@example.com',
             'address' => 'Jl. Merdeka No. 10',
         ]);
+
+        // Authenticate a privileged staff user for protected API routes.
+        $this->actingAs(
+            User::factory()->create(['role' => 'admin']),
+            'sanctum'
+        );
     }
 }
