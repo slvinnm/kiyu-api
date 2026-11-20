@@ -5,12 +5,12 @@ namespace App\Services;
 use App\Enums\QueueEventType;
 use App\Enums\QueueTicketStatus;
 use App\Enums\VisitStatus;
-use App\Events\QueueCalled;
 use App\Exceptions\InvalidStateException;
 use App\Models\QueueEvent;
 use App\Models\QueueTicket;
 use App\Models\Station;
 use App\Models\Visit;
+use App\Support\QueueBroadcast;
 use Illuminate\Support\Facades\DB;
 
 class ClinicalQueueService
@@ -77,17 +77,7 @@ class ClinicalQueueService
         if ($ticket) {
             $ticket->loadMissing(['station.department']);
 
-            QueueCalled::dispatch(
-                departmentId: $ticket->station->department_id,
-                departmentCode: $ticket->station->department?->code,
-                stationId: $ticket->station_id,
-                stationCode: $ticket->station?->code,
-                queueNumber: $ticket->queue_number,
-                status: $ticket->status->value,
-                calledAt: $ticket->called_at?->toIso8601String(),
-                departmentName: $ticket->station->department?->name,
-                stationName: $ticket->station?->name,
-            );
+            QueueBroadcast::called($ticket);
         }
 
         return $ticket;
@@ -128,19 +118,7 @@ class ClinicalQueueService
 
             return $lockedTicket->load(['visit.patient', 'station', 'workflowStep']);
         });
-        $result->loadMissing(['station.department']);
-
-        QueueCalled::dispatch(
-            departmentId: $result->station->department_id,
-            departmentCode: $result->station->department?->code,
-            stationId: $result->station_id,
-            stationCode: $result->station?->code,
-            queueNumber: $result->queue_number,
-            status: $result->status->value,
-            calledAt: $result->called_at?->toIso8601String(),
-            departmentName: $result->station->department?->name,
-            stationName: $result->station?->name,
-        );
+        QueueBroadcast::called($result);
 
         return $result;
     }

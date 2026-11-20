@@ -7,7 +7,6 @@ use App\Enums\QueueAcquisitionStatus;
 use App\Enums\QueueEventType;
 use App\Enums\QueueTicketStatus;
 use App\Enums\VisitStatus;
-use App\Events\QueueCalled;
 use App\Exceptions\BusinessConflictException;
 use App\Exceptions\InvalidStateException;
 use App\Models\Patient;
@@ -16,6 +15,7 @@ use App\Models\QueueEvent;
 use App\Models\QueueTicket;
 use App\Models\Station;
 use App\Models\Visit;
+use App\Support\QueueBroadcast;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -33,7 +33,7 @@ class ReceptionService
      *
      * @return array{station: Station, current_calling: ?QueueTicket, waiting: Collection, waiting_count: int, called_count_today: int, on_hold: Collection}
      */
-    public function getReceptionQueue(int $departmentId, ?int $stationId = null): array
+    public function getReceptionQueue(int $departmentId, ?int $stationId = null, ?string $actor = null): array
     {
         $workflow = $this->workflowService->resolvePrimaryWorkflow($departmentId);
         $registrationStep = $this->workflowService->resolveRegistrationStep($workflow);
@@ -45,11 +45,13 @@ class ReceptionService
 
         $today = now()->format('Y-m-d');
 
-        // Current calling ticket at this registration station
+        // "Current calling" is per-operator: a ticket called by a colleague at
+        // the same desk must not appear as this user's current patient.
         $currentCalling = QueueTicket::query()
             ->with(['visit.patient', 'station', 'workflowStep'])
             ->where('station_id', $registrationStation->id)
             ->where('status', QueueTicketStatus::Called)
+            ->when($actor !== null, fn($query) => $query->where('assigned_to', $actor))
             ->latest('called_at')
             ->first();
 
@@ -146,17 +148,7 @@ class ReceptionService
         if ($ticket) {
             $ticket->loadMissing(['station.department']);
 
-            QueueCalled::dispatch(
-                departmentId: $ticket->station->department_id,
-                departmentCode: $ticket->station->department?->code,
-                stationId: $ticket->station_id,
-                stationCode: $ticket->station?->code,
-                queueNumber: $ticket->queue_number,
-                status: $ticket->status->value,
-                calledAt: $ticket->called_at?->toIso8601String(),
-                departmentName: $ticket->station->department?->name,
-                stationName: $ticket->station?->name,
-            );
+            QueueBroadcast::called($ticket);
         }
 
         return $ticket;
@@ -203,17 +195,7 @@ class ReceptionService
         if ($ticket) {
             $ticket->loadMissing(['station.department']);
 
-            QueueCalled::dispatch(
-                departmentId: $ticket->station->department_id,
-                departmentCode: $ticket->station->department?->code,
-                stationId: $ticket->station_id,
-                stationCode: $ticket->station?->code,
-                queueNumber: $ticket->queue_number,
-                status: $ticket->status->value,
-                calledAt: $ticket->called_at?->toIso8601String(),
-                departmentName: $ticket->station->department?->name,
-                stationName: $ticket->station?->name,
-            );
+            QueueBroadcast::called($ticket);
         }
 
         return $ticket;

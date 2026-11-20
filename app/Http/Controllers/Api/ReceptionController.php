@@ -25,7 +25,8 @@ class ReceptionController extends Controller
 
         $queue = $this->receptionService->getReceptionQueue(
             departmentId: (int) $validated['department_id'],
-            stationId: isset($validated['station_id']) ? (int) $validated['station_id'] : null
+            stationId: isset($validated['station_id']) ? (int) $validated['station_id'] : null,
+            actor: $request->user()?->email
         );
 
         return response()->json([
@@ -47,7 +48,7 @@ class ReceptionController extends Controller
 
         $ticket = $this->receptionService->callNext(
             departmentId: (int) $validated['department_id'],
-            assignedTo: $validated['assigned_to'] ?? null,
+            assignedTo: $validated['assigned_to'] ?? $request->user()?->email,
             stationId: isset($validated['station_id']) ? (int) $validated['station_id'] : null
         );
 

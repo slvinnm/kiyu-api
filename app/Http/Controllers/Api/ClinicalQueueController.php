@@ -26,7 +26,7 @@ class ClinicalQueueController extends Controller
 
         $ticket = $this->clinicalQueueService->callNext(
             stationId: (int) $validated['station_id'],
-            assignedTo: $validated['assigned_to'] ?? null
+            assignedTo: $validated['assigned_to'] ?? $request->user()?->email
         );
 
         if (! $ticket) {

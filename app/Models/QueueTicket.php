@@ -4,14 +4,52 @@ namespace App\Models;
 
 use App\Enums\Priority;
 use App\Enums\QueueTicketStatus;
+use App\Support\QueueBroadcast;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\DB;
 
 class QueueTicket extends Model
 {
     use HasFactory;
+
+    /**
+     * Emit a lightweight "queue changed" broadcast after the ticket is
+     * committed. Staff workspaces and public displays listen to the station /
+     * department channel and refetch, giving live updates for every flow
+     * (call, start, complete, hold, transfer, new ticket, ...).
+     */
+    protected static function booted(): void
+    {
+        $emit = function (QueueTicket $ticket, string $reason): void {
+            $stationId = $ticket->station_id;
+            $departmentId = $ticket->visit?->department_id;
+
+            if ($departmentId === null && $stationId !== null) {
+                $departmentId = Station::query()
+                    ->whereKey($stationId)
+                    ->value('department_id');
+            }
+
+            DB::afterCommit(function () use ($departmentId, $stationId, $reason): void {
+                QueueBroadcast::updated($departmentId, $stationId, $reason);
+            });
+        };
+
+        static::created(function (QueueTicket $ticket) use ($emit): void {
+            $emit($ticket, 'created');
+        });
+
+        static::updated(function (QueueTicket $ticket) use ($emit): void {
+            if ($ticket->wasChanged('status')) {
+                $emit($ticket, strtolower($ticket->status->value));
+            } elseif ($ticket->wasChanged('assigned_to')) {
+                $emit($ticket, 'assigned');
+            }
+        });
+    }
 
     /**
      * The attributes that are mass assignable.
