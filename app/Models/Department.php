@@ -20,6 +20,7 @@ class Department extends Model
         'code',
         'name',
         'is_active',
+        'display_in_kiosk',
     ];
 
     /**
@@ -29,6 +30,7 @@ class Department extends Model
      */
     protected $casts = [
         'is_active' => 'boolean',
+        'display_in_kiosk' => 'boolean',
     ];
 
     /**

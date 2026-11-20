@@ -18,6 +18,7 @@ class DepartmentController extends Controller
             'data' => Department::query()
                 ->with('stations')
                 ->where('is_active', true)
+                ->where('display_in_kiosk', true)
                 ->get(),
         ]);
     }
@@ -41,12 +42,14 @@ class DepartmentController extends Controller
             'code' => ['required', 'string', 'max:50', 'unique:departments,code'],
             'name' => ['required', 'string', 'max:255'],
             'is_active' => ['nullable', 'boolean'],
+            'display_in_kiosk' => ['nullable', 'boolean'],
         ]);
 
         $department = Department::query()->create([
             'code' => $validated['code'],
             'name' => $validated['name'],
             'is_active' => $validated['is_active'] ?? true,
+            'display_in_kiosk' => $validated['display_in_kiosk'] ?? true,
         ]);
 
         return response()->json([
@@ -78,6 +81,7 @@ class DepartmentController extends Controller
             'code' => ['sometimes', 'required', 'string', 'max:50', 'unique:departments,code,' . $id],
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'is_active' => ['nullable', 'boolean'],
+            'display_in_kiosk' => ['nullable', 'boolean'],
         ]);
 
         $department->update($validated);

@@ -18,9 +18,9 @@ class DatabaseSeeder extends Seeder
             MasterDataSeeder::class,
             UserStaffSeeder::class,
             PatientSeeder::class,
-            OperationalQueueSeeder::class,
-            DepartmentQueueSeeder::class,
-            ReferralAndAuditSeeder::class,
+            // OperationalQueueSeeder::class,
+            // DepartmentQueueSeeder::class,
+            // ReferralAndAuditSeeder::class,
         ]);
     }
 }

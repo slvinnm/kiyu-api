@@ -13,34 +13,34 @@ class MasterDataSeeder extends Seeder
 {
     public function run(): void
     {
-        $general = Department::firstOrCreate(
+        $general = Department::updateOrCreate(
             ['code' => 'GEN'],
-            ['name' => 'Poli Umum', 'is_active' => true]
+            ['name' => 'Poli Umum', 'is_active' => true, 'display_in_kiosk' => true]
         );
 
-        $dental = Department::firstOrCreate(
+        $dental = Department::updateOrCreate(
             ['code' => 'DNT'],
-            ['name' => 'Poli Gigi', 'is_active' => true]
+            ['name' => 'Poli Gigi', 'is_active' => true, 'display_in_kiosk' => true]
         );
 
-        $cardio = Department::firstOrCreate(
+        $cardio = Department::updateOrCreate(
             ['code' => 'CAR'],
-            ['name' => 'Jantung', 'is_active' => true]
+            ['name' => 'Jantung', 'is_active' => true, 'display_in_kiosk' => false]
         );
 
-        $apotek = Department::firstOrCreate(
+        $apotek = Department::updateOrCreate(
             ['code' => 'APT'],
-            ['name' => 'Apotek', 'is_active' => true]
+            ['name' => 'Apotek', 'is_active' => true, 'display_in_kiosk' => false]
         );
 
-        $laboratorium = Department::firstOrCreate(
+        $laboratorium = Department::updateOrCreate(
             ['code' => 'LAB'],
-            ['name' => 'Laboratorium', 'is_active' => true]
+            ['name' => 'Laboratorium', 'is_active' => true, 'display_in_kiosk' => false]
         );
 
-        $kasir = Department::firstOrCreate(
+        $kasir = Department::updateOrCreate(
             ['code' => 'BILL'],
-            ['name' => 'Kasir', 'is_active' => true]
+            ['name' => 'Kasir', 'is_active' => true, 'display_in_kiosk' => false]
         );
 
         $registrasiGeneral = Station::firstOrCreate(
@@ -98,7 +98,6 @@ class MasterDataSeeder extends Seeder
             ]
         );
 
-        // Dental
         Station::firstOrCreate(
             ['code' => 'DNT-REG'],
             [
@@ -121,7 +120,6 @@ class MasterDataSeeder extends Seeder
             ]
         );
 
-        // Cardio
         Station::firstOrCreate(
             ['code' => 'CAR-REG'],
             [
@@ -144,7 +142,6 @@ class MasterDataSeeder extends Seeder
             ]
         );
 
-        // Apotek (unit tersendiri, bukan hanya station di Poli Umum)
         $aptReg = Station::firstOrCreate(
             ['code' => 'APT-REG'],
             [
@@ -167,7 +164,6 @@ class MasterDataSeeder extends Seeder
             ]
         );
 
-        // Laboratorium
         $labReg = Station::firstOrCreate(
             ['code' => 'LAB-REG'],
             [
@@ -190,7 +186,6 @@ class MasterDataSeeder extends Seeder
             ]
         );
 
-        // Kasir (Billing)
         $billReg = Station::firstOrCreate(
             ['code' => 'BILL-REG'],
             [
