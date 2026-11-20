@@ -7,6 +7,7 @@ use App\Enums\QueueAcquisitionStatus;
 use App\Enums\QueueEventType;
 use App\Enums\QueueTicketStatus;
 use App\Enums\VisitStatus;
+use App\Events\QueueCalled;
 use App\Exceptions\BusinessConflictException;
 use App\Exceptions\InvalidStateException;
 use App\Models\Patient;
@@ -99,7 +100,7 @@ class ReceptionService
             throw new InvalidStateException("Provided station #{$stationId} does not match active registration station #{$registrationStation->id}.");
         }
 
-        return DB::transaction(function () use ($registrationStation, $assignedTo): ?QueueTicket {
+        $ticket = DB::transaction(function () use ($registrationStation, $assignedTo): ?QueueTicket {
             /** @var QueueTicket|null $ticket */
             $ticket = QueueTicket::query()
                 ->where('station_id', $registrationStation->id)
@@ -141,6 +142,22 @@ class ReceptionService
 
             return $ticket->load(['visit.patient', 'station', 'workflowStep']);
         });
+
+        if ($ticket) {
+            $ticket->loadMissing(['station.department']);
+
+            QueueCalled::dispatch(
+                departmentId: $ticket->station->department_id,
+                departmentCode: $ticket->station->department?->code,
+                stationId: $ticket->station_id,
+                stationCode: $ticket->station?->code,
+                queueNumber: $ticket->queue_number,
+                status: $ticket->status->value,
+                calledAt: $ticket->called_at?->toIso8601String(),
+            );
+        }
+
+        return $ticket;
     }
 
     /**

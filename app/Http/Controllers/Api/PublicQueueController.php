@@ -55,10 +55,13 @@ class PublicQueueController extends Controller
                 'station_name' => $station->name,
                 'station_code' => $station->code,
                 'station_type' => $station->type->value,
+                'department_id' => $station->department_id,
                 'department_name' => $station->department?->name,
+                'department_code' => $station->department?->code,
                 'current_calling' => $currentTicket ? [
                     'queue_number' => $currentTicket->queue_number,
                     'status' => $currentTicket->status->value,
+                    'called_at' => $currentTicket->called_at?->toIso8601String(),
                 ] : null,
                 'waiting_count' => $waitingCount,
                 'upcoming_queue_numbers' => $upcomingTickets,

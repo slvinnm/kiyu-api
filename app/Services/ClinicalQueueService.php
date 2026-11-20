@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\QueueEventType;
 use App\Enums\QueueTicketStatus;
 use App\Enums\VisitStatus;
+use App\Events\QueueCalled;
 use App\Exceptions\InvalidStateException;
 use App\Models\QueueEvent;
 use App\Models\QueueTicket;
@@ -30,7 +31,7 @@ class ClinicalQueueService
             throw new InvalidStateException("Station #{$stationId} is inactive.");
         }
 
-        return DB::transaction(function () use ($station, $assignedTo): ?QueueTicket {
+        $ticket = DB::transaction(function () use ($station, $assignedTo): ?QueueTicket {
             /** @var QueueTicket|null $ticket */
             $ticket = QueueTicket::query()
                 ->where('station_id', $station->id)
@@ -72,6 +73,22 @@ class ClinicalQueueService
 
             return $ticket->load(['visit.patient', 'station', 'workflowStep']);
         });
+
+        if ($ticket) {
+            $ticket->loadMissing(['station.department']);
+
+            QueueCalled::dispatch(
+                departmentId: $ticket->station->department_id,
+                departmentCode: $ticket->station->department?->code,
+                stationId: $ticket->station_id,
+                stationCode: $ticket->station?->code,
+                queueNumber: $ticket->queue_number,
+                status: $ticket->status->value,
+                calledAt: $ticket->called_at?->toIso8601String(),
+            );
+        }
+
+        return $ticket;
     }
 
     /**

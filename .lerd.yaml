@@ -7,3 +7,13 @@ services:
   - mysql-9-7:
       preset: mysql
       version: "9.7"
+workers:
+  - reverb
+custom_workers:
+  reverb:
+    label: Reverb WebSocket
+    command: php artisan reverb:start --host=0.0.0.0 --port=8080
+    restart: always
+    proxy:
+      path: /app
+      default_port: 8080
