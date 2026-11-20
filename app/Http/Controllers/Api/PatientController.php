@@ -35,8 +35,17 @@ class PatientController extends Controller
             $query->where('mrn', $request->input('mrn'));
         }
 
+        $sort = $request->input('sort');
+        $direction = strtolower((string) $request->input('direction', 'asc')) === 'desc' ? 'desc' : 'asc';
+        $allowedSorts = ['name', 'mrn', 'nik', 'created_at', 'id'];
+        if (is_string($sort) && in_array($sort, $allowedSorts, true)) {
+            $query->orderBy($sort, $direction);
+        } else {
+            $query->latest('id');
+        }
+
         return response()->json([
-            'data' => $query->latest('id')->paginate($request->input('per_page', 20)),
+            'data' => $query->paginate($request->input('per_page', 20)),
         ]);
     }
 

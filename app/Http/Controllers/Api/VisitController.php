@@ -41,8 +41,17 @@ class VisitController extends Controller
             $query->whereDate('created_at', $request->input('date'));
         }
 
+        $sort = $request->input('sort');
+        $direction = strtolower((string) $request->input('direction', 'asc')) === 'desc' ? 'desc' : 'asc';
+        $allowedSorts = ['visit_number', 'status', 'priority', 'intake_channel', 'created_at', 'id'];
+        if (is_string($sort) && in_array($sort, $allowedSorts, true)) {
+            $query->orderBy($sort, $direction);
+        } else {
+            $query->latest('id');
+        }
+
         return response()->json([
-            'data' => $query->latest('id')->paginate($request->input('per_page', 20)),
+            'data' => $query->paginate($request->input('per_page', 20)),
         ]);
     }
 

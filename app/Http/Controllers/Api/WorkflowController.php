@@ -21,6 +21,13 @@ class WorkflowController extends Controller
             $query->where('department_id', $request->input('department_id'));
         }
 
+        $sort = $request->input('sort');
+        $direction = strtolower((string) $request->input('direction', 'asc')) === 'desc' ? 'desc' : 'asc';
+        $allowedSorts = ['name', 'is_active', 'department_id', 'created_at'];
+        if (is_string($sort) && in_array($sort, $allowedSorts, true)) {
+            $query->orderBy($sort, $direction);
+        }
+
         return response()->json([
             'data' => $query->get(),
         ]);

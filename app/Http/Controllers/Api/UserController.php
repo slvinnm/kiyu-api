@@ -41,7 +41,9 @@ class UserController extends Controller
             'role' => ['nullable', 'string', Rule::in(self::ROLES)],
             'department_id' => ['nullable', 'integer', 'exists:departments,id'],
             'station_id' => ['nullable', 'integer', 'exists:stations,id'],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:200'],
+            'sort' => ['nullable', 'string'],
+            'direction' => ['nullable', 'string'],
         ]);
 
         $query = User::query()->with(['department', 'station']);
@@ -61,8 +63,17 @@ class UserController extends Controller
             }
         }
 
+        $sort = $validated['sort'] ?? null;
+        $direction = strtolower((string) ($validated['direction'] ?? 'asc')) === 'desc' ? 'desc' : 'asc';
+        $allowedSorts = ['name', 'email', 'role', 'created_at', 'id'];
+        if (is_string($sort) && in_array($sort, $allowedSorts, true)) {
+            $query->orderBy($sort, $direction);
+        } else {
+            $query->latest('id');
+        }
+
         return response()->json([
-            'data' => $query->latest('id')->paginate((int) ($validated['per_page'] ?? 20)),
+            'data' => $query->paginate((int) ($validated['per_page'] ?? 20)),
         ]);
     }
 

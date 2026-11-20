@@ -26,10 +26,19 @@ class DepartmentController extends Controller
     /**
      * List all departments.
      */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
+        $query = Department::query()->with('stations');
+
+        $sort = $request->input('sort');
+        $direction = strtolower((string) $request->input('direction', 'asc')) === 'desc' ? 'desc' : 'asc';
+        $allowedSorts = ['code', 'name', 'is_active', 'created_at'];
+        if (is_string($sort) && in_array($sort, $allowedSorts, true)) {
+            $query->orderBy($sort, $direction);
+        }
+
         return response()->json([
-            'data' => Department::query()->with('stations')->get(),
+            'data' => $query->get(),
         ]);
     }
 

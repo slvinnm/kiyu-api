@@ -32,8 +32,17 @@ class AuditLogController extends Controller
             $query->where('user_id', $request->input('user_id'));
         }
 
+        $sort = $request->input('sort');
+        $direction = strtolower((string) $request->input('direction', 'asc')) === 'desc' ? 'desc' : 'asc';
+        $allowedSorts = ['action', 'entity_type', 'user_id', 'created_at', 'id'];
+        if (is_string($sort) && in_array($sort, $allowedSorts, true)) {
+            $query->orderBy($sort, $direction);
+        } else {
+            $query->latest('id');
+        }
+
         return response()->json([
-            'data' => $query->latest('id')->paginate($request->input('per_page', 25)),
+            'data' => $query->paginate($request->input('per_page', 25)),
         ]);
     }
 }
