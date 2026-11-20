@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\ReceptionController;
 use App\Http\Controllers\Api\ReferralController;
 use App\Http\Controllers\Api\StationController;
 use App\Http\Controllers\Api\TicketController;
+use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\VisitController;
 use App\Http\Controllers\Api\WorkflowController;
 use Illuminate\Support\Facades\Route;
@@ -43,6 +44,15 @@ Route::get('/departments/active', [DepartmentController::class, 'active']);
 
 // Everything below requires an authenticated Sanctum token.
 Route::middleware('auth:sanctum')->group(function () {
+    // 0b. User management (admin only, enforced in the controller)
+    Route::prefix('users')->group(function () {
+        Route::get('/', [UserController::class, 'index']);
+        Route::post('/', [UserController::class, 'store']);
+        Route::get('/{id}', [UserController::class, 'show']);
+        Route::put('/{id}', [UserController::class, 'update']);
+        Route::delete('/{id}', [UserController::class, 'destroy']);
+    });
+
     // 1b. Manual intake (reception)
     Route::post('/intake/manual', [IntakeController::class, 'manual']);
 

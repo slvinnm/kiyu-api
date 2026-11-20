@@ -28,6 +28,21 @@ class MasterDataSeeder extends Seeder
             ['name' => 'Jantung', 'is_active' => true]
         );
 
+        $apotek = Department::firstOrCreate(
+            ['code' => 'APT'],
+            ['name' => 'Apotek', 'is_active' => true]
+        );
+
+        $laboratorium = Department::firstOrCreate(
+            ['code' => 'LAB'],
+            ['name' => 'Laboratorium', 'is_active' => true]
+        );
+
+        $kasir = Department::firstOrCreate(
+            ['code' => 'BILL'],
+            ['name' => 'Kasir', 'is_active' => true]
+        );
+
         $registrasiGeneral = Station::firstOrCreate(
             ['code' => 'GEN-REG'],
             [
@@ -129,6 +144,75 @@ class MasterDataSeeder extends Seeder
             ]
         );
 
+        // Apotek (unit tersendiri, bukan hanya station di Poli Umum)
+        $aptReg = Station::firstOrCreate(
+            ['code' => 'APT-REG'],
+            [
+                'department_id' => $apotek->id,
+                'name' => 'Loket Pendaftaran Apotek',
+                'type' => StationType::Registration,
+                'queue_prefix' => 'A',
+                'is_active' => true,
+            ]
+        );
+
+        $aptPha = Station::firstOrCreate(
+            ['code' => 'APT-PHA'],
+            [
+                'department_id' => $apotek->id,
+                'name' => 'Penyerahan Obat',
+                'type' => StationType::Pharmacy,
+                'queue_prefix' => 'AP',
+                'is_active' => true,
+            ]
+        );
+
+        // Laboratorium
+        $labReg = Station::firstOrCreate(
+            ['code' => 'LAB-REG'],
+            [
+                'department_id' => $laboratorium->id,
+                'name' => 'Loket Pendaftaran Laboratorium',
+                'type' => StationType::Registration,
+                'queue_prefix' => 'L',
+                'is_active' => true,
+            ]
+        );
+
+        $labLab = Station::firstOrCreate(
+            ['code' => 'LAB-LAB'],
+            [
+                'department_id' => $laboratorium->id,
+                'name' => 'Ruang Pemeriksaan Laboratorium',
+                'type' => StationType::Laboratory,
+                'queue_prefix' => 'LB',
+                'is_active' => true,
+            ]
+        );
+
+        // Kasir (Billing)
+        $billReg = Station::firstOrCreate(
+            ['code' => 'BILL-REG'],
+            [
+                'department_id' => $kasir->id,
+                'name' => 'Loket Pendaftaran Kasir',
+                'type' => StationType::Registration,
+                'queue_prefix' => 'K',
+                'is_active' => true,
+            ]
+        );
+
+        $billCash = Station::firstOrCreate(
+            ['code' => 'BILL-CASH'],
+            [
+                'department_id' => $kasir->id,
+                'name' => 'Meja Pembayaran',
+                'type' => StationType::Billing,
+                'queue_prefix' => 'KS',
+                'is_active' => true,
+            ]
+        );
+
         // Workflow General
         $genWorkflow = Workflow::firstOrCreate(
             ['department_id' => $general->id, 'name' => 'Workflow Umum'],
@@ -174,5 +258,54 @@ class MasterDataSeeder extends Seeder
                 ['name' => 'Pemeriksaan Gigi', 'is_active' => true, 'is_optional' => false, 'is_repeatable' => false, 'can_skip' => false, 'completion_requirements' => null, 'entry_conditions' => null]
             );
         }
+
+        // Workflow Cardio (melengkapi Poli Jantung yang sebelumnya tanpa alur)
+        $carReg = Station::where('code', 'CAR-REG')->first();
+        $carDoc = Station::where('code', 'CAR-DOC')->first();
+
+        if ($carReg && $carDoc) {
+            $carWorkflow = Workflow::firstOrCreate(
+                ['department_id' => $cardio->id, 'name' => 'Workflow Jantung'],
+                ['is_active' => true]
+            );
+
+            $this->addStep($carWorkflow, $carReg, 1, 'Registrasi Jantung');
+            $this->addStep($carWorkflow, $carDoc, 2, 'Pemeriksaan Jantung');
+        }
+
+        // Workflow Apotek
+        $aptWorkflow = Workflow::firstOrCreate(
+            ['department_id' => $apotek->id, 'name' => 'Workflow Apotek'],
+            ['is_active' => true]
+        );
+
+        $this->addStep($aptWorkflow, $aptReg, 1, 'Registrasi Apotek');
+        $this->addStep($aptWorkflow, $aptPha, 2, 'Penyerahan Obat');
+
+        // Workflow Laboratorium
+        $labWorkflow = Workflow::firstOrCreate(
+            ['department_id' => $laboratorium->id, 'name' => 'Workflow Laboratorium'],
+            ['is_active' => true]
+        );
+
+        $this->addStep($labWorkflow, $labReg, 1, 'Registrasi Laboratorium');
+        $this->addStep($labWorkflow, $labLab, 2, 'Pemeriksaan Laboratorium');
+
+        // Workflow Kasir
+        $billWorkflow = Workflow::firstOrCreate(
+            ['department_id' => $kasir->id, 'name' => 'Workflow Kasir'],
+            ['is_active' => true]
+        );
+
+        $this->addStep($billWorkflow, $billReg, 1, 'Registrasi Kasir');
+        $this->addStep($billWorkflow, $billCash, 2, 'Pembayaran');
+    }
+
+    private function addStep(Workflow $workflow, Station $station, int $sequence, string $name): void
+    {
+        WorkflowStep::firstOrCreate(
+            ['workflow_id' => $workflow->id, 'station_id' => $station->id, 'sequence' => $sequence],
+            ['name' => $name, 'is_active' => true, 'is_optional' => false, 'is_repeatable' => false, 'can_skip' => false, 'completion_requirements' => null, 'entry_conditions' => null]
+        );
     }
 }

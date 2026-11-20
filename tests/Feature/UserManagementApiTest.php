@@ -1,0 +1,166 @@
+<?php
+
+use App\Enums\StationType;
+use App\Models\Department;
+use App\Models\Station;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Hash;
+
+uses(RefreshDatabase::class);
+
+beforeEach(function () {
+    Cache::flush();
+
+    $this->department = Department::create([
+        'code' => 'GEN',
+        'name' => 'Poli Umum',
+        'is_active' => true,
+    ]);
+
+    $this->otherDepartment = Department::create([
+        'code' => 'DNT',
+        'name' => 'Poli Gigi',
+        'is_active' => true,
+    ]);
+
+    $this->station = Station::create([
+        'department_id' => $this->department->id,
+        'name' => 'Ruang Perawat',
+        'code' => 'GEN-NUR',
+        'type' => StationType::Nurse,
+        'queue_prefix' => 'N',
+        'is_active' => true,
+    ]);
+
+    $this->otherStation = Station::create([
+        'department_id' => $this->otherDepartment->id,
+        'name' => 'Ruang Gigi',
+        'code' => 'DNT-DOC',
+        'type' => StationType::Doctor,
+        'queue_prefix' => 'DG',
+        'is_active' => true,
+    ]);
+
+    $this->admin = User::factory()->create([
+        'name' => 'Admin Test',
+        'email' => 'admin@kiyu.test',
+        'role' => 'admin',
+    ]);
+
+    $this->nurse = User::factory()->create([
+        'name' => 'Nurse Test',
+        'email' => 'nurse@kiyu.test',
+        'role' => 'nurse',
+        'department_id' => $this->department->id,
+        'station_id' => $this->station->id,
+    ]);
+
+    $this->actingAs($this->admin, 'sanctum');
+});
+
+test('admin can list users with role and station relations', function () {
+    $response = $this->getJson('/api/users');
+
+    $response->assertOk()
+        ->assertJsonPath('data.total', 2)
+        ->assertJsonStructure([
+            'data' => [
+                'data' => [
+                    '*' => ['id', 'name', 'email', 'role', 'department_id', 'station_id'],
+                ],
+            ],
+        ]);
+});
+
+test('admin can create a staff user with a hashed password', function () {
+    $response = $this->postJson('/api/users', [
+        'name' => 'New Nurse',
+        'email' => 'new.nurse@kiyu.test',
+        'password' => 'secret123',
+        'role' => 'nurse',
+        'department_id' => $this->department->id,
+        'station_id' => $this->station->id,
+    ]);
+
+    $response->assertCreated()
+        ->assertJsonPath('message', 'User created successfully.')
+        ->assertJsonPath('data.email', 'new.nurse@kiyu.test')
+        ->assertJsonPath('data.role', 'nurse')
+        ->assertJsonPath('data.department_id', $this->department->id)
+        ->assertJsonPath('data.station_id', $this->station->id);
+
+    $user = User::query()->where('email', 'new.nurse@kiyu.test')->firstOrFail();
+
+    expect(Hash::check('secret123', $user->password))->toBeTrue();
+    expect($user->password)->not->toBe('secret123');
+});
+
+test('non-admin cannot list or create users', function () {
+    $this->actingAs($this->nurse, 'sanctum');
+
+    $this->getJson('/api/users')->assertForbidden();
+
+    $this->postJson('/api/users', [
+        'name' => 'Forbidden User',
+        'email' => 'forbidden@kiyu.test',
+        'password' => 'secret123',
+        'role' => 'nurse',
+    ])->assertForbidden();
+});
+
+test('admin can update a user and leave the password unchanged', function () {
+    $originalHash = $this->nurse->password;
+
+    $response = $this->putJson("/api/users/{$this->nurse->id}", [
+        'name' => 'Nurse Updated',
+        'role' => 'doctor',
+        'department_id' => $this->department->id,
+        'station_id' => $this->station->id,
+    ]);
+
+    $response->assertOk()
+        ->assertJsonPath('data.name', 'Nurse Updated')
+        ->assertJsonPath('data.role', 'doctor');
+
+    $this->nurse->refresh();
+
+    expect($this->nurse->password)->toBe($originalHash);
+});
+
+test('admin can delete another user', function () {
+    $this->deleteJson("/api/users/{$this->nurse->id}")
+        ->assertOk()
+        ->assertJsonPath('message', 'User deleted successfully.');
+
+    $this->assertDatabaseMissing('users', ['id' => $this->nurse->id]);
+});
+
+test('admin cannot delete their own account', function () {
+    $this->deleteJson("/api/users/{$this->admin->id}")
+        ->assertStatus(422)
+        ->assertJsonPath('error_type', 'INVALID_STATE');
+});
+
+test('station must belong to the selected department', function () {
+    $this->postJson('/api/users', [
+        'name' => 'Mismatch User',
+        'email' => 'mismatch@kiyu.test',
+        'password' => 'secret123',
+        'role' => 'nurse',
+        'department_id' => $this->otherDepartment->id,
+        'station_id' => $this->station->id,
+    ])->assertStatus(422)
+        ->assertJsonValidationErrors('station_id');
+});
+
+test('email must be unique', function () {
+    $this->postJson('/api/users', [
+        'name' => 'Duplicate Email',
+        'email' => 'nurse@kiyu.test',
+        'password' => 'secret123',
+        'role' => 'nurse',
+    ])->assertStatus(422)
+        ->assertJsonValidationErrors('email');
+});
