@@ -154,6 +154,8 @@ class ReceptionService
                 queueNumber: $ticket->queue_number,
                 status: $ticket->status->value,
                 calledAt: $ticket->called_at?->toIso8601String(),
+                departmentName: $ticket->station->department?->name,
+                stationName: $ticket->station?->name,
             );
         }
 
@@ -165,7 +167,7 @@ class ReceptionService
      */
     public function recall(int $ticketId, ?string $assignedTo = null): QueueTicket
     {
-        return DB::transaction(function () use ($ticketId, $assignedTo): QueueTicket {
+        $ticket = DB::transaction(function () use ($ticketId, $assignedTo): QueueTicket {
             /** @var QueueTicket $ticket */
             $ticket = QueueTicket::query()
                 ->lockForUpdate()
@@ -197,6 +199,24 @@ class ReceptionService
 
             return $ticket->load(['visit.patient', 'station', 'workflowStep']);
         });
+
+        if ($ticket) {
+            $ticket->loadMissing(['station.department']);
+
+            QueueCalled::dispatch(
+                departmentId: $ticket->station->department_id,
+                departmentCode: $ticket->station->department?->code,
+                stationId: $ticket->station_id,
+                stationCode: $ticket->station?->code,
+                queueNumber: $ticket->queue_number,
+                status: $ticket->status->value,
+                calledAt: $ticket->called_at?->toIso8601String(),
+                departmentName: $ticket->station->department?->name,
+                stationName: $ticket->station?->name,
+            );
+        }
+
+        return $ticket;
     }
 
     /**

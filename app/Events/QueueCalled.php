@@ -18,6 +18,8 @@ class QueueCalled implements ShouldBroadcastNow
         public string $queueNumber,
         public string $status,
         public ?string $calledAt,
+        public ?string $departmentName = null,
+        public ?string $stationName = null,
     ) {}
 
     /**
@@ -51,8 +53,10 @@ class QueueCalled implements ShouldBroadcastNow
         return [
             'department_id' => $this->departmentId,
             'department_code' => $this->departmentCode,
+            'department_name' => $this->departmentName,
             'station_id' => $this->stationId,
             'station_code' => $this->stationCode,
+            'station_name' => $this->stationName,
             'queue_number' => $this->queueNumber,
             'status' => $this->status,
             'called_at' => $this->calledAt,
