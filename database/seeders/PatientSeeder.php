@@ -9,7 +9,6 @@ class PatientSeeder extends Seeder
 {
     public function run(): void
     {
-        // Deterministic known patients for manual frontend testing
         Patient::firstOrCreate(
             ['mrn' => 'MRN-10001'],
             [
@@ -49,7 +48,6 @@ class PatientSeeder extends Seeder
             ]
         );
 
-        // Additional 20 random patients using Factory with Faker
         Patient::factory()->count(20)->create();
     }
 }
