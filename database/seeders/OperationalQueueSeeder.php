@@ -21,6 +21,7 @@ use App\Models\Workflow;
 use App\Models\WorkflowStep;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 
 class OperationalQueueSeeder extends Seeder
 {
@@ -81,6 +82,7 @@ class OperationalQueueSeeder extends Seeder
         $onlineVisit1 = Visit::firstOrCreate(
             ['visit_number' => 'V-' . Carbon::today()->format('Ymd') . '-0001'],
             [
+                'visit_token' => (string) Str::uuid(),
                 'patient_id' => $patients[0]->id,
                 'department_id' => $general->id,
                 'workflow_id' => $genWorkflow->id,
@@ -103,6 +105,7 @@ class OperationalQueueSeeder extends Seeder
         $onlineVisit2 = Visit::firstOrCreate(
             ['visit_number' => 'V-' . Carbon::today()->format('Ymd') . '-0002'],
             [
+                'visit_token' => (string) Str::uuid(),
                 'patient_id' => $patients[1]->id,
                 'department_id' => $general->id,
                 'workflow_id' => $genWorkflow->id,
@@ -128,6 +131,7 @@ class OperationalQueueSeeder extends Seeder
         $recVisit1 = Visit::firstOrCreate(
             ['visit_number' => 'V-' . Carbon::today()->format('Ymd') . '-0003'],
             [
+                'visit_token' => (string) Str::uuid(),
                 'patient_id' => null,
                 'department_id' => $general->id,
                 'workflow_id' => $genWorkflow->id,
@@ -169,6 +173,7 @@ class OperationalQueueSeeder extends Seeder
         $recVisit2 = Visit::firstOrCreate(
             ['visit_number' => 'V-' . Carbon::today()->format('Ymd') . '-0004'],
             [
+                'visit_token' => (string) Str::uuid(),
                 'patient_id' => null,
                 'department_id' => $general->id,
                 'workflow_id' => $genWorkflow->id,
@@ -206,6 +211,7 @@ class OperationalQueueSeeder extends Seeder
         $recVisit3 = Visit::firstOrCreate(
             ['visit_number' => 'V-' . Carbon::today()->format('Ymd') . '-0005'],
             [
+                'visit_token' => (string) Str::uuid(),
                 'patient_id' => null,
                 'department_id' => $general->id,
                 'workflow_id' => $genWorkflow->id,
@@ -247,6 +253,7 @@ class OperationalQueueSeeder extends Seeder
             'department_id' => $general->id,
             'workflow_id' => $genWorkflow->id,
             'visit_number' => 'V-' . Carbon::today()->format('Ymd') . '-0006',
+            'visit_token' => (string) Str::uuid(),
             'priority' => Priority::Normal,
             'intake_channel' => IntakeChannel::Kiosk,
             'status' => VisitStatus::Waiting,
@@ -281,6 +288,7 @@ class OperationalQueueSeeder extends Seeder
             'department_id' => $general->id,
             'workflow_id' => $genWorkflow->id,
             'visit_number' => 'V-' . Carbon::today()->format('Ymd') . '-0007',
+            'visit_token' => (string) Str::uuid(),
             'priority' => Priority::Normal,
             'intake_channel' => IntakeChannel::Kiosk,
             'status' => VisitStatus::Waiting,
@@ -313,6 +321,7 @@ class OperationalQueueSeeder extends Seeder
             'department_id' => $general->id,
             'workflow_id' => $genWorkflow->id,
             'visit_number' => 'V-' . Carbon::today()->format('Ymd') . '-0008',
+            'visit_token' => (string) Str::uuid(),
             'priority' => Priority::Normal,
             'intake_channel' => IntakeChannel::Kiosk,
             'status' => VisitStatus::InProgress, // CRITICAL: Visit is InProgress
@@ -347,6 +356,7 @@ class OperationalQueueSeeder extends Seeder
             'department_id' => $general->id,
             'workflow_id' => $genWorkflow->id,
             'visit_number' => 'V-' . Carbon::today()->format('Ymd') . '-0009',
+            'visit_token' => (string) Str::uuid(),
             'priority' => Priority::Normal,
             'intake_channel' => IntakeChannel::Kiosk,
             'status' => VisitStatus::Waiting,
@@ -377,6 +387,7 @@ class OperationalQueueSeeder extends Seeder
             'department_id' => $general->id,
             'workflow_id' => $genWorkflow->id,
             'visit_number' => 'V-' . Carbon::today()->format('Ymd') . '-0010',
+            'visit_token' => (string) Str::uuid(),
             'priority' => Priority::Normal,
             'intake_channel' => IntakeChannel::Kiosk,
             'status' => VisitStatus::InProgress,
@@ -407,6 +418,7 @@ class OperationalQueueSeeder extends Seeder
             'department_id' => $general->id,
             'workflow_id' => $genWorkflow->id,
             'visit_number' => 'V-' . Carbon::today()->format('Ymd') . '-0011',
+            'visit_token' => (string) Str::uuid(),
             'priority' => Priority::Normal,
             'intake_channel' => IntakeChannel::Kiosk,
             'status' => VisitStatus::Completed,

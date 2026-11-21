@@ -4,6 +4,7 @@ use App\Models\Patient;
 use App\Models\User;
 use App\Models\Visit;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Tests\SetupKiyuHospital;
 
 uses(RefreshDatabase::class, SetupKiyuHospital::class);
@@ -21,6 +22,7 @@ beforeEach(function () {
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
         'visit_number' => 'V-ACCESS-0001',
+        'visit_token' => (string) Str::uuid(),
     ]);
 
     $this->otherVisit = Visit::factory()->create([
@@ -28,6 +30,7 @@ beforeEach(function () {
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
         'visit_number' => 'V-ACCESS-0002',
+        'visit_token' => (string) Str::uuid(),
     ]);
 });
 

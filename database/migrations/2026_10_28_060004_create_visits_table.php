@@ -17,6 +17,7 @@ return new class extends Migration
             $table->foreignId('department_id')->constrained('departments')->cascadeOnDelete();
             $table->foreignId('workflow_id')->constrained('workflows')->cascadeOnDelete();
             $table->string('visit_number')->unique();
+            $table->string('visit_token')->unique();
             $table->tinyInteger('priority')->default(1); // 1 = NORMAL, 2 = PRIORITY, 3 = EMERGENCY
             $table->string('intake_channel'); // ONLINE, KIOSK, MANUAL
             $table->string('status')->default('WAITING'); // AWAITING_CHECKIN, WAITING, IN_PROGRESS, COMPLETED, CANCELLED

@@ -13,6 +13,7 @@ use App\Models\Visit;
 use App\Models\Workflow;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 
 class ReferralAndAuditSeeder extends Seeder
 {
@@ -29,6 +30,7 @@ class ReferralAndAuditSeeder extends Seeder
                     'visit_number' => 'V-' . Carbon::today()->format('Ymd') . '-REF01',
                 ],
                 [
+                    'visit_token' => (string) Str::uuid(),
                     'patient_id' => $patients[0]->id,
                     'department_id' => $general->id,
                     'workflow_id' => Workflow::where('department_id', $general->id)->first()?->id,
@@ -48,6 +50,7 @@ class ReferralAndAuditSeeder extends Seeder
                     'department_id' => $targetDept->id,
                     'workflow_id' => Workflow::where('department_id', $targetDept->id)->value('id'),
                     'visit_number' => 'V-' . Carbon::today()->format('Ymd') . '-REF02',
+                    'visit_token' => (string) Str::uuid(),
                     'priority' => Priority::Normal,
                     'intake_channel' => IntakeChannel::Manual,
                     'status' => VisitStatus::Waiting,

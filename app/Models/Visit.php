@@ -25,6 +25,7 @@ class Visit extends Model
         'department_id',
         'workflow_id',
         'visit_number',
+        'visit_token',
         'priority',
         'intake_channel',
         'status',

@@ -15,6 +15,7 @@ use App\Models\QueueTicket;
 use App\Models\Referral;
 use App\Models\Visit;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class ReferralService
 {
@@ -65,6 +66,7 @@ class ReferralService
         ): array {
             $effectivePriority = $priority ? (Priority::tryFrom($priority) ?? Priority::Normal) : $sourceVisit->priority;
             $targetVisitNumber = $this->sequenceService->generateVisitNumber();
+            $visitToken = (string) Str::uuid();
 
             /** @var Visit $targetVisit */
             $targetVisit = Visit::query()->create([
@@ -72,6 +74,7 @@ class ReferralService
                 'department_id' => $targetDepartmentId,
                 'workflow_id' => $targetWorkflow->id,
                 'visit_number' => $targetVisitNumber,
+                'visit_token' => $visitToken,
                 'priority' => $effectivePriority,
                 'intake_channel' => IntakeChannel::Manual,
                 'status' => VisitStatus::Waiting,

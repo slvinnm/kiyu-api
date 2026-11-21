@@ -20,6 +20,7 @@ use App\Models\Workflow;
 use App\Models\WorkflowStep;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 
 /**
  * Operational queues for departments that are units of their own
@@ -145,6 +146,7 @@ class DepartmentQueueSeeder extends Seeder
         $visit = Visit::firstOrCreate(
             ['visit_number' => $visitNumber],
             [
+                'visit_token' => (string) Str::uuid(),
                 'patient_id' => $patient->id,
                 'department_id' => $department->id,
                 'workflow_id' => $workflow->id,

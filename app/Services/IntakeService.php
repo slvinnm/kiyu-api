@@ -94,6 +94,7 @@ class IntakeService
 
         return DB::transaction(function () use ($patient, $departmentId, $workflow, $priority, $idempotencyKey): array {
             $visitNumber = $this->sequenceService->generateVisitNumber();
+            $visitToken = (string) Str::uuid();
             $onlineActiveKey = (string) Str::uuid();
 
             /** @var Visit $visit */
@@ -102,6 +103,7 @@ class IntakeService
                 'department_id' => $departmentId,
                 'workflow_id' => $workflow->id,
                 'visit_number' => $visitNumber,
+                'visit_token' => $visitToken,
                 'priority' => Priority::tryFrom($priority) ?? Priority::Normal,
                 'intake_channel' => IntakeChannel::Online,
                 'status' => VisitStatus::AwaitingCheckin,
@@ -310,6 +312,7 @@ class IntakeService
             $registrationStation
         ): array {
             $visitNumber = $this->sequenceService->generateVisitNumber();
+            $visitToken = (string) Str::uuid();
             $numbering = $this->sequenceService->generateQueueNumber($registrationStation);
 
             /** @var Visit $visit */
@@ -318,6 +321,7 @@ class IntakeService
                 'department_id' => $departmentId,
                 'workflow_id' => $workflow->id,
                 'visit_number' => $visitNumber,
+                'visit_token' => $visitToken,
                 'priority' => $priority,
                 'intake_channel' => $channel,
                 'status' => VisitStatus::Waiting,
