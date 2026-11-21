@@ -42,6 +42,9 @@ Route::get('/public/queue', [PublicQueueController::class, 'index']);
 // 7a. Public organizational lookup (kiosk department picker)
 Route::get('/departments/active', [DepartmentController::class, 'active']);
 
+// 8a. Public visit tracking
+Route::get('/visits/{token}/track', [VisitController::class, 'track']);
+
 // Everything below requires an authenticated Sanctum token.
 Route::middleware('auth:sanctum')->group(function () {
     // 0b. User management (admin only, enforced in the controller)

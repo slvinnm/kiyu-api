@@ -113,6 +113,16 @@ class VisitController extends Controller
     }
 
     /**
+     * Track a visit by its unique token (used by kiosk and patient portal).
+     */
+    public function track(string $token): JsonResponse
+    {
+        return response()->json([
+            'data' => $this->visitService->getTrackingData($token),
+        ]);
+    }
+
+    /**
      * The acquisition awaiting registration for this visit (`null` when there
      * is none). Used by reception when completing a registration.
      */
