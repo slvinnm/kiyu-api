@@ -15,7 +15,6 @@ use App\Models\QueueAcquisition;
 use App\Models\QueueEvent;
 use App\Models\QueueTicket;
 use App\Models\Visit;
-use App\Support\DateScope;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -372,34 +371,6 @@ class IntakeService
                 'ticket' => $ticket->load(['station', 'workflowStep']),
             ];
         });
-    }
-
-    /**
-     * Get paginated queue acquisitions with filters.
-     *
-     * @param  array{channel?: string, status?: string, department_id?: int, date?: string}  $filters
-     */
-    public function getAcquisitions(array $filters = [], int $perPage = 20)
-    {
-        $query = QueueAcquisition::query()->with(['visit.patient', 'department', 'visit.workflow']);
-
-        if (! empty($filters['channel'])) {
-            $query->where('channel', $filters['channel']);
-        }
-
-        if (! empty($filters['status'])) {
-            $query->where('status', $filters['status']);
-        }
-
-        if (! empty($filters['department_id'])) {
-            $query->where('department_id', $filters['department_id']);
-        }
-
-        if (! empty($filters['date'])) {
-            DateScope::apply($query, $filters['date']);
-        }
-
-        return $query->latest('id')->paginate($perPage);
     }
 
     /**

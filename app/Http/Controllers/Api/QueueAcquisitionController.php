@@ -6,7 +6,6 @@ use App\Http\Controllers\Api\Concerns\HandlesTableQuery;
 use App\Http\Controllers\Controller;
 use App\Models\QueueAcquisition;
 use App\Services\IntakeService;
-use App\Support\DateScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -42,7 +41,7 @@ class QueueAcquisitionController extends Controller
         }
 
         if (! empty($validated['date'])) {
-            DateScope::apply($query, $validated['date']);
+            $this->whereOnDate($query, $validated['date']);
         }
 
         $this->applyTableSort(
