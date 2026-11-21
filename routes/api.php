@@ -1,3 +1,4 @@
+
 <?php
 
 use App\Http\Controllers\Api\AuditLogController;
@@ -17,148 +18,263 @@ use App\Http\Controllers\Api\VisitController;
 use App\Http\Controllers\Api\WorkflowController;
 use Illuminate\Support\Facades\Route;
 
-// 0. Authentication
-Route::prefix('auth')->group(function () {
-    Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:6,1');
-    Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:6,1');
+/*
+|--------------------------------------------------------------------------
+| Authentication
+|--------------------------------------------------------------------------
+|
+| Public authentication endpoints and authenticated session management.
+|
+*/
 
+Route::prefix('auth')->controller(AuthController::class)->group(function () {
+    // Public authentication
+    Route::post('/login', 'login')->middleware('throttle:6,1');
+    Route::post('/register', 'register')->middleware('throttle:6,1');
+
+    // Authenticated session
     Route::middleware('auth:sanctum')->group(function () {
-        Route::get('/me', [AuthController::class, 'me']);
-        Route::post('/logout', [AuthController::class, 'logout']);
+        Route::get('/me', 'me');
+        Route::post('/logout', 'logout');
     });
 });
 
-// 1. Public Intake Channel Endpoints (Kiosk & Online booking)
-Route::prefix('intake')->group(function () {
-    Route::post('/kiosk', [IntakeController::class, 'kiosk']);
-    Route::post('/online', [IntakeController::class, 'online']);
-    Route::get('/online-lookup/{identifier}', [IntakeController::class, 'onlineLookup']);
-    Route::post('/online-checkin', [IntakeController::class, 'onlineCheckin']);
+/*
+|--------------------------------------------------------------------------
+| Public Endpoints
+|--------------------------------------------------------------------------
+|
+| Endpoints accessible without authentication.
+| Only expose information and operations intended for public access.
+|
+*/
+
+// Public intake: kiosk and online registration
+Route::prefix('intake')->controller(IntakeController::class)->group(function () {
+    Route::post('/kiosk', 'kiosk');
+    Route::post('/online', 'online');
+    Route::get('/online-lookup/{identifier}', 'onlineLookup');
+    Route::post('/online-checkin', 'onlineCheckin');
 });
 
-// 5. Public Queue Display (No PII)
+// Public queue display (without personally identifiable information)
 Route::get('/public/queue', [PublicQueueController::class, 'index']);
 
-// 7a. Public organizational lookup (kiosk department picker)
+// Public organizational lookup for kiosk
 Route::get('/departments/active', [DepartmentController::class, 'active']);
 
-// 8a. Public visit tracking
+// Public visit tracking
 Route::get('/visits/{token}/track', [VisitController::class, 'track']);
 
-// Everything below requires an authenticated Sanctum token.
-Route::middleware('auth:sanctum')->group(function () {
-    // 0b. User management (admin only, enforced in the controller)
-    Route::prefix('users')->group(function () {
-        Route::get('/', [UserController::class, 'index']);
-        Route::post('/', [UserController::class, 'store']);
-        Route::get('/{id}', [UserController::class, 'show'])->whereNumber('id');
-        Route::put('/{id}', [UserController::class, 'update'])->whereNumber('id');
-        Route::delete('/{id}', [UserController::class, 'destroy'])->whereNumber('id');
-    });
+/*
+|--------------------------------------------------------------------------
+| Authenticated Endpoints
+|--------------------------------------------------------------------------
+|
+| All endpoints below require a valid Laravel Sanctum token.
+|
+*/
 
-    // 1b. Manual intake (reception)
+Route::middleware('auth:sanctum')->group(function () {
+
+    /*
+    |--------------------------------------------------------------------------
+    | Intake Management
+    |--------------------------------------------------------------------------
+    |
+    | Manual patient registration and queue acquisition management.
+    |
+    */
+
+    // Manual registration (reception)
     Route::post('/intake/manual', [IntakeController::class, 'manual']);
 
-    // 1c. Queue Acquisition Management
-    Route::prefix('queue-acquisitions')->group(function () {
-        Route::get('/', [QueueAcquisitionController::class, 'index']);
-        Route::get('/{id}', [QueueAcquisitionController::class, 'show'])->whereNumber('id');
-        Route::post('/{id}/cancel', [QueueAcquisitionController::class, 'cancel'])->whereNumber('id');
+    // Queue acquisition records
+    Route::prefix('queue-acquisitions')->controller(QueueAcquisitionController::class)->group(function () {
+        Route::get('/', 'index');
+        Route::get('/{id}', 'show')->whereNumber('id');
+        Route::post('/{id}/cancel', 'cancel')->whereNumber('id');
     });
 
-    // 2. Reception Queue & Registration Endpoints
-    Route::prefix('reception')->group(function () {
-        Route::get('/queue', [ReceptionController::class, 'queue']);
+    /*
+    |--------------------------------------------------------------------------
+    | Reception Operations
+    |--------------------------------------------------------------------------
+    |
+    | Registration queue management and reception ticket operations.
+    |
+    */
 
-        Route::post('/call-next', [ReceptionController::class, 'callNext']);
-        Route::post('/complete-registration', [ReceptionController::class, 'completeRegistration']);
-        Route::post('/{ticketId}/recall', [ReceptionController::class, 'recall'])->whereNumber('ticketId');
-        Route::post('/{ticketId}/skip', [ReceptionController::class, 'skip'])->whereNumber('ticketId');
-        Route::post('/{ticketId}/no-show', [ReceptionController::class, 'noShow'])->whereNumber('ticketId');
+    Route::prefix('reception')->controller(ReceptionController::class)->group(function () {
+        Route::get('/queue', 'queue');
+
+        Route::post('/call-next', 'callNext');
+        Route::post('/complete-registration', 'completeRegistration');
+
+        Route::post('/{ticketId}/recall', 'recall')->whereNumber('ticketId');
+        Route::post('/{ticketId}/skip', 'skip')->whereNumber('ticketId');
+        Route::post('/{ticketId}/no-show', 'noShow')->whereNumber('ticketId');
     });
 
-    // 3. Clinical Queue Operations
-    Route::prefix('clinical')->group(function () {
-        Route::post('/call-next', [ClinicalQueueController::class, 'callNext']);
-    });
+    /*
+    |--------------------------------------------------------------------------
+    | Clinical Queue Operations
+    |--------------------------------------------------------------------------
+    |
+    | Clinical queue processing and ticket lifecycle management.
+    |
+    */
 
+    // Clinical queue
+    Route::post('/clinical/call-next', [ClinicalQueueController::class, 'callNext']);
+
+    // Ticket records and lifecycle operations
     Route::prefix('tickets')->group(function () {
+        // Ticket queries
         Route::get('/', [TicketController::class, 'index']);
         Route::get('/statistics', [TicketController::class, 'statistics']);
         Route::get('/{id}', [TicketController::class, 'show'])->whereNumber('id');
         Route::get('/{id}/events', [TicketController::class, 'events'])->whereNumber('id');
 
-        Route::post('/{id}/start', [ClinicalQueueController::class, 'start'])->whereNumber('id');
-        Route::post('/{id}/hold', [ClinicalQueueController::class, 'hold'])->whereNumber('id');
-        Route::post('/{id}/resume', [ClinicalQueueController::class, 'resume'])->whereNumber('id');
-        Route::post('/{id}/recall', [ClinicalQueueController::class, 'recall'])->whereNumber('id');
-        Route::post('/{id}/complete', [ClinicalQueueController::class, 'complete'])->whereNumber('id');
-        Route::post('/{id}/skip', [ClinicalQueueController::class, 'skip'])->whereNumber('id');
-        Route::post('/{id}/no-show', [ClinicalQueueController::class, 'noShow'])->whereNumber('id');
-        Route::post('/{id}/cancel', [ClinicalQueueController::class, 'cancel'])->whereNumber('id');
-        Route::post('/{id}/transfer', [ClinicalQueueController::class, 'transfer'])->whereNumber('id');
+        // Ticket lifecycle
+        Route::controller(ClinicalQueueController::class)->group(function () {
+            Route::post('/{id}/start', 'start')->whereNumber('id');
+            Route::post('/{id}/hold', 'hold')->whereNumber('id');
+            Route::post('/{id}/resume', 'resume')->whereNumber('id');
+            Route::post('/{id}/recall', 'recall')->whereNumber('id');
+            Route::post('/{id}/complete', 'complete')->whereNumber('id');
+            Route::post('/{id}/skip', 'skip')->whereNumber('id');
+            Route::post('/{id}/no-show', 'noShow')->whereNumber('id');
+            Route::post('/{id}/cancel', 'cancel')->whereNumber('id');
+            Route::post('/{id}/transfer', 'transfer')->whereNumber('id');
+        });
     });
 
-    // 4. Referral Management
-    Route::prefix('referrals')->group(function () {
-        Route::get('/', [ReferralController::class, 'index']);
-        Route::post('/', [ReferralController::class, 'store']);
-        Route::get('/{id}', [ReferralController::class, 'show'])->whereNumber('id');
+    /*
+    |--------------------------------------------------------------------------
+    | Referral Management
+    |--------------------------------------------------------------------------
+    |
+    | Patient referral records.
+    |
+    */
+
+    Route::prefix('referrals')->controller(ReferralController::class)->group(function () {
+        Route::get('/', 'index');
+        Route::post('/', 'store');
+        Route::get('/{id}', 'show')->whereNumber('id');
     });
 
-    // 6. Visit Management
-    Route::prefix('visits')->group(function () {
-        Route::get('/', [VisitController::class, 'index']);
-        Route::get('/statistics', [VisitController::class, 'statistics']);
-        Route::get('/{id}', [VisitController::class, 'show'])->whereNumber('id');
-        Route::get('/{id}/acquisition', [VisitController::class, 'acquisition'])->whereNumber('id');
-        Route::patch('/{id}/priority', [VisitController::class, 'updatePriority'])->whereNumber('id');
-        Route::post('/{id}/cancel', [VisitController::class, 'cancel'])->whereNumber('id');
+    /*
+    |--------------------------------------------------------------------------
+    | Visit Management
+    |--------------------------------------------------------------------------
+    |
+    | Patient visits, visit statistics, priority updates and cancellation.
+    |
+    */
+
+    Route::prefix('visits')->controller(VisitController::class)->group(function () {
+        Route::get('/', 'index');
+        Route::get('/statistics', 'statistics');
+        Route::get('/{id}', 'show')->whereNumber('id');
+        Route::get('/{id}/acquisition', 'acquisition')->whereNumber('id');
+
+        Route::patch('/{id}/priority', 'updatePriority')->whereNumber('id');
+        Route::post('/{id}/cancel', 'cancel')->whereNumber('id');
     });
 
-    // 7. Organizational Setup (Departments, Stations, Workflows)
-    Route::prefix('departments')->group(function () {
-        Route::get('/', [DepartmentController::class, 'index']);
-        Route::get('/options', [DepartmentController::class, 'options']);
-        Route::post('/', [DepartmentController::class, 'store']);
-        Route::get('/{id}', [DepartmentController::class, 'show'])->whereNumber('id');
-        Route::put('/{id}', [DepartmentController::class, 'update'])->whereNumber('id');
-        Route::get('/{id}/stations', [DepartmentController::class, 'stations'])->whereNumber('id');
-        Route::get('/{id}/workflows', [DepartmentController::class, 'workflows'])->whereNumber('id');
+    /*
+    |--------------------------------------------------------------------------
+    | Patient Management
+    |--------------------------------------------------------------------------
+    |
+    | Patient directory, patient records and visit history.
+    |
+    */
+
+    Route::prefix('patients')->controller(PatientController::class)->group(function () {
+        Route::get('/', 'index');
+        Route::get('/statistics', 'statistics');
+        Route::post('/', 'store');
+        Route::get('/{id}', 'show')->whereNumber('id');
+        Route::put('/{id}', 'update')->whereNumber('id');
+        Route::get('/{id}/visits', 'visits')->whereNumber('id');
     });
 
-    Route::prefix('stations')->group(function () {
-        Route::get('/', [StationController::class, 'index']);
-        Route::get('/options', [StationController::class, 'options']);
-        Route::post('/', [StationController::class, 'store']);
-        Route::get('/{id}', [StationController::class, 'show'])->whereNumber('id');
-        Route::put('/{id}', [StationController::class, 'update'])->whereNumber('id');
-        Route::get('/{id}/queue', [StationController::class, 'queue'])->whereNumber('id');
+    /*
+    |--------------------------------------------------------------------------
+    | Organizational Management
+    |--------------------------------------------------------------------------
+    |
+    | Department, station and workflow configuration.
+    |
+    */
+
+    // Departments
+    Route::prefix('departments')->controller(DepartmentController::class)->group(function () {
+        Route::get('/', 'index');
+        Route::get('/options', 'options');
+        Route::post('/', 'store');
+        Route::get('/{id}', 'show')->whereNumber('id');
+        Route::put('/{id}', 'update')->whereNumber('id');
+
+        Route::get('/{id}/stations', 'stations')->whereNumber('id');
+        Route::get('/{id}/workflows', 'workflows')->whereNumber('id');
     });
 
-    Route::prefix('workflows')->group(function () {
-        Route::get('/', [WorkflowController::class, 'index']);
-        Route::get('/statistics', [WorkflowController::class, 'statistics']);
-        Route::post('/', [WorkflowController::class, 'store']);
-        Route::get('/{id}', [WorkflowController::class, 'show'])->whereNumber('id');
-        Route::post('/{id}/steps', [WorkflowController::class, 'addStep'])->whereNumber('id');
+    // Stations
+    Route::prefix('stations')->controller(StationController::class)->group(function () {
+        Route::get('/', 'index');
+        Route::get('/options', 'options');
+        Route::post('/', 'store');
+        Route::get('/{id}', 'show')->whereNumber('id');
+        Route::put('/{id}', 'update')->whereNumber('id');
+
+        Route::get('/{id}/queue', 'queue')->whereNumber('id');
     });
 
-    Route::prefix('workflow-steps')->group(function () {
-        Route::put('/{id}', [WorkflowController::class, 'updateStep'])->whereNumber('id');
-        Route::delete('/{id}', [WorkflowController::class, 'deleteStep'])->whereNumber('id');
+    // Workflows
+    Route::prefix('workflows')->controller(WorkflowController::class)->group(function () {
+        Route::get('/', 'index');
+        Route::get('/statistics', 'statistics');
+        Route::post('/', 'store');
+        Route::get('/{id}', 'show')->whereNumber('id');
+        Route::post('/{id}/steps', 'addStep')->whereNumber('id');
     });
 
-    // 8. Patient Directory
-    Route::prefix('patients')->group(function () {
-        Route::get('/', [PatientController::class, 'index']);
-        Route::get('/statistics', [PatientController::class, 'statistics']);
-        Route::post('/', [PatientController::class, 'store']);
-        Route::get('/{id}', [PatientController::class, 'show'])->whereNumber('id');
-        Route::put('/{id}', [PatientController::class, 'update'])->whereNumber('id');
-        Route::get('/{id}/visits', [PatientController::class, 'visits'])->whereNumber('id');
+    // Workflow steps
+    Route::prefix('workflow-steps')->controller(WorkflowController::class)->group(function () {
+        Route::put('/{id}', 'updateStep')->whereNumber('id');
+        Route::delete('/{id}', 'deleteStep')->whereNumber('id');
     });
 
-    // 9. Audit Logs
+    /*
+    |--------------------------------------------------------------------------
+    | User Management
+    |--------------------------------------------------------------------------
+    |
+    | User account administration.
+    | Administrative authorization is enforced by UserController.
+    |
+    */
+
+    Route::prefix('users')->controller(UserController::class)->group(function () {
+        Route::get('/', 'index');
+        Route::post('/', 'store');
+        Route::get('/{id}', 'show')->whereNumber('id');
+        Route::put('/{id}', 'update')->whereNumber('id');
+        Route::delete('/{id}', 'destroy')->whereNumber('id');
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | Audit Logs
+    |--------------------------------------------------------------------------
+    |
+    | System activity and audit trail records.
+    |
+    */
+
     Route::get('/audit-logs', [AuditLogController::class, 'index']);
 });
