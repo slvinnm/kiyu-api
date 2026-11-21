@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Api\Concerns\HandlesTableQuery;
 use App\Http\Controllers\Controller;
 use App\Models\Department;
 use Illuminate\Http\JsonResponse;
@@ -9,6 +10,8 @@ use Illuminate\Http\Request;
 
 class DepartmentController extends Controller
 {
+    use HandlesTableQuery;
+
     /**
      * List active departments with stations (for kiosk display).
      */
@@ -28,13 +31,26 @@ class DepartmentController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        $validated = $this->validateTableQuery($request, [
+            'paginated' => ['nullable', 'boolean'],
+        ]);
+
         $query = Department::query()->with('stations');
 
-        $sort = $request->input('sort');
-        $direction = strtolower((string) $request->input('direction', 'asc')) === 'desc' ? 'desc' : 'asc';
-        $allowedSorts = ['code', 'name', 'is_active', 'created_at'];
-        if (is_string($sort) && in_array($sort, $allowedSorts, true)) {
-            $query->orderBy($sort, $direction);
+        if (! empty($validated['search'])) {
+            $search = $validated['search'];
+            $query->where(function ($q) use ($search): void {
+                $q->where('code', 'like', "%{$search}%")
+                    ->orWhere('name', 'like', "%{$search}%");
+            });
+        }
+
+        $this->applyTableSort($query, $validated, ['code', 'name', 'is_active', 'created_at'], null);
+
+        if ($request->boolean('paginated')) {
+            return response()->json([
+                'data' => $query->paginate($this->tablePerPage($validated)),
+            ]);
         }
 
         return response()->json([

@@ -2,14 +2,19 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\ReferralStatus;
+use App\Http\Controllers\Api\Concerns\HandlesTableQuery;
 use App\Http\Controllers\Controller;
 use App\Models\Referral;
 use App\Services\ReferralService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class ReferralController extends Controller
 {
+    use HandlesTableQuery;
+
     public function __construct(
         public ReferralService $referralService
     ) {}
@@ -19,31 +24,34 @@ class ReferralController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        $validated = $this->validateTableQuery($request, [
+            'source_visit_id' => ['nullable', 'integer', 'exists:visits,id'],
+            'target_department_id' => ['nullable', 'integer', 'exists:departments,id'],
+            'status' => ['nullable', 'string', Rule::in(array_column(ReferralStatus::cases(), 'value'))],
+        ]);
+
         $query = Referral::query()->with(['sourceVisit.patient', 'targetDepartment', 'targetVisit']);
 
-        if ($request->has('source_visit_id')) {
-            $query->where('source_visit_id', $request->input('source_visit_id'));
+        foreach (['source_visit_id', 'target_department_id', 'status'] as $filter) {
+            if (! empty($validated[$filter])) {
+                $query->where($filter, $validated[$filter]);
+            }
         }
 
-        if ($request->has('target_department_id')) {
-            $query->where('target_department_id', $request->input('target_department_id'));
+        if (! empty($validated['search'])) {
+            $search = $validated['search'];
+            $query->where(function ($q) use ($search): void {
+                $q->where('reason', 'like', "%{$search}%")
+                    ->orWhereHas('sourceVisit.patient', fn($q) => $q
+                        ->where('name', 'like', "%{$search}%")
+                        ->orWhere('mrn', 'like', "%{$search}%"));
+            });
         }
 
-        if ($request->has('status')) {
-            $query->where('status', $request->input('status'));
-        }
-
-        $sort = $request->input('sort');
-        $direction = strtolower((string) $request->input('direction', 'asc')) === 'desc' ? 'desc' : 'asc';
-        $allowedSorts = ['status', 'priority', 'created_at', 'id'];
-        if (is_string($sort) && in_array($sort, $allowedSorts, true)) {
-            $query->orderBy($sort, $direction);
-        } else {
-            $query->latest('id');
-        }
+        $this->applyTableSort($query, $validated, ['status', 'priority', 'created_at', 'id']);
 
         return response()->json([
-            'data' => $query->paginate($request->input('per_page', 20)),
+            'data' => $query->paginate($this->tablePerPage($validated)),
         ]);
     }
 

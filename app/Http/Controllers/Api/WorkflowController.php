@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Api\Concerns\HandlesTableQuery;
 use App\Http\Controllers\Controller;
 use App\Models\Workflow;
 use App\Models\WorkflowStep;
@@ -10,22 +11,38 @@ use Illuminate\Http\Request;
 
 class WorkflowController extends Controller
 {
+    use HandlesTableQuery;
+
     /**
      * List workflows.
      */
     public function index(Request $request): JsonResponse
     {
+        $validated = $this->validateTableQuery($request, [
+            'department_id' => ['nullable', 'integer', 'exists:departments,id'],
+            'paginated' => ['nullable', 'boolean'],
+        ]);
+
         $query = Workflow::query()->with(['department', 'steps.station']);
 
-        if ($request->has('department_id')) {
-            $query->where('department_id', $request->input('department_id'));
+        if (! empty($validated['department_id'])) {
+            $query->where('department_id', $validated['department_id']);
         }
 
-        $sort = $request->input('sort');
-        $direction = strtolower((string) $request->input('direction', 'asc')) === 'desc' ? 'desc' : 'asc';
-        $allowedSorts = ['name', 'is_active', 'department_id', 'created_at'];
-        if (is_string($sort) && in_array($sort, $allowedSorts, true)) {
-            $query->orderBy($sort, $direction);
+        if (! empty($validated['search'])) {
+            $search = $validated['search'];
+            $query->where(function ($q) use ($search): void {
+                $q->where('name', 'like', "%{$search}%")
+                    ->orWhereHas('department', fn($q) => $q->where('name', 'like', "%{$search}%"));
+            });
+        }
+
+        $this->applyTableSort($query, $validated, ['name', 'is_active', 'department_id', 'created_at'], null);
+
+        if ($request->boolean('paginated')) {
+            return response()->json([
+                'data' => $query->paginate($this->tablePerPage($validated)),
+            ]);
         }
 
         return response()->json([

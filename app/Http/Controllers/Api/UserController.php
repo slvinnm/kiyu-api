@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Exceptions\InvalidStateException;
+use App\Http\Controllers\Api\Concerns\HandlesTableQuery;
 use App\Http\Controllers\Controller;
 use App\Models\Station;
 use App\Models\User;
@@ -13,6 +14,8 @@ use Illuminate\Validation\ValidationException;
 
 class UserController extends Controller
 {
+    use HandlesTableQuery;
+
     /**
      * Roles recognised by the application. `pharmacist` is the value used by
      * the existing seeder; the frontend normalises it to `pharmacy`.
@@ -36,14 +39,10 @@ class UserController extends Controller
     {
         $this->authorizeAdmin($request);
 
-        $validated = $request->validate([
-            'search' => ['nullable', 'string', 'max:255'],
+        $validated = $this->validateTableQuery($request, [
             'role' => ['nullable', 'string', Rule::in(self::ROLES)],
             'department_id' => ['nullable', 'integer', 'exists:departments,id'],
             'station_id' => ['nullable', 'integer', 'exists:stations,id'],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:200'],
-            'sort' => ['nullable', 'string'],
-            'direction' => ['nullable', 'string'],
         ]);
 
         $query = User::query()->with(['department', 'station']);
@@ -63,17 +62,10 @@ class UserController extends Controller
             }
         }
 
-        $sort = $validated['sort'] ?? null;
-        $direction = strtolower((string) ($validated['direction'] ?? 'asc')) === 'desc' ? 'desc' : 'asc';
-        $allowedSorts = ['name', 'email', 'role', 'created_at', 'id'];
-        if (is_string($sort) && in_array($sort, $allowedSorts, true)) {
-            $query->orderBy($sort, $direction);
-        } else {
-            $query->latest('id');
-        }
+        $this->applyTableSort($query, $validated, ['name', 'email', 'role', 'created_at', 'id']);
 
         return response()->json([
-            'data' => $query->paginate((int) ($validated['per_page'] ?? 20)),
+            'data' => $query->paginate($this->tablePerPage($validated)),
         ]);
     }
 

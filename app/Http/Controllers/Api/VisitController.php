@@ -2,14 +2,20 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\IntakeChannel;
+use App\Enums\VisitStatus;
+use App\Http\Controllers\Api\Concerns\HandlesTableQuery;
 use App\Http\Controllers\Controller;
 use App\Models\Visit;
 use App\Services\VisitService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class VisitController extends Controller
 {
+    use HandlesTableQuery;
+
     public function __construct(
         public VisitService $visitService
     ) {}
@@ -19,46 +25,67 @@ class VisitController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        $validated = $this->validateTableQuery($request, [
+            'department_id' => ['nullable', 'integer', 'exists:departments,id'],
+            'status' => ['nullable', 'string', Rule::in(array_column(VisitStatus::cases(), 'value'))],
+            'patient_id' => ['nullable', 'integer', 'exists:patients,id'],
+            'intake_channel' => ['nullable', 'string', Rule::in(array_column(IntakeChannel::cases(), 'value'))],
+            'date' => ['nullable', 'date'],
+        ]);
+
+        // A patient may only list their own visits. Staff see every visit their
+        // operation permits, unchanged.
+        if ($this->isPatient($request)) {
+            $ownId = $this->patientId($request);
+
+            abort_if($ownId === null, 403, 'Forbidden.');
+            abort_if(
+                ! empty($validated['patient_id']) && (int) $validated['patient_id'] !== $ownId,
+                403,
+                'Forbidden.'
+            );
+
+            $validated['patient_id'] = $ownId;
+        }
+
         $query = Visit::query()->with(['patient', 'department', 'workflow']);
 
-        if ($request->has('department_id')) {
-            $query->where('department_id', $request->input('department_id'));
+        foreach (['department_id', 'status', 'patient_id', 'intake_channel'] as $filter) {
+            if (! empty($validated[$filter])) {
+                $query->where($filter, $validated[$filter]);
+            }
         }
 
-        if ($request->has('status')) {
-            $query->where('status', $request->input('status'));
+        if (! empty($validated['date'])) {
+            $this->whereOnDate($query, $validated['date']);
         }
 
-        if ($request->has('patient_id')) {
-            $query->where('patient_id', $request->input('patient_id'));
+        if (! empty($validated['search'])) {
+            $search = $validated['search'];
+            $query->where(function ($q) use ($search): void {
+                $q->where('visit_number', 'like', "%{$search}%")
+                    ->orWhereHas('patient', fn($q) => $q
+                        ->where('name', 'like', "%{$search}%")
+                        ->orWhere('mrn', 'like', "%{$search}%")
+                        ->orWhere('nik', 'like', "%{$search}%"));
+            });
         }
 
-        if ($request->has('intake_channel')) {
-            $query->where('intake_channel', $request->input('intake_channel'));
-        }
-
-        if ($request->has('date')) {
-            $query->whereDate('created_at', $request->input('date'));
-        }
-
-        $sort = $request->input('sort');
-        $direction = strtolower((string) $request->input('direction', 'asc')) === 'desc' ? 'desc' : 'asc';
-        $allowedSorts = ['visit_number', 'status', 'priority', 'intake_channel', 'created_at', 'id'];
-        if (is_string($sort) && in_array($sort, $allowedSorts, true)) {
-            $query->orderBy($sort, $direction);
-        } else {
-            $query->latest('id');
-        }
+        $this->applyTableSort(
+            $query,
+            $validated,
+            ['visit_number', 'status', 'priority', 'intake_channel', 'created_at', 'id'],
+        );
 
         return response()->json([
-            'data' => $query->paginate($request->input('per_page', 20)),
+            'data' => $query->paginate($this->tablePerPage($validated)),
         ]);
     }
 
     /**
      * Show a visit and all its details (tickets, events, acquisitions, patient).
      */
-    public function show(int $id): JsonResponse
+    public function show(Request $request, int $id): JsonResponse
     {
         $visit = Visit::query()
             ->with([
@@ -72,6 +99,11 @@ class VisitController extends Controller
                 'outgoingReferrals.targetDepartment',
             ])
             ->findOrFail($id);
+
+        // Patients may only open their own visit.
+        if ($this->isPatient($request)) {
+            abort_unless($visit->patient_id === $this->patientId($request), 403, 'Forbidden.');
+        }
 
         return response()->json([
             'data' => $visit,

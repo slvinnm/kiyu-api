@@ -15,16 +15,21 @@ class PublicQueueController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        $validated = $request->validate([
+            'station_id' => ['nullable', 'integer', 'exists:stations,id'],
+            'department_id' => ['nullable', 'integer', 'exists:departments,id'],
+        ]);
+
         $query = Station::query()
             ->where('is_active', true)
             ->with(['department:id,name,code']);
 
-        if ($request->has('station_id')) {
-            $query->where('id', $request->input('station_id'));
+        if (! empty($validated['station_id'])) {
+            $query->where('id', $validated['station_id']);
         }
 
-        if ($request->has('department_id')) {
-            $query->where('department_id', $request->input('department_id'));
+        if (! empty($validated['department_id'])) {
+            $query->where('department_id', $validated['department_id']);
         }
 
         $stations = $query->get()->map(function (Station $station): array {
@@ -41,10 +46,9 @@ class PublicQueueController extends Controller
                 ->count();
 
             // Next 5 upcoming tickets (scope to station and today for clean numbering)
-            $today = now()->format('Y-m-d');
             $upcomingTickets = $station->queueTickets()
                 ->where('status', QueueTicketStatus::Created)
-                ->whereDate('created_at', $today)
+                ->tap(fn($query) => $this->whereOnDate($query, now()))
                 ->orderBy('priority', 'desc')
                 ->orderBy('internal_sequence', 'asc')
                 ->limit(5)

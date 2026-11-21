@@ -2,51 +2,59 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\QueueTicketStatus;
+use App\Http\Controllers\Api\Concerns\HandlesTableQuery;
 use App\Http\Controllers\Controller;
 use App\Models\QueueTicket;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class TicketController extends Controller
 {
+    use HandlesTableQuery;
+
     /**
      * List tickets.
      */
     public function index(Request $request): JsonResponse
     {
+        $validated = $this->validateTableQuery($request, [
+            'station_id' => ['nullable', 'integer', 'exists:stations,id'],
+            'status' => ['nullable', 'string', Rule::in(array_column(QueueTicketStatus::cases(), 'value'))],
+            'visit_id' => ['nullable', 'integer', 'exists:visits,id'],
+            'priority' => ['nullable', 'integer', Rule::in([1, 2, 3])],
+            'date' => ['nullable', 'date'],
+        ]);
+
         $query = QueueTicket::query()->with(['station', 'workflowStep', 'visit.patient']);
 
-        if ($request->has('station_id')) {
-            $query->where('station_id', $request->input('station_id'));
+        foreach (['station_id', 'status', 'visit_id', 'priority'] as $filter) {
+            if (! empty($validated[$filter])) {
+                $query->where($filter, $validated[$filter]);
+            }
         }
 
-        if ($request->has('status')) {
-            $query->where('status', $request->input('status'));
+        if (! empty($validated['date'])) {
+            $this->whereOnDate($query, $validated['date']);
         }
 
-        if ($request->has('visit_id')) {
-            $query->where('visit_id', $request->input('visit_id'));
+        if (! empty($validated['search'])) {
+            $search = $validated['search'];
+            $query->where(function ($q) use ($search): void {
+                $q->where('queue_number', 'like', "%{$search}%")
+                    ->orWhereHas('visit.patient', fn($q) => $q->where('name', 'like', "%{$search}%"));
+            });
         }
 
-        if ($request->has('priority')) {
-            $query->where('priority', $request->input('priority'));
-        }
-
-        if ($request->has('date')) {
-            $query->whereDate('created_at', $request->input('date'));
-        }
-
-        $sort = $request->input('sort');
-        $direction = strtolower((string) $request->input('direction', 'asc')) === 'desc' ? 'desc' : 'asc';
-        $allowedSorts = ['queue_number', 'status', 'priority', 'internal_sequence', 'created_at', 'id'];
-        if (is_string($sort) && in_array($sort, $allowedSorts, true)) {
-            $query->orderBy($sort, $direction);
-        } else {
-            $query->latest('id');
-        }
+        $this->applyTableSort(
+            $query,
+            $validated,
+            ['queue_number', 'status', 'priority', 'internal_sequence', 'created_at', 'id'],
+        );
 
         return response()->json([
-            'data' => $query->paginate($request->input('per_page', 20)),
+            'data' => $query->paginate($this->tablePerPage($validated)),
         ]);
     }
 

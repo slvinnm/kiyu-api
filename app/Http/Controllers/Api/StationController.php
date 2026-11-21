@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Enums\QueueTicketStatus;
 use App\Enums\StationType;
+use App\Http\Controllers\Api\Concerns\HandlesTableQuery;
 use App\Http\Controllers\Controller;
 use App\Models\Station;
 use Illuminate\Http\JsonResponse;
@@ -12,26 +13,50 @@ use Illuminate\Validation\Rule;
 
 class StationController extends Controller
 {
+    use HandlesTableQuery;
+
     /**
      * List all stations.
      */
     public function index(Request $request): JsonResponse
     {
+        $validated = $this->validateTableQuery($request, [
+            'department_id' => ['nullable', 'integer', 'exists:departments,id'],
+            'type' => ['nullable', 'string', Rule::in(array_column(StationType::cases(), 'value'))],
+            'paginated' => ['nullable', 'boolean'],
+        ]);
+
         $query = Station::query()->with('department');
 
-        if ($request->has('department_id')) {
-            $query->where('department_id', $request->input('department_id'));
+        if (! empty($validated['department_id'])) {
+            $query->where('department_id', $validated['department_id']);
         }
 
-        if ($request->has('type')) {
-            $query->where('type', $request->input('type'));
+        if (! empty($validated['type'])) {
+            $query->where('type', $validated['type']);
         }
 
-        $sort = $request->input('sort');
-        $direction = strtolower((string) $request->input('direction', 'asc')) === 'desc' ? 'desc' : 'asc';
-        $allowedSorts = ['code', 'name', 'type', 'is_active', 'department_id', 'created_at'];
-        if (is_string($sort) && in_array($sort, $allowedSorts, true)) {
-            $query->orderBy($sort, $direction);
+        if (! empty($validated['search'])) {
+            $search = $validated['search'];
+            $query->where(function ($q) use ($search): void {
+                $q->where('code', 'like', "%{$search}%")
+                    ->orWhere('name', 'like', "%{$search}%")
+                    ->orWhere('type', 'like', "%{$search}%")
+                    ->orWhereHas('department', fn($q) => $q->where('name', 'like', "%{$search}%"));
+            });
+        }
+
+        $this->applyTableSort(
+            $query,
+            $validated,
+            ['code', 'name', 'type', 'is_active', 'department_id', 'created_at'],
+            null,
+        );
+
+        if ($request->boolean('paginated')) {
+            return response()->json([
+                'data' => $query->paginate($this->tablePerPage($validated)),
+            ]);
         }
 
         return response()->json([

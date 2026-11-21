@@ -2,35 +2,64 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Api\Concerns\HandlesTableQuery;
 use App\Http\Controllers\Controller;
+use App\Models\QueueAcquisition;
 use App\Services\IntakeService;
+use App\Support\DateScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class QueueAcquisitionController extends Controller
 {
+    use HandlesTableQuery;
+
     public function __construct(
         public IntakeService $intakeService
     ) {}
 
     public function index(Request $request): JsonResponse
     {
-        $validated = $request->validate([
+        $validated = $this->validateTableQuery($request, [
             'channel' => ['nullable', 'string', 'in:KIOSK,MANUAL,ONLINE'],
             'status' => ['nullable', 'string', 'in:ACQUIRED,REGISTERED,CANCELLED'],
             'department_id' => ['nullable', 'integer', 'exists:departments,id'],
             'date' => ['nullable', 'date'],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
-        $result = $this->intakeService->getAcquisitions(
-            filters: $validated,
-            perPage: (int) ($validated['per_page'] ?? 20)
+        $query = QueueAcquisition::query()->with(['visit.patient', 'department', 'visit.workflow']);
+
+        if (! empty($validated['channel'])) {
+            $query->where('channel', $validated['channel']);
+        }
+
+        if (! empty($validated['status'])) {
+            $query->where('status', $validated['status']);
+        }
+
+        if (! empty($validated['department_id'])) {
+            $query->where('department_id', $validated['department_id']);
+        }
+
+        if (! empty($validated['date'])) {
+            DateScope::apply($query, $validated['date']);
+        }
+
+        $this->applyTableSort(
+            $query,
+            $validated,
+            ['id', 'channel', 'status', 'department_id', 'created_at'],
+            null,
         );
 
+        if ($request->boolean('paginated')) {
+            return response()->json([
+                'data' => $query->paginate($this->tablePerPage($validated)),
+            ]);
+        }
+
         return response()->json([
-            'message' => 'Queue acquisitions retrieved.',
-            'data' => $result,
+            'data' => $query->get(),
         ]);
     }
 

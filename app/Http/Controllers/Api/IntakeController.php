@@ -73,6 +73,14 @@ class IntakeController extends Controller
             'idempotency_key' => ['nullable', 'string', 'max:100'],
         ]);
 
+        // A patient may only book for their own profile.
+        if ($this->isPatient($request)) {
+            $ownId = $this->patientId($request);
+
+            abort_if($ownId === null, 403, 'Forbidden.');
+            abort_unless((int) $validated['patient_id'] === $ownId, 403, 'Forbidden.');
+        }
+
         $result = $this->intakeService->createOnlineBooking(
             patientId: (int) $validated['patient_id'],
             departmentId: (int) $validated['department_id'],

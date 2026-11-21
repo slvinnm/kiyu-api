@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Exceptions\InvalidStateException;
+use App\Http\Controllers\Api\Concerns\HandlesTableQuery;
 use App\Http\Controllers\Controller;
 use App\Models\Patient;
 use Illuminate\Http\JsonResponse;
@@ -10,16 +12,27 @@ use Illuminate\Support\Str;
 
 class PatientController extends Controller
 {
+    use HandlesTableQuery;
+
     /**
      * Search and list patients.
      */
     public function index(Request $request): JsonResponse
     {
+        // Patients must not enumerate the patient directory; they read their
+        // own profile through /auth/me or GET /patients/{id}.
+        abort_if($this->isPatient($request), 403, 'Forbidden.');
+
+        $validated = $this->validateTableQuery($request, [
+            'nik' => ['nullable', 'string', 'max:50'],
+            'mrn' => ['nullable', 'string', 'max:50'],
+        ]);
+
         $query = Patient::query();
 
-        if ($request->has('search')) {
-            $search = $request->input('search');
-            $query->where(function ($q) use ($search) {
+        if (! empty($validated['search'])) {
+            $search = $validated['search'];
+            $query->where(function ($q) use ($search): void {
                 $q->where('name', 'like', "%{$search}%")
                     ->orWhere('mrn', 'like', "%{$search}%")
                     ->orWhere('nik', 'like', "%{$search}%")
@@ -27,25 +40,18 @@ class PatientController extends Controller
             });
         }
 
-        if ($request->has('nik')) {
-            $query->where('nik', $request->input('nik'));
+        if (! empty($validated['nik'])) {
+            $query->where('nik', $validated['nik']);
         }
 
-        if ($request->has('mrn')) {
-            $query->where('mrn', $request->input('mrn'));
+        if (! empty($validated['mrn'])) {
+            $query->where('mrn', $validated['mrn']);
         }
 
-        $sort = $request->input('sort');
-        $direction = strtolower((string) $request->input('direction', 'asc')) === 'desc' ? 'desc' : 'asc';
-        $allowedSorts = ['name', 'mrn', 'nik', 'created_at', 'id'];
-        if (is_string($sort) && in_array($sort, $allowedSorts, true)) {
-            $query->orderBy($sort, $direction);
-        } else {
-            $query->latest('id');
-        }
+        $this->applyTableSort($query, $validated, ['name', 'mrn', 'nik', 'created_at', 'id']);
 
         return response()->json([
-            'data' => $query->paginate($request->input('per_page', 20)),
+            'data' => $query->paginate($this->tablePerPage($validated)),
         ]);
     }
 
@@ -65,6 +71,22 @@ class PatientController extends Controller
             'address' => ['nullable', 'string'],
             'user_id' => ['nullable', 'integer', 'exists:users,id'],
         ]);
+
+        // A patient may only create their own profile. Without this, any
+        // authenticated account could attach a patient record to another user.
+        if ($this->isPatient($request)) {
+            $userId = $request->user()->id;
+
+            if (! empty($validated['user_id']) && (int) $validated['user_id'] !== $userId) {
+                abort(403, 'Forbidden.');
+            }
+
+            if (Patient::query()->where('user_id', $userId)->exists()) {
+                throw new InvalidStateException('A patient profile already exists for this account.');
+            }
+
+            $validated['user_id'] = $userId;
+        }
 
         $mrn = $validated['mrn'] ?? ('MRN-' . strtoupper(Str::random(8)));
 
@@ -89,8 +111,10 @@ class PatientController extends Controller
     /**
      * Show a patient.
      */
-    public function show(int $id): JsonResponse
+    public function show(Request $request, int $id): JsonResponse
     {
+        $this->authorizePatientRecord($request, $id);
+
         $patient = Patient::query()->with(['visits.department', 'visits.activeQueueTicket'])->findOrFail($id);
 
         return response()->json([
@@ -103,6 +127,8 @@ class PatientController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
+        $this->authorizePatientRecord($request, $id);
+
         $patient = Patient::query()->findOrFail($id);
 
         $validated = $request->validate([
@@ -127,12 +153,29 @@ class PatientController extends Controller
     /**
      * Get visits for a patient.
      */
-    public function visits(int $id): JsonResponse
+    public function visits(Request $request, int $id): JsonResponse
     {
+        $this->authorizePatientRecord($request, $id);
+
         $patient = Patient::query()->findOrFail($id);
 
         return response()->json([
             'data' => $patient->visits()->with(['department', 'workflow', 'activeQueueTicket'])->latest('id')->get(),
         ]);
+    }
+
+    /**
+     * Deny a patient account access to another patient's record.
+     *
+     * Staff operations (reception, admin) are unrestricted here and keep their
+     * existing behaviour; only the patient role is scoped to its own record.
+     */
+    private function authorizePatientRecord(Request $request, int $patientId): void
+    {
+        if (! $this->isPatient($request)) {
+            return;
+        }
+
+        abort_unless($this->patientId($request) === $patientId, 403, 'Forbidden.');
     }
 }

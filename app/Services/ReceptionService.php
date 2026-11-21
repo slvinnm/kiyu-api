@@ -15,6 +15,7 @@ use App\Models\QueueEvent;
 use App\Models\QueueTicket;
 use App\Models\Station;
 use App\Models\Visit;
+use App\Support\DateScope;
 use App\Support\QueueBroadcast;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -60,7 +61,7 @@ class ReceptionService
             ->with(['visit.patient', 'station', 'workflowStep'])
             ->where('station_id', $registrationStation->id)
             ->where('status', QueueTicketStatus::Created)
-            ->whereDate('created_at', $today)
+            ->tap(fn($query) => DateScope::apply($query, $today))
             ->orderBy('priority', 'desc')
             ->orderBy('internal_sequence', 'asc')
             ->get();
@@ -70,13 +71,13 @@ class ReceptionService
             ->with(['visit.patient', 'station', 'workflowStep'])
             ->where('station_id', $registrationStation->id)
             ->where('status', QueueTicketStatus::OnHold)
-            ->whereDate('created_at', $today)
+            ->tap(fn($query) => DateScope::apply($query, $today))
             ->get();
 
         $calledCountToday = QueueTicket::query()
             ->where('station_id', $registrationStation->id)
             ->whereIn('status', [QueueTicketStatus::Called, QueueTicketStatus::Completed, QueueTicketStatus::Skipped, QueueTicketStatus::NoShow])
-            ->whereDate('created_at', $today)
+            ->tap(fn($query) => DateScope::apply($query, $today))
             ->count();
 
         return [

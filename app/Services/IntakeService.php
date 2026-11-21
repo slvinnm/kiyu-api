@@ -15,6 +15,7 @@ use App\Models\QueueAcquisition;
 use App\Models\QueueEvent;
 use App\Models\QueueTicket;
 use App\Models\Visit;
+use App\Support\DateScope;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -395,7 +396,7 @@ class IntakeService
         }
 
         if (! empty($filters['date'])) {
-            $query->whereDate('created_at', $filters['date']);
+            DateScope::apply($query, $filters['date']);
         }
 
         return $query->latest('id')->paginate($perPage);

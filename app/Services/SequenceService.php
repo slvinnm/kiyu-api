@@ -18,18 +18,7 @@ class SequenceService
         $today = Carbon::today()->format('Y-m-d');
 
         return DB::transaction(function () use ($today): string {
-            /** @var VisitCounter $counter */
-            $counter = VisitCounter::query()
-                ->where('counter_date', $today)
-                ->lockForUpdate()
-                ->first();
-
-            if (! $counter) {
-                $counter = VisitCounter::query()->create([
-                    'counter_date' => $today,
-                    'last_sequence' => 0,
-                ]);
-            }
+            $counter = $this->lockCounter(VisitCounter::class, ['counter_date' => $today]);
 
             $counter->last_sequence += 1;
             $counter->save();
@@ -48,20 +37,10 @@ class SequenceService
         $today = Carbon::today()->format('Y-m-d');
 
         return DB::transaction(function () use ($station, $today): array {
-            /** @var QueueCounter $counter */
-            $counter = QueueCounter::query()
-                ->where('station_id', $station->id)
-                ->where('counter_date', $today)
-                ->lockForUpdate()
-                ->first();
-
-            if (! $counter) {
-                $counter = QueueCounter::query()->create([
-                    'station_id' => $station->id,
-                    'counter_date' => $today,
-                    'last_sequence' => 0,
-                ]);
-            }
+            $counter = $this->lockCounter(QueueCounter::class, [
+                'station_id' => $station->id,
+                'counter_date' => $today,
+            ]);
 
             $counter->last_sequence += 1;
             $counter->save();
@@ -75,5 +54,27 @@ class SequenceService
                 'internal_sequence' => $seq,
             ];
         });
+    }
+
+    /**
+     * Locks the counter row for today, creating it first when the day is new.
+     *
+     * Creating and locking in one step is not enough under concurrency: two
+     * requests can both see no row and both insert, so one hits the unique
+     * index. `insertOrIgnore` makes the create idempotent, and the follow-up
+     * `lockForUpdate` serialises both requests on the row that now exists.
+     *
+     * @param  class-string<QueueCounter|VisitCounter>  $model
+     * @param  array<string, mixed>  $keys
+     */
+    private function lockCounter(string $model, array $keys): QueueCounter|VisitCounter
+    {
+        $model::query()->insertOrIgnore($keys + ['last_sequence' => 0]);
+
+        /** @var QueueCounter|VisitCounter */
+        return $model::query()
+            ->where($keys)
+            ->lockForUpdate()
+            ->firstOrFail();
     }
 }
