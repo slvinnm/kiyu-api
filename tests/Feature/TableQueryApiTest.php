@@ -1,9 +1,12 @@
 <?php
 
+use App\Enums\IntakeChannel;
+use App\Enums\QueueAcquisitionStatus;
 use App\Enums\QueueTicketStatus;
 use App\Models\AuditLog;
 use App\Models\Department;
 use App\Models\Patient;
+use App\Models\QueueAcquisition;
 use App\Models\QueueTicket;
 use App\Models\Referral;
 use App\Models\Visit;
@@ -17,12 +20,12 @@ beforeEach(function () {
     $this->setupHospital();
 });
 
-test('master data endpoints paginate only when paginated param is set', function () {
+test('master data table endpoints paginate by default', function () {
     Department::create(['code' => 'POLI_ANAK', 'name' => 'Poli Anak', 'is_active' => true]);
     Department::create(['code' => 'POLI_SARAF', 'name' => 'Poli Saraf', 'is_active' => true]);
     Department::create(['code' => 'POLI_JANTUNG', 'name' => 'Poli Jantung', 'is_active' => true]);
 
-    $this->getJson('/api/departments?paginated=1&per_page=2&page=1')
+    $this->getJson('/api/departments?per_page=2&page=1')
         ->assertOk()
         ->assertJsonPath('data.total', 5)
         ->assertJsonPath('data.per_page', 2)
@@ -30,7 +33,7 @@ test('master data endpoints paginate only when paginated param is set', function
         ->assertJsonPath('data.last_page', 3)
         ->assertJsonCount(2, 'data.data');
 
-    $this->getJson('/api/stations?paginated=1&per_page=2&page=1')
+    $this->getJson('/api/stations?per_page=2&page=1')
         ->assertOk()
         ->assertJsonPath('data.total', 7)
         ->assertJsonPath('data.per_page', 2)
@@ -44,7 +47,7 @@ test('master data endpoints paginate only when paginated param is set', function
         'is_active' => true,
     ]);
 
-    $this->getJson('/api/workflows?paginated=1&per_page=2&page=1')
+    $this->getJson('/api/workflows?per_page=2&page=1')
         ->assertOk()
         ->assertJsonPath('data.total', 3)
         ->assertJsonPath('data.per_page', 2)
@@ -53,30 +56,71 @@ test('master data endpoints paginate only when paginated param is set', function
         ->assertJsonCount(2, 'data.data');
 });
 
-test('master data endpoints keep the plain array shape without paginated param', function () {
-    $this->getJson('/api/departments')
+test('master data options endpoints return the full lightweight list', function () {
+    $this->getJson('/api/departments/options')
         ->assertOk()
         ->assertJsonCount(2, 'data')
-        ->assertJsonMissingPath('data.total')
-        ->assertJsonPath('data.0.code', 'POLI_UMUM');
+        ->assertJsonPath('data.0.code', 'POLI_GIGI')
+        ->assertJsonStructure(['data' => [['id', 'code', 'name', 'is_active', 'display_in_kiosk']]]);
 
-    $this->getJson('/api/stations')
+    $this->getJson('/api/stations/options')
         ->assertOk()
         ->assertJsonCount(7, 'data')
-        ->assertJsonMissingPath('data.total');
+        ->assertJsonStructure(['data' => [['id', 'department_id', 'code', 'name', 'type', 'is_active']]]);
 
-    $this->getJson('/api/workflows')
+    $this->getJson("/api/stations/options?department_id={$this->dentalDepartment->id}")
         ->assertOk()
-        ->assertJsonCount(2, 'data')
-        ->assertJsonMissingPath('data.total');
+        ->assertJsonCount(2, 'data');
+
+    $this->getJson('/api/stations/options?type=NURSE')
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.code', 'NUR-01');
+});
+
+test('statistics endpoints return aggregate counts', function () {
+    Patient::factory()->count(3)->create();
+    Visit::factory()->create([
+        'patient_id' => $this->samplePatient->id,
+        'department_id' => $this->generalDepartment->id,
+        'workflow_id' => $this->generalWorkflow->id,
+        'visit_number' => 'V-STATS-0001',
+    ]);
+
+    $this->getJson('/api/workflows/statistics')
+        ->assertOk()
+        ->assertJsonPath('data.total', 2);
+
+    $this->getJson('/api/patients/statistics')
+        ->assertOk()
+        ->assertJsonPath('data.total', 4);
+
+    $this->getJson('/api/visits/statistics')
+        ->assertOk()
+        ->assertJsonPath('data.total', 1);
+
+    $this->getJson('/api/visits/statistics?status=CANCELLED')
+        ->assertOk()
+        ->assertJsonPath('data.total', 0);
+
+    QueueTicket::factory()->create([
+        'visit_id' => Visit::query()->firstOrFail()->id,
+        'workflow_step_id' => $this->regStep->id,
+        'station_id' => $this->registrationStation->id,
+        'status' => QueueTicketStatus::Created,
+    ]);
+
+    $this->getJson('/api/tickets/statistics?status=CREATED')
+        ->assertOk()
+        ->assertJsonPath('data.total', 1);
 });
 
 test('per page is clamped between one and one hundred', function () {
-    $this->getJson('/api/departments?paginated=1&per_page=999')
+    $this->getJson('/api/departments?per_page=999')
         ->assertOk()
         ->assertJsonPath('data.per_page', 100);
 
-    $this->getJson('/api/departments?paginated=1&per_page=0')
+    $this->getJson('/api/departments?per_page=0')
         ->assertOk()
         ->assertJsonPath('data.per_page', 1);
 
@@ -88,45 +132,45 @@ test('per page is clamped between one and one hundred', function () {
 test('department search matches code and name', function () {
     $this->getJson('/api/departments?search=Gigi')
         ->assertOk()
-        ->assertJsonCount(1, 'data')
-        ->assertJsonPath('data.0.code', 'POLI_GIGI');
+        ->assertJsonPath('data.total', 1)
+        ->assertJsonPath('data.data.0.code', 'POLI_GIGI');
 
     $this->getJson('/api/departments?search=POLI_UMUM')
         ->assertOk()
-        ->assertJsonCount(1, 'data')
-        ->assertJsonPath('data.0.code', 'POLI_UMUM');
+        ->assertJsonPath('data.total', 1)
+        ->assertJsonPath('data.data.0.code', 'POLI_UMUM');
 
     $this->getJson('/api/departments?search=%20%20')
         ->assertOk()
-        ->assertJsonCount(2, 'data');
+        ->assertJsonPath('data.total', 2);
 });
 
 test('station search matches own columns and related department name', function () {
     $this->getJson('/api/stations?search=Perawat')
         ->assertOk()
-        ->assertJsonCount(1, 'data')
-        ->assertJsonPath('data.0.code', 'NUR-01');
+        ->assertJsonPath('data.total', 1)
+        ->assertJsonPath('data.data.0.code', 'NUR-01');
 
     $this->getJson('/api/stations?search=NURSE')
         ->assertOk()
-        ->assertJsonCount(1, 'data')
-        ->assertJsonPath('data.0.code', 'NUR-01');
+        ->assertJsonPath('data.total', 1)
+        ->assertJsonPath('data.data.0.code', 'NUR-01');
 
     $this->getJson('/api/stations?search=Poli%20Gigi')
         ->assertOk()
-        ->assertJsonCount(2, 'data');
+        ->assertJsonPath('data.total', 2);
 });
 
 test('workflow search matches name and related department name', function () {
     $this->getJson('/api/workflows?search=Gigi')
         ->assertOk()
-        ->assertJsonCount(1, 'data')
-        ->assertJsonPath('data.0.name', 'Alur Rawat Gigi');
+        ->assertJsonPath('data.total', 1)
+        ->assertJsonPath('data.data.0.name', 'Alur Rawat Gigi');
 
     $this->getJson('/api/workflows?search=Poli%20Umum')
         ->assertOk()
-        ->assertJsonCount(1, 'data')
-        ->assertJsonPath('data.0.name', 'Alur Rawat Jalan Umum');
+        ->assertJsonPath('data.total', 1)
+        ->assertJsonPath('data.data.0.name', 'Alur Rawat Jalan Umum');
 });
 
 test('visit search matches visit number and patient identity', function () {
@@ -291,17 +335,17 @@ test('audit log search matches action entity user and ip', function () {
 test('allowed sort columns order results descending', function () {
     $this->getJson('/api/departments?sort=name&direction=desc')
         ->assertOk()
-        ->assertJsonPath('data.0.name', 'Poli Umum')
-        ->assertJsonPath('data.1.name', 'Poli Gigi');
+        ->assertJsonPath('data.data.0.name', 'Poli Umum')
+        ->assertJsonPath('data.data.1.name', 'Poli Gigi');
 
     $this->getJson('/api/stations?sort=code&direction=desc')
         ->assertOk()
-        ->assertJsonPath('data.0.code', 'REG-GIGI');
+        ->assertJsonPath('data.data.0.code', 'REG-GIGI');
 
     $this->getJson('/api/workflows?sort=name&direction=desc')
         ->assertOk()
-        ->assertJsonPath('data.0.name', 'Alur Rawat Jalan Umum')
-        ->assertJsonPath('data.1.name', 'Alur Rawat Gigi');
+        ->assertJsonPath('data.data.0.name', 'Alur Rawat Jalan Umum')
+        ->assertJsonPath('data.data.1.name', 'Alur Rawat Gigi');
 
     $visitA = Visit::factory()->create([
         'department_id' => $this->generalDepartment->id,
@@ -392,3 +436,49 @@ test('invalid enum and date filters return a validation error', function (string
     ['/api/stations?type=BOGUS', 'type'],
     ['/api/users?role=BOGUS', 'role'],
 ]);
+
+test('queue acquisitions paginate by default', function () {
+    $visit = Visit::factory()->create([
+        'department_id' => $this->generalDepartment->id,
+        'workflow_id' => $this->generalWorkflow->id,
+        'visit_number' => 'V-ACQ-0001',
+    ]);
+
+    QueueAcquisition::create([
+        'visit_id' => $visit->id,
+        'department_id' => $this->generalDepartment->id,
+        'channel' => IntakeChannel::Manual,
+        'status' => QueueAcquisitionStatus::Acquired,
+    ]);
+
+    $this->getJson('/api/queue-acquisitions?per_page=1')
+        ->assertOk()
+        ->assertJsonPath('data.total', 1)
+        ->assertJsonPath('data.per_page', 1)
+        ->assertJsonPath('data.data.0.visit_id', $visit->id);
+});
+
+test('a visit exposes its active acquisition through a dedicated endpoint', function () {
+    $visit = Visit::factory()->create([
+        'department_id' => $this->generalDepartment->id,
+        'workflow_id' => $this->generalWorkflow->id,
+        'visit_number' => 'V-ACQ-0002',
+    ]);
+
+    $acquisition = QueueAcquisition::create([
+        'visit_id' => $visit->id,
+        'department_id' => $this->generalDepartment->id,
+        'channel' => IntakeChannel::Manual,
+        'status' => QueueAcquisitionStatus::Acquired,
+    ]);
+
+    $this->getJson("/api/visits/{$visit->id}/acquisition")
+        ->assertOk()
+        ->assertJsonPath('data.id', $acquisition->id);
+
+    $acquisition->update(['status' => QueueAcquisitionStatus::Registered]);
+
+    $this->getJson("/api/visits/{$visit->id}/acquisition")
+        ->assertOk()
+        ->assertJsonPath('data', null);
+});

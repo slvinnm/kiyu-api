@@ -56,6 +56,20 @@ class PatientController extends Controller
     }
 
     /**
+     * Aggregate counts for dashboard widgets.
+     */
+    public function statistics(Request $request): JsonResponse
+    {
+        abort_if($this->isPatient($request), 403, 'Forbidden.');
+
+        return response()->json([
+            'data' => [
+                'total' => Patient::query()->count(),
+            ],
+        ]);
+    }
+
+    /**
      * Create a patient.
      */
     public function store(Request $request): JsonResponse

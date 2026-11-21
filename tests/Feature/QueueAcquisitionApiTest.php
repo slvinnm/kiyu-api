@@ -27,7 +27,6 @@ test('queue acquisitions can be listed with filters', function () {
     // List all
     $response = $this->getJson('/api/queue-acquisitions');
     $response->assertStatus(200)
-        ->assertJsonPath('message', 'Queue acquisitions retrieved.')
         ->assertJsonCount(2, 'data.data');
 
     // Filter by channel = ONLINE

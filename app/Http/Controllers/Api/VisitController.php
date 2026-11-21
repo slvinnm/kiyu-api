@@ -7,6 +7,7 @@ use App\Enums\VisitStatus;
 use App\Http\Controllers\Api\Concerns\HandlesTableQuery;
 use App\Http\Controllers\Controller;
 use App\Models\Visit;
+use App\Services\IntakeService;
 use App\Services\VisitService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,7 +18,8 @@ class VisitController extends Controller
     use HandlesTableQuery;
 
     public function __construct(
-        public VisitService $visitService
+        public VisitService $visitService,
+        public IntakeService $intakeService,
     ) {}
 
     /**
@@ -107,6 +109,61 @@ class VisitController extends Controller
 
         return response()->json([
             'data' => $visit,
+        ]);
+    }
+
+    /**
+     * The acquisition awaiting registration for this visit (`null` when there
+     * is none). Used by reception when completing a registration.
+     */
+    public function acquisition(Request $request, int $id): JsonResponse
+    {
+        $visit = Visit::query()->findOrFail($id);
+
+        if ($this->isPatient($request)) {
+            abort_unless($visit->patient_id === $this->patientId($request), 403, 'Forbidden.');
+        }
+
+        return response()->json([
+            'data' => $this->intakeService->getActiveAcquisitionForVisit($id),
+        ]);
+    }
+
+    /**
+     * Aggregate counts for dashboard widgets.
+     */
+    public function statistics(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'date' => ['nullable', 'date'],
+            'status' => ['nullable', 'string', Rule::in(array_column(VisitStatus::cases(), 'value'))],
+            'department_id' => ['nullable', 'integer', 'exists:departments,id'],
+        ]);
+
+        $query = Visit::query();
+
+        if ($this->isPatient($request)) {
+            $ownId = $this->patientId($request);
+
+            abort_if($ownId === null, 403, 'Forbidden.');
+
+            $query->where('patient_id', $ownId);
+        }
+
+        foreach (['status', 'department_id'] as $filter) {
+            if (! empty($validated[$filter])) {
+                $query->where($filter, $validated[$filter]);
+            }
+        }
+
+        if (! empty($validated['date'])) {
+            $this->whereOnDate($query, $validated['date']);
+        }
+
+        return response()->json([
+            'data' => [
+                'total' => $query->count(),
+            ],
         ]);
     }
 

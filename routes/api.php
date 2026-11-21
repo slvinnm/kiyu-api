@@ -48,9 +48,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('users')->group(function () {
         Route::get('/', [UserController::class, 'index']);
         Route::post('/', [UserController::class, 'store']);
-        Route::get('/{id}', [UserController::class, 'show']);
-        Route::put('/{id}', [UserController::class, 'update']);
-        Route::delete('/{id}', [UserController::class, 'destroy']);
+        Route::get('/{id}', [UserController::class, 'show'])->whereNumber('id');
+        Route::put('/{id}', [UserController::class, 'update'])->whereNumber('id');
+        Route::delete('/{id}', [UserController::class, 'destroy'])->whereNumber('id');
     });
 
     // 1b. Manual intake (reception)
@@ -59,8 +59,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // 1c. Queue Acquisition Management
     Route::prefix('queue-acquisitions')->group(function () {
         Route::get('/', [QueueAcquisitionController::class, 'index']);
-        Route::get('/{id}', [QueueAcquisitionController::class, 'show']);
-        Route::post('/{id}/cancel', [QueueAcquisitionController::class, 'cancel']);
+        Route::get('/{id}', [QueueAcquisitionController::class, 'show'])->whereNumber('id');
+        Route::post('/{id}/cancel', [QueueAcquisitionController::class, 'cancel'])->whereNumber('id');
     });
 
     // 2. Reception Queue & Registration Endpoints
@@ -69,9 +69,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
         Route::post('/call-next', [ReceptionController::class, 'callNext']);
         Route::post('/complete-registration', [ReceptionController::class, 'completeRegistration']);
-        Route::post('/{ticketId}/recall', [ReceptionController::class, 'recall']);
-        Route::post('/{ticketId}/skip', [ReceptionController::class, 'skip']);
-        Route::post('/{ticketId}/no-show', [ReceptionController::class, 'noShow']);
+        Route::post('/{ticketId}/recall', [ReceptionController::class, 'recall'])->whereNumber('ticketId');
+        Route::post('/{ticketId}/skip', [ReceptionController::class, 'skip'])->whereNumber('ticketId');
+        Route::post('/{ticketId}/no-show', [ReceptionController::class, 'noShow'])->whereNumber('ticketId');
     });
 
     // 3. Clinical Queue Operations
@@ -81,72 +81,79 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::prefix('tickets')->group(function () {
         Route::get('/', [TicketController::class, 'index']);
-        Route::get('/{id}', [TicketController::class, 'show']);
-        Route::get('/{id}/events', [TicketController::class, 'events']);
+        Route::get('/statistics', [TicketController::class, 'statistics']);
+        Route::get('/{id}', [TicketController::class, 'show'])->whereNumber('id');
+        Route::get('/{id}/events', [TicketController::class, 'events'])->whereNumber('id');
 
-        Route::post('/{id}/start', [ClinicalQueueController::class, 'start']);
-        Route::post('/{id}/hold', [ClinicalQueueController::class, 'hold']);
-        Route::post('/{id}/resume', [ClinicalQueueController::class, 'resume']);
-        Route::post('/{id}/recall', [ClinicalQueueController::class, 'recall']);
-        Route::post('/{id}/complete', [ClinicalQueueController::class, 'complete']);
-        Route::post('/{id}/skip', [ClinicalQueueController::class, 'skip']);
-        Route::post('/{id}/no-show', [ClinicalQueueController::class, 'noShow']);
-        Route::post('/{id}/cancel', [ClinicalQueueController::class, 'cancel']);
-        Route::post('/{id}/transfer', [ClinicalQueueController::class, 'transfer']);
+        Route::post('/{id}/start', [ClinicalQueueController::class, 'start'])->whereNumber('id');
+        Route::post('/{id}/hold', [ClinicalQueueController::class, 'hold'])->whereNumber('id');
+        Route::post('/{id}/resume', [ClinicalQueueController::class, 'resume'])->whereNumber('id');
+        Route::post('/{id}/recall', [ClinicalQueueController::class, 'recall'])->whereNumber('id');
+        Route::post('/{id}/complete', [ClinicalQueueController::class, 'complete'])->whereNumber('id');
+        Route::post('/{id}/skip', [ClinicalQueueController::class, 'skip'])->whereNumber('id');
+        Route::post('/{id}/no-show', [ClinicalQueueController::class, 'noShow'])->whereNumber('id');
+        Route::post('/{id}/cancel', [ClinicalQueueController::class, 'cancel'])->whereNumber('id');
+        Route::post('/{id}/transfer', [ClinicalQueueController::class, 'transfer'])->whereNumber('id');
     });
 
     // 4. Referral Management
     Route::prefix('referrals')->group(function () {
         Route::get('/', [ReferralController::class, 'index']);
         Route::post('/', [ReferralController::class, 'store']);
-        Route::get('/{id}', [ReferralController::class, 'show']);
+        Route::get('/{id}', [ReferralController::class, 'show'])->whereNumber('id');
     });
 
     // 6. Visit Management
     Route::prefix('visits')->group(function () {
         Route::get('/', [VisitController::class, 'index']);
-        Route::get('/{id}', [VisitController::class, 'show']);
-        Route::patch('/{id}/priority', [VisitController::class, 'updatePriority']);
-        Route::post('/{id}/cancel', [VisitController::class, 'cancel']);
+        Route::get('/statistics', [VisitController::class, 'statistics']);
+        Route::get('/{id}', [VisitController::class, 'show'])->whereNumber('id');
+        Route::get('/{id}/acquisition', [VisitController::class, 'acquisition'])->whereNumber('id');
+        Route::patch('/{id}/priority', [VisitController::class, 'updatePriority'])->whereNumber('id');
+        Route::post('/{id}/cancel', [VisitController::class, 'cancel'])->whereNumber('id');
     });
 
     // 7. Organizational Setup (Departments, Stations, Workflows)
     Route::prefix('departments')->group(function () {
         Route::get('/', [DepartmentController::class, 'index']);
+        Route::get('/options', [DepartmentController::class, 'options']);
         Route::post('/', [DepartmentController::class, 'store']);
-        Route::get('/{id}', [DepartmentController::class, 'show']);
-        Route::put('/{id}', [DepartmentController::class, 'update']);
-        Route::get('/{id}/stations', [DepartmentController::class, 'stations']);
-        Route::get('/{id}/workflows', [DepartmentController::class, 'workflows']);
+        Route::get('/{id}', [DepartmentController::class, 'show'])->whereNumber('id');
+        Route::put('/{id}', [DepartmentController::class, 'update'])->whereNumber('id');
+        Route::get('/{id}/stations', [DepartmentController::class, 'stations'])->whereNumber('id');
+        Route::get('/{id}/workflows', [DepartmentController::class, 'workflows'])->whereNumber('id');
     });
 
     Route::prefix('stations')->group(function () {
         Route::get('/', [StationController::class, 'index']);
+        Route::get('/options', [StationController::class, 'options']);
         Route::post('/', [StationController::class, 'store']);
-        Route::get('/{id}', [StationController::class, 'show']);
-        Route::put('/{id}', [StationController::class, 'update']);
-        Route::get('/{id}/queue', [StationController::class, 'queue']);
+        Route::get('/{id}', [StationController::class, 'show'])->whereNumber('id');
+        Route::put('/{id}', [StationController::class, 'update'])->whereNumber('id');
+        Route::get('/{id}/queue', [StationController::class, 'queue'])->whereNumber('id');
     });
 
     Route::prefix('workflows')->group(function () {
         Route::get('/', [WorkflowController::class, 'index']);
+        Route::get('/statistics', [WorkflowController::class, 'statistics']);
         Route::post('/', [WorkflowController::class, 'store']);
-        Route::get('/{id}', [WorkflowController::class, 'show']);
-        Route::post('/{id}/steps', [WorkflowController::class, 'addStep']);
+        Route::get('/{id}', [WorkflowController::class, 'show'])->whereNumber('id');
+        Route::post('/{id}/steps', [WorkflowController::class, 'addStep'])->whereNumber('id');
     });
 
     Route::prefix('workflow-steps')->group(function () {
-        Route::put('/{id}', [WorkflowController::class, 'updateStep']);
-        Route::delete('/{id}', [WorkflowController::class, 'deleteStep']);
+        Route::put('/{id}', [WorkflowController::class, 'updateStep'])->whereNumber('id');
+        Route::delete('/{id}', [WorkflowController::class, 'deleteStep'])->whereNumber('id');
     });
 
     // 8. Patient Directory
     Route::prefix('patients')->group(function () {
         Route::get('/', [PatientController::class, 'index']);
+        Route::get('/statistics', [PatientController::class, 'statistics']);
         Route::post('/', [PatientController::class, 'store']);
-        Route::get('/{id}', [PatientController::class, 'show']);
-        Route::put('/{id}', [PatientController::class, 'update']);
-        Route::get('/{id}/visits', [PatientController::class, 'visits']);
+        Route::get('/{id}', [PatientController::class, 'show'])->whereNumber('id');
+        Route::put('/{id}', [PatientController::class, 'update'])->whereNumber('id');
+        Route::get('/{id}/visits', [PatientController::class, 'visits'])->whereNumber('id');
     });
 
     // 9. Audit Logs

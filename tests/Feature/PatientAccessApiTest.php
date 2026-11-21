@@ -20,12 +20,14 @@ beforeEach(function () {
         'patient_id' => $this->ownPatient->id,
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
+        'visit_number' => 'V-ACCESS-0001',
     ]);
 
     $this->otherVisit = Visit::factory()->create([
         'patient_id' => $this->otherPatient->id,
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
+        'visit_number' => 'V-ACCESS-0002',
     ]);
 });
 

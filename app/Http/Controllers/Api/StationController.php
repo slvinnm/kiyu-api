@@ -23,7 +23,6 @@ class StationController extends Controller
         $validated = $this->validateTableQuery($request, [
             'department_id' => ['nullable', 'integer', 'exists:departments,id'],
             'type' => ['nullable', 'string', Rule::in(array_column(StationType::cases(), 'value'))],
-            'paginated' => ['nullable', 'boolean'],
         ]);
 
         $query = Station::query()->with('department');
@@ -53,14 +52,41 @@ class StationController extends Controller
             null,
         );
 
-        if ($request->boolean('paginated')) {
-            return response()->json([
-                'data' => $query->paginate($this->tablePerPage($validated)),
-            ]);
+        return response()->json([
+            'data' => $query->paginate($this->tablePerPage($validated)),
+        ]);
+    }
+
+    /**
+     * Lightweight station choices for select inputs, optionally filtered.
+     */
+    public function options(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'department_id' => ['nullable', 'integer', 'exists:departments,id'],
+            'type' => ['nullable', 'string', Rule::in(array_column(StationType::cases(), 'value'))],
+        ]);
+
+        $query = Station::query()->orderBy('name');
+
+        if (! empty($validated['department_id'])) {
+            $query->where('department_id', $validated['department_id']);
+        }
+
+        if (! empty($validated['type'])) {
+            $query->where('type', $validated['type']);
         }
 
         return response()->json([
-            'data' => $query->get(),
+            'data' => $query->get([
+                'id',
+                'department_id',
+                'code',
+                'name',
+                'type',
+                'queue_prefix',
+                'is_active',
+            ]),
         ]);
     }
 

@@ -403,6 +403,22 @@ class IntakeService
     }
 
     /**
+     * The acquisition awaiting registration for a visit, if any.
+     *
+     * Registration completion needs exactly this record; the list endpoint is
+     * for managing acquisitions and should not be used as a lookup by visit.
+     */
+    public function getActiveAcquisitionForVisit(int $visitId): ?QueueAcquisition
+    {
+        return QueueAcquisition::query()
+            ->with(['visit.patient', 'department', 'visit.workflow'])
+            ->where('visit_id', $visitId)
+            ->where('status', QueueAcquisitionStatus::Acquired)
+            ->latest('id')
+            ->first();
+    }
+
+    /**
      * Get a specific queue acquisition with full relations.
      */
     public function getAcquisition(int $id): QueueAcquisition

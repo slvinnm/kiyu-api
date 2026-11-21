@@ -20,7 +20,6 @@ class WorkflowController extends Controller
     {
         $validated = $this->validateTableQuery($request, [
             'department_id' => ['nullable', 'integer', 'exists:departments,id'],
-            'paginated' => ['nullable', 'boolean'],
         ]);
 
         $query = Workflow::query()->with(['department', 'steps.station']);
@@ -39,14 +38,20 @@ class WorkflowController extends Controller
 
         $this->applyTableSort($query, $validated, ['name', 'is_active', 'department_id', 'created_at'], null);
 
-        if ($request->boolean('paginated')) {
-            return response()->json([
-                'data' => $query->paginate($this->tablePerPage($validated)),
-            ]);
-        }
-
         return response()->json([
-            'data' => $query->get(),
+            'data' => $query->paginate($this->tablePerPage($validated)),
+        ]);
+    }
+
+    /**
+     * Aggregate counts for dashboard widgets.
+     */
+    public function statistics(): JsonResponse
+    {
+        return response()->json([
+            'data' => [
+                'total' => Workflow::query()->count(),
+            ],
         ]);
     }
 

@@ -27,13 +27,11 @@ class DepartmentController extends Controller
     }
 
     /**
-     * List all departments.
+     * List all departments (paginated table data).
      */
     public function index(Request $request): JsonResponse
     {
-        $validated = $this->validateTableQuery($request, [
-            'paginated' => ['nullable', 'boolean'],
-        ]);
+        $validated = $this->validateTableQuery($request);
 
         $query = Department::query()->with('stations');
 
@@ -47,14 +45,24 @@ class DepartmentController extends Controller
 
         $this->applyTableSort($query, $validated, ['code', 'name', 'is_active', 'created_at'], null);
 
-        if ($request->boolean('paginated')) {
-            return response()->json([
-                'data' => $query->paginate($this->tablePerPage($validated)),
-            ]);
-        }
-
         return response()->json([
-            'data' => $query->get(),
+            'data' => $query->paginate($this->tablePerPage($validated)),
+        ]);
+    }
+
+    /**
+     * Lightweight department choices for select inputs.
+     *
+     * Kept separate from `index` so dropdowns never depend on the paginated
+     * table contract (and vice versa).
+     */
+    public function options(): JsonResponse
+    {
+        return response()->json([
+            'data' => Department::query()
+                ->withCount('stations')
+                ->orderBy('name')
+                ->get(['id', 'code', 'name', 'is_active', 'display_in_kiosk']),
         ]);
     }
 

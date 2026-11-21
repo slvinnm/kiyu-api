@@ -52,14 +52,8 @@ class QueueAcquisitionController extends Controller
             null,
         );
 
-        if ($request->boolean('paginated')) {
-            return response()->json([
-                'data' => $query->paginate($this->tablePerPage($validated)),
-            ]);
-        }
-
         return response()->json([
-            'data' => $query->get(),
+            'data' => $query->paginate($this->tablePerPage($validated)),
         ]);
     }
 

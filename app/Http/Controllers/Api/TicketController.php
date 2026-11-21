@@ -59,6 +59,38 @@ class TicketController extends Controller
     }
 
     /**
+     * Aggregate counts for dashboard widgets.
+     */
+    public function statistics(Request $request): JsonResponse
+    {
+        abort_if($this->isPatient($request), 403, 'Forbidden.');
+
+        $validated = $request->validate([
+            'status' => ['nullable', 'string', Rule::in(array_column(QueueTicketStatus::cases(), 'value'))],
+            'station_id' => ['nullable', 'integer', 'exists:stations,id'],
+            'date' => ['nullable', 'date'],
+        ]);
+
+        $query = QueueTicket::query();
+
+        foreach (['status', 'station_id'] as $filter) {
+            if (! empty($validated[$filter])) {
+                $query->where($filter, $validated[$filter]);
+            }
+        }
+
+        if (! empty($validated['date'])) {
+            $this->whereOnDate($query, $validated['date']);
+        }
+
+        return response()->json([
+            'data' => [
+                'total' => $query->count(),
+            ],
+        ]);
+    }
+
+    /**
      * Show ticket details.
      */
     public function show(int $id): JsonResponse
