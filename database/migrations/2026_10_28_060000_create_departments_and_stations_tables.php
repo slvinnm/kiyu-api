@@ -16,6 +16,7 @@ return new class extends Migration
             $table->string('code')->unique();
             $table->string('name');
             $table->boolean('is_active')->default(true);
+            $table->boolean('display_in_kiosk')->default(true);
             $table->timestamps();
         });
 
