@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\UserRole;
 use App\Exceptions\InvalidStateException;
 use App\Http\Controllers\Api\Concerns\HandlesTableQuery;
 use App\Http\Controllers\Controller;
@@ -17,22 +18,6 @@ class UserController extends Controller
     use HandlesTableQuery;
 
     /**
-     * Roles recognised by the application. `pharmacist` is the value used by
-     * the existing seeder; the frontend normalises it to `pharmacy`.
-     */
-    private const ROLES = [
-        'admin',
-        'receptionist',
-        'nurse',
-        'doctor',
-        'pharmacist',
-        'pharmacy',
-        'lab',
-        'billing',
-        'patient',
-    ];
-
-    /**
      * List staff users.
      */
     public function index(Request $request): JsonResponse
@@ -40,7 +25,7 @@ class UserController extends Controller
         $this->authorizeAdmin($request);
 
         $validated = $this->validateTableQuery($request, [
-            'role' => ['nullable', 'string', Rule::in(self::ROLES)],
+            'role' => ['nullable', 'string', Rule::in(array_column(UserRole::cases(), 'value'))],
             'department_id' => ['nullable', 'integer', 'exists:departments,id'],
             'station_id' => ['nullable', 'integer', 'exists:stations,id'],
         ]);
@@ -80,7 +65,7 @@ class UserController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'string', 'min:8'],
-            'role' => ['required', 'string', Rule::in(self::ROLES)],
+            'role' => ['required', 'string', Rule::in(array_column(UserRole::cases(), 'value'))],
             'department_id' => ['nullable', 'integer', 'exists:departments,id'],
             'station_id' => ['nullable', 'integer', 'exists:stations,id'],
         ]);
@@ -135,7 +120,7 @@ class UserController extends Controller
                 Rule::unique('users', 'email')->ignore($user->id),
             ],
             'password' => ['sometimes', 'nullable', 'string', 'min:8'],
-            'role' => ['sometimes', 'required', 'string', Rule::in(self::ROLES)],
+            'role' => ['sometimes', 'required', 'string', Rule::in(array_column(UserRole::cases(), 'value'))],
             'department_id' => ['nullable', 'integer', 'exists:departments,id'],
             'station_id' => ['nullable', 'integer', 'exists:stations,id'],
         ]);
@@ -167,7 +152,7 @@ class UserController extends Controller
             throw new InvalidStateException('You cannot delete your own account.');
         }
 
-        if ($user->role === 'admin' && User::query()->where('role', 'admin')->count() <= 1) {
+        if ($user->role === UserRole::Admin->value && User::query()->where('role', UserRole::Admin->value)->count() <= 1) {
             throw new InvalidStateException('Cannot delete the last administrator.');
         }
 
@@ -180,7 +165,7 @@ class UserController extends Controller
 
     private function authorizeAdmin(Request $request): void
     {
-        abort_unless($request->user()?->role === 'admin', 403, 'Forbidden.');
+        abort_unless($request->user()?->role === UserRole::Admin->value, 403, 'Forbidden.');
     }
 
     /**

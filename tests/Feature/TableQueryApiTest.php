@@ -12,6 +12,7 @@ use App\Models\Referral;
 use App\Models\Visit;
 use App\Models\Workflow;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Tests\SetupKiyuHospital;
 
 uses(RefreshDatabase::class, SetupKiyuHospital::class);
@@ -85,6 +86,7 @@ test('statistics endpoints return aggregate counts', function () {
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
         'visit_number' => 'V-STATS-0001',
+        'visit_token' => (string) Str::uuid(),
     ]);
 
     $this->getJson('/api/workflows/statistics')
@@ -181,6 +183,7 @@ test('visit search matches visit number and patient identity', function () {
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
         'visit_number' => 'V-TEST-0001',
+        'visit_token' => (string) Str::uuid(),
     ]);
 
     Visit::factory()->create([
@@ -188,6 +191,7 @@ test('visit search matches visit number and patient identity', function () {
         'department_id' => $this->dentalDepartment->id,
         'workflow_id' => $this->dentalWorkflow->id,
         'visit_number' => 'V-TEST-0002',
+        'visit_token' => (string) Str::uuid(),
     ]);
 
     $this->getJson('/api/visits?search=V-TEST-0001')
@@ -212,6 +216,7 @@ test('ticket search matches queue number and patient name', function () {
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
         'visit_number' => 'V-TEST-0001',
+        'visit_token' => (string) Str::uuid(),
     ]);
 
     QueueTicket::factory()->create([
@@ -227,6 +232,7 @@ test('ticket search matches queue number and patient name', function () {
             'department_id' => $this->generalDepartment->id,
             'workflow_id' => $this->generalWorkflow->id,
             'visit_number' => 'V-TEST-0002',
+            'visit_token' => (string) Str::uuid(),
         ])->id,
         'workflow_step_id' => $this->docStep->id,
         'station_id' => $this->doctorStation1->id,
@@ -253,6 +259,7 @@ test('referral search matches reason and source patient identity', function () {
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
         'visit_number' => 'V-TEST-0001',
+        'visit_token' => (string) Str::uuid(),
     ]);
 
     $otherVisit = Visit::factory()->create([
@@ -260,6 +267,7 @@ test('referral search matches reason and source patient identity', function () {
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
         'visit_number' => 'V-TEST-0002',
+        'visit_token' => (string) Str::uuid(),
     ]);
 
     Referral::create([
@@ -351,11 +359,13 @@ test('allowed sort columns order results descending', function () {
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
         'visit_number' => 'V-TEST-0001',
+        'visit_token' => (string) Str::uuid(),
     ]);
     $visitB = Visit::factory()->create([
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
         'visit_number' => 'V-TEST-0002',
+        'visit_token' => (string) Str::uuid(),
     ]);
 
     $this->getJson('/api/visits?sort=visit_number&direction=desc')
@@ -442,6 +452,7 @@ test('queue acquisitions paginate by default', function () {
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
         'visit_number' => 'V-ACQ-0001',
+        'visit_token' => (string) Str::uuid(),
     ]);
 
     QueueAcquisition::create([
@@ -463,6 +474,7 @@ test('a visit exposes its active acquisition through a dedicated endpoint', func
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
         'visit_number' => 'V-ACQ-0002',
+        'visit_token' => (string) Str::uuid(),
     ]);
 
     $acquisition = QueueAcquisition::create([
