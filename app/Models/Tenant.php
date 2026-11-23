@@ -87,6 +87,14 @@ class Tenant extends Model
     }
 
     /**
+     * Get the display devices registered to the tenant.
+     */
+    public function displayDevices(): HasMany
+    {
+        return $this->hasMany(DisplayDevice::class);
+    }
+
+    /**
      * Get the subscription history for the tenant (preserved, never overwritten).
      */
     public function subscriptions(): HasMany

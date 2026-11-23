@@ -31,7 +31,7 @@ class ResolveKioskDevice
         abort_if($token === '', 403, 'A kiosk device credential is required.');
 
         try {
-            $device = $this->resolver->resolve($token);
+            $device = $this->resolver->resolveKiosk($token);
         } catch (InvalidStateException $e) {
             abort(403, $e->getMessage());
         }

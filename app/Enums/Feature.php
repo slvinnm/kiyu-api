@@ -22,6 +22,7 @@ enum Feature: string
     case MaxFacilities = 'max_facilities';
     case MaxStaff = 'max_staff';
     case MaxKioskDevices = 'max_kiosk_devices';
+    case MaxDisplayDevices = 'max_display_devices';
 
     /**
      * Whether the feature is a numeric limit rather than an on/off toggle.
@@ -29,7 +30,7 @@ enum Feature: string
     public function isLimit(): bool
     {
         return match ($this) {
-            self::MaxFacilities, self::MaxStaff, self::MaxKioskDevices => true,
+            self::MaxFacilities, self::MaxStaff, self::MaxKioskDevices, self::MaxDisplayDevices => true,
             default => false,
         };
     }

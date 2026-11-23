@@ -9,6 +9,8 @@ use App\Http\Controllers\Api\Billing\WebhookController;
 use App\Http\Controllers\Api\ClientController;
 use App\Http\Controllers\Api\ClinicalQueueController;
 use App\Http\Controllers\Api\DepartmentController;
+use App\Http\Controllers\Api\DisplayDeviceController;
+use App\Http\Controllers\Api\DisplayPairingController;
 use App\Http\Controllers\Api\FacilityController;
 use App\Http\Controllers\Api\IntakeController;
 use App\Http\Controllers\Api\KioskDeviceController;
@@ -76,6 +78,10 @@ Route::prefix('intake')->controller(IntakeController::class)->group(function () 
 // generated and receives its long-lived credential. Rate limited because the
 // code is short; the code is single-use and expires.
 Route::post('/kiosk/pair', [KioskPairingController::class, 'pair'])
+    ->middleware('throttle:10,1');
+
+// Display device onboarding: same redeem-a-code flow as the kiosk.
+Route::post('/display/pair', [DisplayPairingController::class, 'pair'])
     ->middleware('throttle:10,1');
 
 // Public queue display (without personally identifiable information)
@@ -340,6 +346,13 @@ Route::middleware(['auth:sanctum', 'tenant'])->group(function () {
     });
 
     Route::prefix('kiosk-devices')->controller(KioskDeviceController::class)->group(function () {
+        Route::get('/', 'index')->middleware('role:admin');
+        Route::post('/', 'store')->middleware('role:admin');
+        Route::delete('/{id}', 'destroy')->whereNumber('id')->middleware('role:admin');
+        Route::post('/{id}/pairing-code', 'reissuePairingCode')->whereNumber('id')->middleware('role:admin');
+    });
+
+    Route::prefix('display-devices')->controller(DisplayDeviceController::class)->group(function () {
         Route::get('/', 'index')->middleware('role:admin');
         Route::post('/', 'store')->middleware('role:admin');
         Route::delete('/{id}', 'destroy')->whereNumber('id')->middleware('role:admin');

@@ -60,6 +60,24 @@ return new class extends Migration
             $table->index(['tenant_id', 'facility_id']);
         });
 
+        Schema::create('display_devices', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('tenant_id')->constrained('tenants')->restrictOnDelete();
+            $table->foreignId('facility_id')->constrained('facilities')->restrictOnDelete();
+            $table->string('name');
+            $table->string('credential_hash', 64)->unique();
+            // Nullable = not yet paired; set when the device redeems its code.
+            $table->string('pairing_code_hash', 64)->nullable()->unique();
+            $table->timestamp('pairing_expires_at')->nullable();
+            $table->timestamp('paired_at')->nullable();
+            $table->boolean('is_active')->default(true);
+            $table->timestamp('last_seen_at')->nullable();
+            $table->timestamp('expires_at')->nullable();
+            $table->timestamps();
+
+            $table->index(['tenant_id', 'facility_id']);
+        });
+
         Schema::create('departments', function (Blueprint $table) {
             $table->id();
             $table->foreignId('facility_id')->constrained('facilities')->restrictOnDelete();
@@ -390,6 +408,7 @@ return new class extends Migration
         Schema::dropIfExists('users');
         Schema::dropIfExists('stations');
         Schema::dropIfExists('departments');
+        Schema::dropIfExists('display_devices');
         Schema::dropIfExists('kiosk_devices');
         Schema::dropIfExists('facilities');
         Schema::dropIfExists('tenants');

@@ -195,6 +195,7 @@ class SubscriptionService
             Feature::MaxFacilities => $tenant->facilities()->count(),
             Feature::MaxStaff => $tenant->users()->where('role', '!=', UserRole::Client->value)->count(),
             Feature::MaxKioskDevices => $tenant->kioskDevices()->count(),
+            Feature::MaxDisplayDevices => $tenant->displayDevices()->count(),
             default => 0,
         };
     }

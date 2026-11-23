@@ -36,8 +36,11 @@ class ResolvePublicTenant
      */
     public function handle(Request $request, Closure $next): Response
     {
+        // A paired kiosk or display device is the strongest locator: it pins
+        // both the tenant and the facility.
         try {
-            $device = $this->kioskDevices->resolve((string) $request->header('X-Kiosk-Token', ''));
+            $device = $this->kioskDevices->resolveKiosk((string) $request->header('X-Kiosk-Token', ''))
+                ?? $this->kioskDevices->resolveDisplay((string) $request->header('X-Display-Token', ''));
         } catch (InvalidStateException $e) {
             abort(403, $e->getMessage());
         }

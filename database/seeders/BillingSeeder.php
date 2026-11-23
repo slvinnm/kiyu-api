@@ -26,7 +26,7 @@ class BillingSeeder extends Seeder
             description: 'Time-limited trial of the core queue features.',
             prices: [],
             toggles: [Feature::QueueManagement],
-            limits: [[Feature::MaxFacilities, 1], [Feature::MaxStaff, 5], [Feature::MaxKioskDevices, 1]],
+            limits: [[Feature::MaxFacilities, 1], [Feature::MaxStaff, 5], [Feature::MaxKioskDevices, 1], [Feature::MaxDisplayDevices, 1]],
         );
 
         $this->plan(
@@ -38,7 +38,7 @@ class BillingSeeder extends Seeder
                 ['YEARLY', 1_500_000_00],
             ],
             toggles: [Feature::QueueManagement, Feature::BasicReports, Feature::WhatsAppNotifications],
-            limits: [[Feature::MaxFacilities, 1], [Feature::MaxStaff, 10], [Feature::MaxKioskDevices, 2]],
+            limits: [[Feature::MaxFacilities, 1], [Feature::MaxStaff, 10], [Feature::MaxKioskDevices, 2], [Feature::MaxDisplayDevices, 2]],
         );
 
         $this->plan(
@@ -55,7 +55,7 @@ class BillingSeeder extends Seeder
                 Feature::AdvancedReports,
                 Feature::WhatsAppNotifications,
             ],
-            limits: [[Feature::MaxFacilities, 5], [Feature::MaxStaff, 50], [Feature::MaxKioskDevices, 10]],
+            limits: [[Feature::MaxFacilities, 5], [Feature::MaxStaff, 50], [Feature::MaxKioskDevices, 10], [Feature::MaxDisplayDevices, 10]],
         );
 
         // Start the demo tenant on a trial so the billing endpoints and feature
