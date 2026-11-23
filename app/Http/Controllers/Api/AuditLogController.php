@@ -24,7 +24,7 @@ class AuditLogController extends Controller
             'user_id' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $query = AuditLog::query();
+        $query = AuditLog::query()->where('tenant_id', $this->tenantId());
 
         foreach (['action', 'entity_type', 'entity_id', 'user_id'] as $filter) {
             if (! empty($validated[$filter])) {

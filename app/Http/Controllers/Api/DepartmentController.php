@@ -19,6 +19,7 @@ class DepartmentController extends Controller
     {
         return response()->json([
             'data' => Department::query()
+                ->where('facility_id', $this->facilityId())
                 ->with('stations')
                 ->where('is_active', true)
                 ->where('display_in_kiosk', true)
@@ -33,7 +34,9 @@ class DepartmentController extends Controller
     {
         $validated = $this->validateTableQuery($request);
 
-        $query = Department::query()->with('stations');
+        $query = Department::query()
+            ->where('facility_id', $this->facilityId())
+            ->with('stations');
 
         if (! empty($validated['search'])) {
             $search = $validated['search'];
@@ -60,6 +63,7 @@ class DepartmentController extends Controller
     {
         return response()->json([
             'data' => Department::query()
+                ->where('facility_id', $this->facilityId())
                 ->withCount('stations')
                 ->orderBy('name')
                 ->get(['id', 'code', 'name', 'is_active', 'display_in_kiosk']),
@@ -72,18 +76,21 @@ class DepartmentController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'code' => ['required', 'string', 'max:50', 'unique:departments,code'],
+            'code' => ['required', 'string', 'max:50'],
             'name' => ['required', 'string', 'max:255'],
             'is_active' => ['nullable', 'boolean'],
             'display_in_kiosk' => ['nullable', 'boolean'],
         ]);
 
-        $department = Department::query()->create([
+        $department = new Department([
             'code' => $validated['code'],
             'name' => $validated['name'],
             'is_active' => $validated['is_active'] ?? true,
             'display_in_kiosk' => $validated['display_in_kiosk'] ?? true,
         ]);
+
+        $department->facility_id = $this->facilityId();
+        $department->save();
 
         return response()->json([
             'message' => 'Department created successfully.',
@@ -96,7 +103,10 @@ class DepartmentController extends Controller
      */
     public function show(int $id): JsonResponse
     {
-        $department = Department::query()->with(['stations', 'workflows.steps.station'])->findOrFail($id);
+        $department = Department::query()
+            ->where('facility_id', $this->facilityId())
+            ->with(['stations', 'workflows.steps.station'])
+            ->findOrFail($id);
 
         return response()->json([
             'data' => $department,
@@ -108,10 +118,12 @@ class DepartmentController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $department = Department::query()->findOrFail($id);
+        $department = Department::query()
+            ->where('facility_id', $this->facilityId())
+            ->findOrFail($id);
 
         $validated = $request->validate([
-            'code' => ['sometimes', 'required', 'string', 'max:50', 'unique:departments,code,' . $id],
+            'code' => ['sometimes', 'required', 'string', 'max:50'],
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'is_active' => ['nullable', 'boolean'],
             'display_in_kiosk' => ['nullable', 'boolean'],
@@ -130,7 +142,9 @@ class DepartmentController extends Controller
      */
     public function stations(int $id): JsonResponse
     {
-        $department = Department::query()->findOrFail($id);
+        $department = Department::query()
+            ->where('facility_id', $this->facilityId())
+            ->findOrFail($id);
 
         return response()->json([
             'data' => $department->stations,
@@ -142,7 +156,9 @@ class DepartmentController extends Controller
      */
     public function workflows(int $id): JsonResponse
     {
-        $department = Department::query()->findOrFail($id);
+        $department = Department::query()
+            ->where('facility_id', $this->facilityId())
+            ->findOrFail($id);
 
         return response()->json([
             'data' => $department->workflows()->with('steps.station')->get(),

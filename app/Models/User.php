@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\UserRole;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -49,15 +50,50 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'role' => UserRole::class,
+            'tenant_id' => 'integer',
         ];
     }
 
     /**
-     * Get the patient profile associated with the user.
+     * Whether the account operates inside a clinic tenant (any role except
+     * the platform role).
      */
-    public function patient(): HasOne
+    public function isTenantUser(): bool
     {
-        return $this->hasOne(Patient::class);
+        return $this->role?->isTenantRole() ?? false;
+    }
+
+    /**
+     * Whether the account is the platform operator.
+     */
+    public function isPlatformUser(): bool
+    {
+        return $this->role?->isPlatform() ?? false;
+    }
+
+    /**
+     * Whether the account holds one of the given roles.
+     */
+    public function hasRole(UserRole ...$roles): bool
+    {
+        return $this->role !== null && in_array($this->role, $roles, true);
+    }
+
+    /**
+     * Get the tenant the user belongs to.
+     */
+    public function tenant(): BelongsTo
+    {
+        return $this->belongsTo(Tenant::class);
+    }
+
+    /**
+     * Get the client profile associated with the user.
+     */
+    public function client(): HasOne
+    {
+        return $this->hasOne(Client::class);
     }
 
     /**

@@ -23,7 +23,7 @@ test('clinical call-next claims ticket for clinical station', function () {
 
     $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $intake['acquisition']['id'],
-        'patient_id' => $this->samplePatient->id,
+        'client_id' => $this->sampleClient->id,
     ]);
 
     // 2. Nurse calls next at nurse station
@@ -55,7 +55,7 @@ test('starting clinical service transitions ticket to IN_PROGRESS and transition
     $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
     $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $intake['acquisition']['id'],
-        'patient_id' => $this->samplePatient->id,
+        'client_id' => $this->sampleClient->id,
     ]);
 
     // Nurse calls next
@@ -96,7 +96,7 @@ test('holding a ticket sets status ON_HOLD and excludes it from call-next, then 
     $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
     $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $intake['acquisition']['id'],
-        'patient_id' => $this->samplePatient->id,
+        'client_id' => $this->sampleClient->id,
     ]);
 
     $nurseTicket = $this->postJson('/api/clinical/call-next', [
@@ -105,7 +105,7 @@ test('holding a ticket sets status ON_HOLD and excludes it from call-next, then 
 
     // Hold the ticket
     $holdRes = $this->postJson("/api/tickets/{$nurseTicket['id']}/hold", [
-        'notes' => 'Patient waiting for lab results',
+        'notes' => 'Client waiting for lab results',
     ]);
 
     $holdRes->assertStatus(200)
@@ -136,7 +136,7 @@ test('clinical completion advances workflow to next step and finally completes v
     $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
     $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $intake['acquisition']['id'],
-        'patient_id' => $this->samplePatient->id,
+        'client_id' => $this->sampleClient->id,
     ]);
 
     // 1. Nurse step (step 2)
@@ -172,7 +172,7 @@ test('clinical completion advances workflow to next step and finally completes v
     ]);
 });
 
-test('ticket transfer moves patient to another compatible station in the same department and step', function () {
+test('ticket transfer moves client to another compatible station in the same department and step', function () {
     $intake = $this->postJson('/api/intake/kiosk', [
         'department_id' => $this->generalDepartment->id,
     ])->json('data');
@@ -180,7 +180,7 @@ test('ticket transfer moves patient to another compatible station in the same de
     $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
     $reg = $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $intake['acquisition']['id'],
-        'patient_id' => $this->samplePatient->id,
+        'client_id' => $this->sampleClient->id,
     ])->json('data');
 
     // Complete Nurse step to reach Doctor step

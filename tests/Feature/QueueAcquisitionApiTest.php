@@ -20,7 +20,7 @@ test('queue acquisitions can be listed with filters', function () {
 
     // 2. Create online booking
     $this->postJson('/api/intake/online', [
-        'patient_id' => $this->samplePatient->id,
+        'client_id' => $this->sampleClient->id,
         'department_id' => $this->generalDepartment->id,
     ])->assertStatus(201);
 
@@ -66,7 +66,7 @@ test('queue acquisition can be cancelled and transitions visit to CANCELLED', fu
     $visitId = $intake['visit']['id'];
 
     $cancelRes = $this->postJson("/api/queue-acquisitions/{$acqId}/cancel", [
-        'reason' => 'Patient decided not to wait',
+        'reason' => 'Client decided not to wait',
         'user_id' => 'kiosk-admin',
     ]);
 
@@ -105,7 +105,7 @@ test('cannot cancel an acquisition that has already completed registration', fun
 
     $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $acqId,
-        'patient_id' => $this->samplePatient->id,
+        'client_id' => $this->sampleClient->id,
     ])->assertStatus(200);
 
     // Now try cancelling acquisition

@@ -9,6 +9,7 @@ use App\Exceptions\InvalidStateException;
 use App\Models\QueueEvent;
 use App\Models\QueueTicket;
 use App\Models\Station;
+use App\Models\Tenant;
 use App\Models\Visit;
 use App\Support\QueueBroadcast;
 use Illuminate\Support\Facades\DB;
@@ -24,9 +25,12 @@ class ClinicalQueueService
     /**
      * Call the next eligible ticket for a clinical station.
      */
-    public function callNext(int $stationId, ?string $assignedTo = null): ?QueueTicket
+    public function callNext(Tenant $tenant, int $stationId, ?string $assignedTo = null): ?QueueTicket
     {
-        $station = Station::query()->findOrFail($stationId);
+        $station = Station::query()
+            ->whereKey($stationId)
+            ->whereHas('department.facility', fn($q) => $q->where('tenant_id', $tenant->id))
+            ->firstOrFail();
         if (! $station->is_active) {
             throw new InvalidStateException("Station #{$stationId} is inactive.");
         }
@@ -71,7 +75,7 @@ class ClinicalQueueService
                 userId: $assignedTo
             );
 
-            return $ticket->load(['visit.patient', 'station', 'workflowStep']);
+            return $ticket->load(['visit.client', 'station', 'workflowStep']);
         });
 
         if ($ticket) {
@@ -116,7 +120,7 @@ class ClinicalQueueService
                 userId: $userId
             );
 
-            return $lockedTicket->load(['visit.patient', 'station', 'workflowStep']);
+            return $lockedTicket->load(['visit.client', 'station', 'workflowStep']);
         });
         QueueBroadcast::called($result);
 
@@ -170,7 +174,7 @@ class ClinicalQueueService
                 userId: $userId
             );
 
-            return $lockedTicket->fresh(['visit.patient', 'station', 'workflowStep']);
+            return $lockedTicket->fresh(['visit.client', 'station', 'workflowStep']);
         });
     }
 
@@ -210,7 +214,7 @@ class ClinicalQueueService
                 userId: $userId
             );
 
-            return $lockedTicket->fresh(['visit.patient', 'station', 'workflowStep']);
+            return $lockedTicket->fresh(['visit.client', 'station', 'workflowStep']);
         });
     }
 
@@ -248,7 +252,7 @@ class ClinicalQueueService
                 userId: $userId
             );
 
-            return $lockedTicket->fresh(['visit.patient', 'station', 'workflowStep']);
+            return $lockedTicket->fresh(['visit.client', 'station', 'workflowStep']);
         });
     }
 
@@ -337,7 +341,7 @@ class ClinicalQueueService
             return [
                 'ticket' => $lockedTicket->fresh(['station', 'workflowStep']),
                 'next_ticket' => $nextTicket?->load(['station', 'workflowStep']),
-                'visit' => $visit->fresh(['patient', 'department', 'workflow']),
+                'visit' => $visit->fresh(['client', 'department', 'workflow']),
             ];
         });
     }
@@ -443,9 +447,9 @@ class ClinicalQueueService
      *
      * @return array{old_ticket: QueueTicket, new_ticket: QueueTicket}
      */
-    public function transfer(QueueTicket $ticket, int $targetStationId, ?string $notes = null, ?string $userId = null): array
+    public function transfer(Tenant $tenant, QueueTicket $ticket, int $targetStationId, ?string $notes = null, ?string $userId = null): array
     {
-        return DB::transaction(function () use ($ticket, $targetStationId, $notes, $userId): array {
+        return DB::transaction(function () use ($tenant, $ticket, $targetStationId, $notes, $userId): array {
             /** @var QueueTicket $lockedTicket */
             $lockedTicket = QueueTicket::query()
                 ->with(['station', 'workflowStep.station'])
@@ -460,7 +464,10 @@ class ClinicalQueueService
                 throw new InvalidStateException('Target station cannot be the same as current station.');
             }
 
-            $targetStation = Station::query()->findOrFail($targetStationId);
+            $targetStation = Station::query()
+                ->whereKey($targetStationId)
+                ->whereHas('department.facility', fn($q) => $q->where('tenant_id', $tenant->id))
+                ->firstOrFail();
             if (! $targetStation->is_active) {
                 throw new InvalidStateException("Target station #{$targetStationId} is inactive.");
             }

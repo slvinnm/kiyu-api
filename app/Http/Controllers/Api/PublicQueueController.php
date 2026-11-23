@@ -21,6 +21,7 @@ class PublicQueueController extends Controller
         ]);
 
         $query = Station::query()
+            ->whereHas('department', fn($q) => $q->where('facility_id', $this->facilityId()))
             ->where('is_active', true)
             ->with(['department:id,name,code']);
 

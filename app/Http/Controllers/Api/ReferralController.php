@@ -30,7 +30,9 @@ class ReferralController extends Controller
             'status' => ['nullable', 'string', Rule::in(array_column(ReferralStatus::cases(), 'value'))],
         ]);
 
-        $query = Referral::query()->with(['sourceVisit.patient', 'targetDepartment', 'targetVisit']);
+        $query = Referral::query()
+            ->whereHas('sourceVisit', fn($q) => $q->where('tenant_id', $this->tenantId()))
+            ->with(['sourceVisit.client', 'targetDepartment', 'targetVisit']);
 
         foreach (['source_visit_id', 'target_department_id', 'status'] as $filter) {
             if (! empty($validated[$filter])) {
@@ -42,7 +44,7 @@ class ReferralController extends Controller
             $search = $validated['search'];
             $query->where(function ($q) use ($search): void {
                 $q->where('reason', 'like', "%{$search}%")
-                    ->orWhereHas('sourceVisit.patient', fn($q) => $q
+                    ->orWhereHas('sourceVisit.client', fn($q) => $q
                         ->where('name', 'like', "%{$search}%")
                         ->orWhere('mrn', 'like', "%{$search}%"));
             });
@@ -69,6 +71,7 @@ class ReferralController extends Controller
         ]);
 
         $result = $this->referralService->createReferral(
+            tenant: $this->tenant(),
             sourceVisitId: (int) $validated['source_visit_id'],
             targetDepartmentId: (int) $validated['target_department_id'],
             priority: isset($validated['priority']) ? (int) $validated['priority'] : null,
@@ -88,7 +91,8 @@ class ReferralController extends Controller
     public function show(int $id): JsonResponse
     {
         $referral = Referral::query()
-            ->with(['sourceVisit.patient', 'targetDepartment', 'targetVisit.queueTickets'])
+            ->whereHas('sourceVisit', fn($q) => $q->where('tenant_id', $this->tenantId()))
+            ->with(['sourceVisit.client', 'targetDepartment', 'targetVisit.queueTickets'])
             ->findOrFail($id);
 
         return response()->json(['data' => $referral]);

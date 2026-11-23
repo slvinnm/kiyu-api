@@ -1,5 +1,8 @@
 <?php
 
+use App\Enums\TenantStatus;
+use App\Models\Facility;
+use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -10,11 +13,25 @@ uses(RefreshDatabase::class);
 beforeEach(function () {
     Cache::flush();
 
+    $this->tenant = Tenant::query()->create([
+        'name' => 'Kiyu Demo Clinic',
+        'slug' => 'kiyu-demo',
+        'status' => TenantStatus::Active,
+    ]);
+
+    $this->facility = Facility::query()->create([
+        'tenant_id' => $this->tenant->id,
+        'name' => 'Kiyu Demo Facility',
+        'code' => 'MAIN',
+        'is_active' => true,
+    ]);
+
     $this->staffUser = User::factory()->create([
         'name' => 'Alice Resepsionis',
         'email' => 'staff@kiyu.test',
         'password' => Hash::make('password'),
         'role' => 'receptionist',
+        'tenant_id' => $this->tenant->id,
     ]);
 });
 
@@ -54,7 +71,7 @@ test('me requires authentication', function () {
 });
 
 test('me returns the authenticated user for a valid bearer token', function () {
-    $this->staffUser->update(['role' => 'doctor']);
+    $this->staffUser->update(['role' => 'staff']);
 
     $token = $this->postJson('/api/auth/login', [
         'email' => 'staff@kiyu.test',
@@ -65,7 +82,7 @@ test('me returns the authenticated user for a valid bearer token', function () {
         ->getJson('/api/auth/me')
         ->assertOk()
         ->assertJsonPath('data.email', 'staff@kiyu.test')
-        ->assertJsonPath('data.role', 'doctor');
+        ->assertJsonPath('data.role', 'staff');
 });
 
 test('logout revokes the token so it can no longer authenticate', function () {
@@ -90,29 +107,30 @@ test('logout revokes the token so it can no longer authenticate', function () {
         ->assertUnauthorized();
 });
 
-test('register creates a patient account and ignores injected privileged roles', function () {
-    $response = $this->postJson('/api/auth/register', [
-        'name' => 'Public Patient',
-        'email' => 'patient@kiyu.test',
+test('register creates a tenant-scoped client account and ignores injected privileged roles', function () {
+    $response = $this->withHeader('X-Tenant-Slug', 'kiyu-demo')->postJson('/api/auth/register', [
+        'name' => 'Public Client',
+        'email' => 'client@kiyu.test',
         'password' => 'password',
         'password_confirmation' => 'password',
         'role' => 'admin',
     ]);
 
     $response->assertCreated()
-        ->assertJsonPath('data.user.email', 'patient@kiyu.test')
-        ->assertJsonPath('data.user.role', 'patient');
+        ->assertJsonPath('data.user.email', 'client@kiyu.test')
+        ->assertJsonPath('data.user.role', 'client');
 
     expect($response->json('data.token'))->toBeString()->not->toBeEmpty();
 
     $this->assertDatabaseHas('users', [
-        'email' => 'patient@kiyu.test',
-        'role' => 'patient',
+        'email' => 'client@kiyu.test',
+        'role' => 'client',
+        'tenant_id' => $this->tenant->id,
     ]);
 });
 
 test('register rejects a duplicate email', function () {
-    $this->postJson('/api/auth/register', [
+    $this->withHeader('X-Tenant-Slug', 'kiyu-demo')->postJson('/api/auth/register', [
         'name' => 'Duplicate',
         'email' => 'staff@kiyu.test',
         'password' => 'password',
@@ -122,14 +140,21 @@ test('register rejects a duplicate email', function () {
 });
 
 test('staff endpoints require authentication', function () {
-    $this->getJson('/api/patients')->assertUnauthorized();
+    $this->getJson('/api/clients')->assertUnauthorized();
 
     $this->postJson('/api/intake/manual', [
         'department_id' => 1,
     ])->assertUnauthorized();
 });
 
-test('public kiosk endpoints remain accessible without a token', function () {
-    $this->getJson('/api/departments/active')->assertOk();
-    $this->getJson('/api/public/queue')->assertOk();
+test('public kiosk endpoints require a tenant locator but no user token', function () {
+    $this->getJson('/api/departments/active')->assertNotFound();
+
+    $this->withHeader('X-Tenant-Slug', 'kiyu-demo')
+        ->getJson('/api/departments/active')
+        ->assertOk();
+
+    $this->withHeader('X-Tenant-Slug', 'kiyu-demo')
+        ->getJson('/api/public/queue')
+        ->assertOk();
 });

@@ -10,14 +10,19 @@ class DatabaseSeeder extends Seeder
     use WithoutModelEvents;
 
     /**
-     * Seed the application's database.
+     * Seed the application's database with master data only.
+     *
+     * No operational flow is seeded: no visits, tickets, queues or referrals.
+     * Use the application or the tenant onboarding flow to exercise runtime
+     * behaviour.
      */
     public function run(): void
     {
         $this->call([
+            TenantSeeder::class,
             MasterDataSeeder::class,
-            UserStaffSeeder::class,
-            PatientSeeder::class,
+            UserSeeder::class,
+            BillingSeeder::class,
         ]);
     }
 }

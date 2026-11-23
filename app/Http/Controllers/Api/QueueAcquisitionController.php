@@ -26,7 +26,9 @@ class QueueAcquisitionController extends Controller
             'date' => ['nullable', 'date'],
         ]);
 
-        $query = QueueAcquisition::query()->with(['visit.patient', 'department', 'visit.workflow']);
+        $query = QueueAcquisition::query()
+            ->whereHas('visit', fn($q) => $q->where('tenant_id', $this->tenantId()))
+            ->with(['visit.client', 'department', 'visit.workflow']);
 
         if (! empty($validated['channel'])) {
             $query->where('channel', $validated['channel']);
@@ -58,7 +60,7 @@ class QueueAcquisitionController extends Controller
 
     public function show(int $id): JsonResponse
     {
-        $acquisition = $this->intakeService->getAcquisition($id);
+        $acquisition = $this->intakeService->getAcquisition($this->tenant(), $id);
 
         return response()->json([
             'message' => 'Queue acquisition retrieved.',
@@ -74,6 +76,7 @@ class QueueAcquisitionController extends Controller
         ]);
 
         $acquisition = $this->intakeService->cancelAcquisition(
+            tenant: $this->tenant(),
             id: $id,
             reason: $validated['reason'] ?? null,
             userId: $validated['user_id'] ?? null

@@ -13,14 +13,14 @@ beforeEach(function () {
     $this->setupHospital();
 });
 
-test('kiosk walk-in creates patient-less visit, acquisition and registration queue ticket', function () {
+test('kiosk walk-in creates client-less visit, acquisition and registration queue ticket', function () {
     $response = $this->postJson('/api/intake/kiosk', [
         'department_id' => $this->generalDepartment->id,
         'priority' => 1,
     ]);
 
     $response->assertStatus(201)
-        ->assertJsonPath('data.visit.patient_id', null)
+        ->assertJsonPath('data.visit.client_id', null)
         ->assertJsonPath('data.visit.status', VisitStatus::Waiting->value)
         ->assertJsonPath('data.visit.intake_channel', IntakeChannel::Kiosk->value)
         ->assertJsonPath('data.acquisition.status', QueueAcquisitionStatus::Acquired->value)
@@ -29,7 +29,7 @@ test('kiosk walk-in creates patient-less visit, acquisition and registration que
         ->assertJsonPath('data.ticket.queue_number', 'R001');
 
     $this->assertDatabaseHas('visits', [
-        'patient_id' => null,
+        'client_id' => null,
         'department_id' => $this->generalDepartment->id,
         'status' => VisitStatus::Waiting->value,
     ]);
@@ -45,7 +45,7 @@ test('kiosk walk-in creates patient-less visit, acquisition and registration que
     ]);
 });
 
-test('manual intake creates patient-less visit and registration queue ticket', function () {
+test('manual intake creates client-less visit and registration queue ticket', function () {
     $response = $this->postJson('/api/intake/manual', [
         'department_id' => $this->generalDepartment->id,
         'priority' => 2,
@@ -53,22 +53,22 @@ test('manual intake creates patient-less visit and registration queue ticket', f
     ]);
 
     $response->assertStatus(201)
-        ->assertJsonPath('data.visit.patient_id', null)
+        ->assertJsonPath('data.visit.client_id', null)
         ->assertJsonPath('data.visit.status', VisitStatus::Waiting->value)
         ->assertJsonPath('data.visit.priority', 2)
         ->assertJsonPath('data.ticket.priority', 2)
         ->assertJsonPath('data.ticket.status', QueueTicketStatus::Created->value);
 });
 
-test('online booking links existing patient, sets status AWAITING_CHECKIN, and creates NO queue ticket yet', function () {
+test('online booking links existing client, sets status AWAITING_CHECKIN, and creates NO queue ticket yet', function () {
     $response = $this->postJson('/api/intake/online', [
-        'patient_id' => $this->samplePatient->id,
+        'client_id' => $this->sampleClient->id,
         'department_id' => $this->generalDepartment->id,
         'priority' => 1,
     ]);
 
     $response->assertStatus(201)
-        ->assertJsonPath('data.visit.patient_id', $this->samplePatient->id)
+        ->assertJsonPath('data.visit.client_id', $this->sampleClient->id)
         ->assertJsonPath('data.visit.status', VisitStatus::AwaitingCheckin->value)
         ->assertJsonPath('data.ticket', null);
 
@@ -80,10 +80,10 @@ test('online booking links existing patient, sets status AWAITING_CHECKIN, and c
     ]);
 });
 
-test('online patient self check-in via kiosk transitions visit to WAITING and creates registration queue ticket', function () {
+test('online client self check-in via kiosk transitions visit to WAITING and creates registration queue ticket', function () {
     // 1. Create online booking
     $bookingResponse = $this->postJson('/api/intake/online', [
-        'patient_id' => $this->samplePatient->id,
+        'client_id' => $this->sampleClient->id,
         'department_id' => $this->generalDepartment->id,
     ]);
 
@@ -114,7 +114,7 @@ test('online patient self check-in via kiosk transitions visit to WAITING and cr
 
 test('online check-in rejects already checked-in visit', function () {
     $bookingResponse = $this->postJson('/api/intake/online', [
-        'patient_id' => $this->samplePatient->id,
+        'client_id' => $this->sampleClient->id,
         'department_id' => $this->generalDepartment->id,
     ]);
 

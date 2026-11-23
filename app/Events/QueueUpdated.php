@@ -3,6 +3,7 @@
 namespace App\Events;
 
 use Illuminate\Broadcasting\Channel;
+use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Support\Str;
@@ -19,6 +20,8 @@ class QueueUpdated implements ShouldBroadcastNow
     public ?string $eventId;
 
     public function __construct(
+        public ?int $tenantId = null,
+        public ?int $facilityId = null,
         public ?int $departmentId = null,
         public ?int $stationId = null,
         public string $reason = 'updated',
@@ -27,18 +30,22 @@ class QueueUpdated implements ShouldBroadcastNow
     }
 
     /**
-     * @return array<int, Channel>
+     * @return array<int, Channel|PrivateChannel>
      */
     public function broadcastOn(): array
     {
-        $channels = [new Channel('public.queue')];
+        $channels = [];
 
-        if ($this->departmentId !== null) {
-            $channels[] = new Channel("department.{$this->departmentId}");
+        if ($this->facilityId !== null) {
+            $channels[] = new Channel("public.facility.{$this->facilityId}");
         }
 
-        if ($this->stationId !== null) {
-            $channels[] = new Channel("station.{$this->stationId}");
+        if ($this->tenantId !== null && $this->departmentId !== null) {
+            $channels[] = new PrivateChannel("tenant.{$this->tenantId}.department.{$this->departmentId}");
+        }
+
+        if ($this->tenantId !== null && $this->stationId !== null) {
+            $channels[] = new PrivateChannel("tenant.{$this->tenantId}.station.{$this->stationId}");
         }
 
         return $channels;

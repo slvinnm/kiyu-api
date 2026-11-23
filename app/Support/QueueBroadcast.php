@@ -24,14 +24,14 @@ class QueueBroadcast
         return config('broadcasting.default') !== 'null';
     }
 
-    public static function updated(?int $departmentId, ?int $stationId, string $reason): void
+    public static function updated(?int $tenantId, ?int $facilityId, ?int $departmentId, ?int $stationId, string $reason): void
     {
         if (! self::enabled() || ($departmentId === null && $stationId === null)) {
             return;
         }
 
         try {
-            QueueUpdated::dispatch($departmentId, $stationId, $reason);
+            QueueUpdated::dispatch($tenantId, $facilityId, $departmentId, $stationId, $reason);
         } catch (\Throwable $e) {
             Log::warning('Queue update broadcast failed', [
                 'department_id' => $departmentId,
@@ -52,9 +52,11 @@ class QueueBroadcast
         }
 
         try {
-            $ticket->loadMissing(['station.department']);
+            $ticket->loadMissing(['station.department.facility']);
 
             QueueCalled::dispatch(
+                tenantId: $ticket->station->department?->facility?->tenant_id,
+                facilityId: $ticket->station->department?->facility_id,
                 departmentId: $ticket->station->department_id,
                 departmentCode: $ticket->station->department?->code,
                 stationId: $ticket->station_id,

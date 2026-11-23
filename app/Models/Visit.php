@@ -21,7 +21,9 @@ class Visit extends Model
      * @var list<string>
      */
     protected $fillable = [
-        'patient_id',
+        'tenant_id',
+        'facility_id',
+        'client_id',
         'department_id',
         'workflow_id',
         'visit_number',
@@ -51,11 +53,27 @@ class Visit extends Model
     ];
 
     /**
-     * Get the patient who owns this visit.
+     * Get the tenant that owns this visit.
      */
-    public function patient(): BelongsTo
+    public function tenant(): BelongsTo
     {
-        return $this->belongsTo(Patient::class);
+        return $this->belongsTo(Tenant::class);
+    }
+
+    /**
+     * Get the facility hosting this visit.
+     */
+    public function facility(): BelongsTo
+    {
+        return $this->belongsTo(Facility::class);
+    }
+
+    /**
+     * Get the client who owns this visit.
+     */
+    public function client(): BelongsTo
+    {
+        return $this->belongsTo(Client::class);
     }
 
     /**

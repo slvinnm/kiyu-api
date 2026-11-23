@@ -22,13 +22,13 @@ class VisitService
     ) {}
 
     /**
-     * Get the patient-facing tracking information for a visit.
+     * Get the client-facing tracking information for a visit.
      */
     public function getTrackingData(string $token): array
     {
         $visit = Visit::query()
             ->with([
-                'patient:id,name',
+                'client:id,name',
                 'department:id,code,name',
                 'workflow.steps.station:id,name,code',
                 'queueAcquisitions.department:id,code,name',
@@ -84,8 +84,8 @@ class VisitService
                 ],
             ],
 
-            'patient' => [
-                'name' => $visit->patient?->name,
+            'client' => [
+                'name' => $visit->client?->name,
             ],
 
             'department' => [
@@ -309,7 +309,7 @@ class VisitService
     }
 
     /**
-     * Get a patient-facing message for the visit status.
+     * Get a client-facing message for the visit status.
      */
     private function getTrackingStatusMessage(?string $status): string
     {
@@ -378,7 +378,7 @@ class VisitService
                 userId: $userId
             );
 
-            return $visit->fresh(['patient', 'department', 'workflow', 'queueTickets']);
+            return $visit->fresh(['client', 'department', 'workflow', 'queueTickets']);
         });
     }
 
@@ -431,7 +431,7 @@ class VisitService
                 userId: $userId
             );
 
-            return $visit->fresh(['patient', 'department', 'workflow', 'queueTickets']);
+            return $visit->fresh(['client', 'department', 'workflow', 'queueTickets']);
         });
     }
 }

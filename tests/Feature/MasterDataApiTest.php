@@ -66,15 +66,15 @@ test('workflow step creation and management', function () {
     $this->assertDatabaseMissing('workflow_steps', ['id' => $stepId]);
 });
 
-test('patient directory search and retrieval', function () {
+test('client directory search and retrieval', function () {
     // Search by name
-    $searchRes = $this->getJson('/api/patients?search=Budi');
+    $searchRes = $this->getJson('/api/clients?search=Budi');
     $searchRes->assertStatus(200)
         ->assertJsonCount(1, 'data.data')
         ->assertJsonPath('data.data.0.name', 'Budi Santoso');
 
-    // Show patient with visits
-    $this->getJson("/api/patients/{$this->samplePatient->id}")
+    // Show client with visits
+    $this->getJson("/api/clients/{$this->sampleClient->id}")
         ->assertStatus(200)
-        ->assertJsonPath('data.mrn', $this->samplePatient->mrn);
+        ->assertJsonPath('data.mrn', $this->sampleClient->mrn);
 });

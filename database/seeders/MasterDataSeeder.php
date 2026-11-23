@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Enums\StationType;
 use App\Models\Department;
+use App\Models\Facility;
 use App\Models\Station;
 use App\Models\Workflow;
 use App\Models\WorkflowStep;
@@ -13,10 +14,18 @@ class MasterDataSeeder extends Seeder
 {
     public function run(): void
     {
+        // All master data is owned by the demo tenant's facility. The
+        // TenantSeeder runs first and must have created it.
+        $facility = Facility::query()
+            ->whereHas('tenant', fn($query) => $query->where('slug', 'kiyu-demo'))
+            ->where('code', 'MAIN')
+            ->firstOrFail();
+
         // Departments
         $generalDepartment = Department::updateOrCreate(
             ['code' => 'GEN'],
             [
+                'facility_id' => $facility->id,
                 'name' => 'Poli Umum',
                 'is_active' => true,
                 'display_in_kiosk' => true,
@@ -26,6 +35,7 @@ class MasterDataSeeder extends Seeder
         $dentalDepartment = Department::updateOrCreate(
             ['code' => 'DNT'],
             [
+                'facility_id' => $facility->id,
                 'name' => 'Poli Gigi',
                 'is_active' => true,
                 'display_in_kiosk' => true,
@@ -73,6 +83,28 @@ class MasterDataSeeder extends Seeder
                 'name' => 'Apotek',
                 'type' => StationType::Pharmacy,
                 'queue_prefix' => 'P',
+                'is_active' => true,
+            ]
+        );
+
+        Station::firstOrCreate(
+            ['code' => 'GEN-LAB'],
+            [
+                'department_id' => $generalDepartment->id,
+                'name' => 'Laboratorium',
+                'type' => StationType::Laboratory,
+                'queue_prefix' => 'L',
+                'is_active' => true,
+            ]
+        );
+
+        Station::firstOrCreate(
+            ['code' => 'GEN-BIL'],
+            [
+                'department_id' => $generalDepartment->id,
+                'name' => 'Kasir',
+                'type' => StationType::Billing,
+                'queue_prefix' => 'K',
                 'is_active' => true,
             ]
         );

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
@@ -17,6 +18,7 @@ class Department extends Model
      * @var list<string>
      */
     protected $fillable = [
+        'facility_id',
         'code',
         'name',
         'is_active',
@@ -32,6 +34,14 @@ class Department extends Model
         'is_active' => 'boolean',
         'display_in_kiosk' => 'boolean',
     ];
+
+    /**
+     * Get the facility that owns the department.
+     */
+    public function facility(): BelongsTo
+    {
+        return $this->belongsTo(Facility::class);
+    }
 
     /**
      * Get the stations belonging to the department.

@@ -6,6 +6,7 @@ use App\Enums\UserRole;
 use App\Exceptions\InvalidStateException;
 use App\Http\Controllers\Api\Concerns\HandlesTableQuery;
 use App\Http\Controllers\Controller;
+use App\Models\Department;
 use App\Models\Station;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -25,12 +26,14 @@ class UserController extends Controller
         $this->authorizeAdmin($request);
 
         $validated = $this->validateTableQuery($request, [
-            'role' => ['nullable', 'string', Rule::in(array_column(UserRole::cases(), 'value'))],
+            'role' => ['nullable', 'string', Rule::in(UserRole::tenantValues())],
             'department_id' => ['nullable', 'integer', 'exists:departments,id'],
             'station_id' => ['nullable', 'integer', 'exists:stations,id'],
         ]);
 
-        $query = User::query()->with(['department', 'station']);
+        $query = User::query()
+            ->where('tenant_id', $this->tenantId())
+            ->with(['department', 'station']);
 
         if (! empty($validated['search'])) {
             $search = $validated['search'];
@@ -65,14 +68,14 @@ class UserController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'string', 'min:8'],
-            'role' => ['required', 'string', Rule::in(array_column(UserRole::cases(), 'value'))],
-            'department_id' => ['nullable', 'integer', 'exists:departments,id'],
-            'station_id' => ['nullable', 'integer', 'exists:stations,id'],
+            'role' => ['required', 'string', Rule::in(UserRole::tenantValues())],
+            'department_id' => ['nullable', 'integer'],
+            'station_id' => ['nullable', 'integer'],
         ]);
 
-        $this->validateStationDepartment($validated);
+        $this->validateAssignedOrganisation($validated);
 
-        $user = User::query()->create([
+        $user = new User([
             'name' => $validated['name'],
             'email' => $validated['email'],
             'password' => $validated['password'],
@@ -80,6 +83,9 @@ class UserController extends Controller
             'department_id' => $validated['department_id'] ?? null,
             'station_id' => $validated['station_id'] ?? null,
         ]);
+
+        $user->tenant_id = $this->tenantId();
+        $user->save();
 
         return response()->json([
             'message' => 'User created successfully.',
@@ -94,7 +100,10 @@ class UserController extends Controller
     {
         $this->authorizeAdmin($request);
 
-        $user = User::query()->with(['department', 'station'])->findOrFail($id);
+        $user = User::query()
+            ->where('tenant_id', $this->tenantId())
+            ->with(['department', 'station'])
+            ->findOrFail($id);
 
         return response()->json([
             'data' => $user,
@@ -108,7 +117,9 @@ class UserController extends Controller
     {
         $this->authorizeAdmin($request);
 
-        $user = User::query()->findOrFail($id);
+        $user = User::query()
+            ->where('tenant_id', $this->tenantId())
+            ->findOrFail($id);
 
         $validated = $request->validate([
             'name' => ['sometimes', 'required', 'string', 'max:255'],
@@ -120,12 +131,12 @@ class UserController extends Controller
                 Rule::unique('users', 'email')->ignore($user->id),
             ],
             'password' => ['sometimes', 'nullable', 'string', 'min:8'],
-            'role' => ['sometimes', 'required', 'string', Rule::in(array_column(UserRole::cases(), 'value'))],
-            'department_id' => ['nullable', 'integer', 'exists:departments,id'],
-            'station_id' => ['nullable', 'integer', 'exists:stations,id'],
+            'role' => ['sometimes', 'required', 'string', Rule::in(UserRole::tenantValues())],
+            'department_id' => ['nullable', 'integer'],
+            'station_id' => ['nullable', 'integer'],
         ]);
 
-        $this->validateStationDepartment($validated, $user);
+        $this->validateAssignedOrganisation($validated, $user);
 
         if (array_key_exists('password', $validated) && $validated['password'] === null) {
             unset($validated['password']);
@@ -146,13 +157,19 @@ class UserController extends Controller
     {
         $this->authorizeAdmin($request);
 
-        $user = User::query()->findOrFail($id);
+        $user = User::query()
+            ->where('tenant_id', $this->tenantId())
+            ->findOrFail($id);
 
         if ($request->user()->id === $user->id) {
             throw new InvalidStateException('You cannot delete your own account.');
         }
 
-        if ($user->role === UserRole::Admin->value && User::query()->where('role', UserRole::Admin->value)->count() <= 1) {
+        if ($user->role === UserRole::Admin
+            && User::query()
+                ->where('tenant_id', $this->tenantId())
+                ->where('role', UserRole::Admin->value)
+                ->count() <= 1) {
             throw new InvalidStateException('Cannot delete the last administrator.');
         }
 
@@ -165,29 +182,49 @@ class UserController extends Controller
 
     private function authorizeAdmin(Request $request): void
     {
-        abort_unless($request->user()?->role === UserRole::Admin->value, 403, 'Forbidden.');
+        abort_unless($request->user()?->role === UserRole::Admin, 403, 'Forbidden.');
     }
 
     /**
-     * Ensure a station belongs to the selected department when both are given.
+     * Ensure the assigned department and station belong to the current tenant,
+     * and that the station belongs to the selected department when both are given.
      *
      * @param  array<string, mixed>  $data
      */
-    private function validateStationDepartment(array $data, ?User $user = null): void
+    private function validateAssignedOrganisation(array $data, ?User $user = null): void
     {
+        $tenantId = $this->tenantId();
+
+        $departmentId = $data['department_id'] ?? $user?->department_id;
         $stationId = $data['station_id'] ?? null;
+
+        if ($departmentId !== null) {
+            $exists = Department::query()
+                ->whereKey($departmentId)
+                ->whereHas('facility', fn($query) => $query->where('tenant_id', $tenantId))
+                ->exists();
+
+            if (! $exists) {
+                throw ValidationException::withMessages([
+                    'department_id' => ['Department does not belong to your clinic.'],
+                ]);
+            }
+        }
 
         if ($stationId === null) {
             return;
         }
 
-        $station = Station::query()->find($stationId);
+        $station = Station::query()
+            ->whereKey($stationId)
+            ->whereHas('department.facility', fn($query) => $query->where('tenant_id', $tenantId))
+            ->first();
 
         if (! $station) {
-            return;
+            throw ValidationException::withMessages([
+                'station_id' => ['Station does not belong to your clinic.'],
+            ]);
         }
-
-        $departmentId = $data['department_id'] ?? $user?->department_id;
 
         if ($departmentId !== null && (int) $departmentId !== (int) $station->department_id) {
             throw ValidationException::withMessages([

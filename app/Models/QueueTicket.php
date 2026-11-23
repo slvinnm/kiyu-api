@@ -25,7 +25,10 @@ class QueueTicket extends Model
     {
         $emit = function (QueueTicket $ticket, string $reason): void {
             $stationId = $ticket->station_id;
-            $departmentId = $ticket->visit?->department_id;
+            $visit = $ticket->visit;
+            $departmentId = $visit?->department_id;
+            $tenantId = $visit?->tenant_id;
+            $facilityId = $visit?->facility_id;
 
             if ($departmentId === null && $stationId !== null) {
                 $departmentId = Station::query()
@@ -33,8 +36,8 @@ class QueueTicket extends Model
                     ->value('department_id');
             }
 
-            DB::afterCommit(function () use ($departmentId, $stationId, $reason): void {
-                QueueBroadcast::updated($departmentId, $stationId, $reason);
+            DB::afterCommit(function () use ($tenantId, $facilityId, $departmentId, $stationId, $reason): void {
+                QueueBroadcast::updated($tenantId, $facilityId, $departmentId, $stationId, $reason);
             });
         };
 

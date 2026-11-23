@@ -10,10 +10,13 @@ use App\Enums\QueueTicketStatus;
 use App\Enums\VisitStatus;
 use App\Exceptions\BusinessConflictException;
 use App\Exceptions\InvalidStateException;
-use App\Models\Patient;
+use App\Models\Client;
+use App\Models\Department;
+use App\Models\Facility;
 use App\Models\QueueAcquisition;
 use App\Models\QueueEvent;
 use App\Models\QueueTicket;
+use App\Models\Tenant;
 use App\Models\Visit;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -31,9 +34,14 @@ class IntakeService
      *
      * @return array{visit: Visit, acquisition: QueueAcquisition, ticket: QueueTicket}
      */
-    public function createKioskIntake(int $departmentId, int $priority = 1, ?string $idempotencyKey = null): array
-    {
+    public function createKioskIntake(
+        Tenant $tenant,
+        int $departmentId,
+        int $priority = 1,
+        ?string $idempotencyKey = null
+    ): array {
         return $this->processPhysicalIntake(
+            tenant: $tenant,
             departmentId: $departmentId,
             channel: IntakeChannel::Kiosk,
             priority: Priority::tryFrom($priority) ?? Priority::Normal,
@@ -47,12 +55,14 @@ class IntakeService
      * @return array{visit: Visit, acquisition: QueueAcquisition, ticket: QueueTicket}
      */
     public function createManualIntake(
+        Tenant $tenant,
         int $departmentId,
         int $priority = 1,
         ?string $idempotencyKey = null,
         ?string $registeredBy = null
     ): array {
         return $this->processPhysicalIntake(
+            tenant: $tenant,
             departmentId: $departmentId,
             channel: IntakeChannel::Manual,
             priority: Priority::tryFrom($priority) ?? Priority::Normal,
@@ -62,28 +72,34 @@ class IntakeService
     }
 
     /**
-     * Create an Online booking intake for an existing patient.
+     * Create an Online booking intake for an existing client.
      *
      * @return array{visit: Visit, acquisition: QueueAcquisition, ticket: null}
      */
     public function createOnlineBooking(
-        int $patientId,
+        Tenant $tenant,
+        int $clientId,
         int $departmentId,
         int $priority = 1,
         ?string $idempotencyKey = null
     ): array {
-        $patient = Patient::query()->findOrFail($patientId);
-        $workflow = $this->workflowService->resolvePrimaryWorkflow($departmentId);
+        $facility = $this->resolveFacility($tenant);
+
+        /** @var Client $client */
+        $client = Client::query()
+            ->where('tenant_id', $tenant->id)
+            ->findOrFail($clientId);
+
+        $department = $this->departmentWithin($tenant, $departmentId);
+        $workflow = $this->workflowService->resolvePrimaryWorkflow($department->id);
 
         if ($idempotencyKey) {
-            $existingAcq = QueueAcquisition::query()
-                ->where('idempotency_key', $idempotencyKey)
-                ->first();
+            $existingAcq = $this->findAcquisitionForTenant($tenant, $idempotencyKey);
 
             if ($existingAcq) {
-                if ($existingAcq->channel === IntakeChannel::Online && $existingAcq->department_id === $departmentId) {
+                if ($existingAcq->channel === IntakeChannel::Online && (int) $existingAcq->department_id === $departmentId) {
                     return [
-                        'visit' => $existingAcq->visit->load(['patient', 'department', 'workflow']),
+                        'visit' => $existingAcq->visit->load(['client', 'department', 'workflow']),
                         'acquisition' => $existingAcq,
                         'ticket' => null,
                     ];
@@ -92,15 +108,17 @@ class IntakeService
             }
         }
 
-        return DB::transaction(function () use ($patient, $departmentId, $workflow, $priority, $idempotencyKey): array {
-            $visitNumber = $this->sequenceService->generateVisitNumber();
+        return DB::transaction(function () use ($tenant, $facility, $client, $department, $workflow, $priority, $idempotencyKey): array {
+            $visitNumber = $this->sequenceService->generateVisitNumber($facility);
             $visitToken = (string) Str::uuid();
             $onlineActiveKey = (string) Str::uuid();
 
             /** @var Visit $visit */
             $visit = Visit::query()->create([
-                'patient_id' => $patient->id,
-                'department_id' => $departmentId,
+                'tenant_id' => $tenant->id,
+                'facility_id' => $facility->id,
+                'client_id' => $client->id,
+                'department_id' => $department->id,
                 'workflow_id' => $workflow->id,
                 'visit_number' => $visitNumber,
                 'visit_token' => $visitToken,
@@ -113,25 +131,26 @@ class IntakeService
             /** @var QueueAcquisition $acquisition */
             $acquisition = QueueAcquisition::query()->create([
                 'visit_id' => $visit->id,
-                'department_id' => $departmentId,
+                'department_id' => $department->id,
                 'channel' => IntakeChannel::Online,
                 'status' => QueueAcquisitionStatus::Acquired,
                 'idempotency_key' => $idempotencyKey,
             ]);
 
             $this->auditService->log(
+                tenant: $tenant,
                 action: 'ONLINE_BOOKING_CREATED',
                 entityType: 'Visit',
                 entityId: $visit->id,
                 metadata: [
                     'visit_number' => $visitNumber,
-                    'patient_id' => $patient->id,
-                    'department_id' => $departmentId,
+                    'client_id' => $client->id,
+                    'department_id' => $department->id,
                 ]
             );
 
             return [
-                'visit' => $visit->load(['patient', 'department', 'workflow']),
+                'visit' => $visit->load(['client', 'department', 'workflow']),
                 'acquisition' => $acquisition,
                 'ticket' => null,
             ];
@@ -141,24 +160,21 @@ class IntakeService
     /**
      * Preview / lookup online booking without checking in (for kiosk screen).
      *
-     * @return array{visit: Visit, patient_preview: array{name: string, mrn: string}, department: string, is_eligible_checkin: bool, status: string}
+     * @return array{visit: Visit, client_preview: array{name: string, mrn: string}, department: string, is_eligible_checkin: bool, status: string}
      */
-    public function lookupOnlineBooking(string $bookingIdentifier): array
+    public function lookupOnlineBooking(Tenant $tenant, string $bookingIdentifier): array
     {
         /** @var Visit|null $visit */
-        $visit = Visit::query()
-            ->with(['patient', 'department', 'workflow'])
-            ->where('online_active_key', $bookingIdentifier)
-            ->orWhere('visit_number', $bookingIdentifier)
-            ->orWhere('id', is_numeric($bookingIdentifier) ? (int) $bookingIdentifier : 0)
+        $visit = $this->bookingQuery($tenant, $bookingIdentifier)
+            ->with(['client', 'department', 'workflow'])
             ->first();
 
         if (! $visit) {
             throw new InvalidStateException("Visit not found for booking identifier '{$bookingIdentifier}'.");
         }
 
-        // Mask patient name for kiosk privacy (e.g., "Budi Santoso" -> "Bu** Sa*****")
-        $name = $visit->patient?->name ?? 'Unknown';
+        // Mask client name for kiosk privacy (e.g., "Budi Santoso" -> "Bu** Sa*****")
+        $name = $visit->client?->name ?? 'Unknown';
         $words = explode(' ', $name);
         $maskedWords = array_map(function ($word) {
             $len = strlen($word);
@@ -173,9 +189,9 @@ class IntakeService
         return [
             'visit_number' => $visit->visit_number,
             'booking_identifier' => $visit->online_active_key,
-            'patient_preview' => [
+            'client_preview' => [
                 'masked_name' => $maskedName,
-                'mrn' => $visit->patient?->mrn ?? '-',
+                'mrn' => $visit->client?->mrn ?? '-',
             ],
             'department_name' => $visit->department?->name ?? '-',
             'priority' => $visit->priority->value,
@@ -189,14 +205,11 @@ class IntakeService
      *
      * @return array{visit: Visit, ticket: QueueTicket}
      */
-    public function performOnlineCheckin(string $bookingIdentifier): array
+    public function performOnlineCheckin(Tenant $tenant, string $bookingIdentifier): array
     {
-        return DB::transaction(function () use ($bookingIdentifier): array {
+        return DB::transaction(function () use ($tenant, $bookingIdentifier): array {
             /** @var Visit|null $visit */
-            $visit = Visit::query()
-                ->where('online_active_key', $bookingIdentifier)
-                ->orWhere('visit_number', $bookingIdentifier)
-                ->orWhere('id', is_numeric($bookingIdentifier) ? (int) $bookingIdentifier : 0)
+            $visit = $this->bookingQuery($tenant, $bookingIdentifier)
                 ->lockForUpdate()
                 ->first();
 
@@ -249,6 +262,7 @@ class IntakeService
             ]);
 
             $this->auditService->log(
+                tenant: $tenant,
                 action: 'ONLINE_CHECKIN_COMPLETED',
                 entityType: 'Visit',
                 entityId: $visit->id,
@@ -259,7 +273,7 @@ class IntakeService
             );
 
             return [
-                'visit' => $visit->fresh(['patient', 'department', 'workflow']),
+                'visit' => $visit->fresh(['client', 'department', 'workflow']),
                 'ticket' => $ticket->load(['station', 'workflowStep']),
             ];
         });
@@ -271,20 +285,22 @@ class IntakeService
      * @return array{visit: Visit, acquisition: QueueAcquisition, ticket: QueueTicket}
      */
     protected function processPhysicalIntake(
+        Tenant $tenant,
         int $departmentId,
         IntakeChannel $channel,
         Priority $priority,
         ?string $idempotencyKey = null,
         ?string $registeredBy = null
     ): array {
+        $facility = $this->resolveFacility($tenant);
+        $department = $this->departmentWithin($tenant, $departmentId);
+
         if ($idempotencyKey) {
-            $existingAcq = QueueAcquisition::query()
-                ->where('idempotency_key', $idempotencyKey)
-                ->first();
+            $existingAcq = $this->findAcquisitionForTenant($tenant, $idempotencyKey);
 
             if ($existingAcq) {
-                if ($existingAcq->channel === $channel && $existingAcq->department_id === $departmentId) {
-                    $visit = $existingAcq->visit->load(['patient', 'department', 'workflow']);
+                if ($existingAcq->channel === $channel && (int) $existingAcq->department_id === $departmentId) {
+                    $visit = $existingAcq->visit->load(['client', 'department', 'workflow']);
                     $ticket = $visit->activeQueueTicket ?? $visit->queueTickets()->latest('id')->first();
 
                     return [
@@ -297,12 +313,14 @@ class IntakeService
             }
         }
 
-        $workflow = $this->workflowService->resolvePrimaryWorkflow($departmentId);
+        $workflow = $this->workflowService->resolvePrimaryWorkflow($department->id);
         $registrationStep = $this->workflowService->resolveRegistrationStep($workflow);
         $registrationStation = $registrationStep->station;
 
         return DB::transaction(function () use (
-            $departmentId,
+            $tenant,
+            $facility,
+            $department,
             $channel,
             $priority,
             $idempotencyKey,
@@ -311,14 +329,16 @@ class IntakeService
             $registrationStep,
             $registrationStation
         ): array {
-            $visitNumber = $this->sequenceService->generateVisitNumber();
+            $visitNumber = $this->sequenceService->generateVisitNumber($facility);
             $visitToken = (string) Str::uuid();
             $numbering = $this->sequenceService->generateQueueNumber($registrationStation);
 
             /** @var Visit $visit */
             $visit = Visit::query()->create([
-                'patient_id' => null,
-                'department_id' => $departmentId,
+                'tenant_id' => $tenant->id,
+                'facility_id' => $facility->id,
+                'client_id' => null,
+                'department_id' => $department->id,
                 'workflow_id' => $workflow->id,
                 'visit_number' => $visitNumber,
                 'visit_token' => $visitToken,
@@ -332,7 +352,7 @@ class IntakeService
             /** @var QueueAcquisition $acquisition */
             $acquisition = QueueAcquisition::query()->create([
                 'visit_id' => $visit->id,
-                'department_id' => $departmentId,
+                'department_id' => $department->id,
                 'channel' => $channel,
                 'status' => QueueAcquisitionStatus::Acquired,
                 'idempotency_key' => $idempotencyKey,
@@ -359,6 +379,7 @@ class IntakeService
             ]);
 
             $this->auditService->log(
+                tenant: $tenant,
                 action: 'PHYSICAL_INTAKE_CREATED',
                 entityType: 'Visit',
                 entityId: $visit->id,
@@ -370,7 +391,7 @@ class IntakeService
             );
 
             return [
-                'visit' => $visit->load(['patient', 'department', 'workflow']),
+                'visit' => $visit->load(['client', 'department', 'workflow']),
                 'acquisition' => $acquisition,
                 'ticket' => $ticket->load(['station', 'workflowStep']),
             ];
@@ -383,10 +404,10 @@ class IntakeService
      * Registration completion needs exactly this record; the list endpoint is
      * for managing acquisitions and should not be used as a lookup by visit.
      */
-    public function getActiveAcquisitionForVisit(int $visitId): ?QueueAcquisition
+    public function getActiveAcquisitionForVisit(Tenant $tenant, int $visitId): ?QueueAcquisition
     {
-        return QueueAcquisition::query()
-            ->with(['visit.patient', 'department', 'visit.workflow'])
+        return $this->acquisitionsWithin($tenant)
+            ->with(['visit.client', 'department', 'visit.workflow'])
             ->where('visit_id', $visitId)
             ->where('status', QueueAcquisitionStatus::Acquired)
             ->latest('id')
@@ -396,11 +417,11 @@ class IntakeService
     /**
      * Get a specific queue acquisition with full relations.
      */
-    public function getAcquisition(int $id): QueueAcquisition
+    public function getAcquisition(Tenant $tenant, int $id): QueueAcquisition
     {
-        return QueueAcquisition::query()
+        return $this->acquisitionsWithin($tenant)
             ->with([
-                'visit.patient',
+                'visit.client',
                 'department',
                 'visit.workflow',
                 'visit.queueTickets.station',
@@ -412,11 +433,15 @@ class IntakeService
     /**
      * Cancel a queue acquisition and its associated pending visit/tickets.
      */
-    public function cancelAcquisition(int $id, ?string $reason = null, ?string $userId = null): QueueAcquisition
-    {
-        return DB::transaction(function () use ($id, $reason, $userId): QueueAcquisition {
+    public function cancelAcquisition(
+        Tenant $tenant,
+        int $id,
+        ?string $reason = null,
+        ?string $userId = null
+    ): QueueAcquisition {
+        return DB::transaction(function () use ($tenant, $id, $reason, $userId): QueueAcquisition {
             /** @var QueueAcquisition $acquisition */
-            $acquisition = QueueAcquisition::query()
+            $acquisition = $this->acquisitionsWithin($tenant)
                 ->with('visit')
                 ->lockForUpdate()
                 ->findOrFail($id);
@@ -465,6 +490,7 @@ class IntakeService
             }
 
             $this->auditService->log(
+                tenant: $tenant,
                 action: 'ACQUISITION_CANCELLED',
                 entityType: 'QueueAcquisition',
                 entityId: $acquisition->id,
@@ -475,7 +501,75 @@ class IntakeService
                 userId: $userId
             );
 
-            return $acquisition->fresh(['visit.patient', 'department']);
+            return $acquisition->fresh(['visit.client', 'department']);
+        });
+    }
+
+    /**
+     * Resolve the tenant's single active facility for intake.
+     */
+    private function resolveFacility(Tenant $tenant): Facility
+    {
+        $facilities = $tenant->facilities()->where('is_active', true)->limit(2)->get();
+
+        if ($facilities->count() === 1) {
+            return $facilities->first();
+        }
+
+        if ($facilities->isEmpty()) {
+            throw new InvalidStateException("Tenant '{$tenant->slug}' has no active facility.");
+        }
+
+        throw new InvalidStateException(
+            "Tenant '{$tenant->slug}' has more than one active facility; a facility is required."
+        );
+    }
+
+    /**
+     * Resolve a department that belongs to the current tenant (and facility).
+     */
+    private function departmentWithin(Tenant $tenant, int $departmentId): Department
+    {
+        /** @var Department $department */
+        $department = Department::query()
+            ->whereHas('facility', fn($query) => $query->where('tenant_id', $tenant->id))
+            ->whereKey($departmentId)
+            ->firstOrFail();
+
+        return $department;
+    }
+
+    /**
+     * Scope an acquisition lookup to the current tenant through its visit.
+     */
+    private function acquisitionsWithin(Tenant $tenant)
+    {
+        return QueueAcquisition::query()
+            ->whereHas('visit', fn($query) => $query->where('tenant_id', $tenant->id));
+    }
+
+    /**
+     * Find an acquisition by idempotency key inside the current tenant only.
+     */
+    private function findAcquisitionForTenant(Tenant $tenant, string $idempotencyKey): ?QueueAcquisition
+    {
+        return $this->acquisitionsWithin($tenant)
+            ->with('visit')
+            ->where('idempotency_key', $idempotencyKey)
+            ->first();
+    }
+
+    /**
+     * Build a tenant-scoped lookup for an online booking identifier.
+     */
+    private function bookingQuery(Tenant $tenant, string $bookingIdentifier)
+    {
+        $query = Visit::query()->where('tenant_id', $tenant->id);
+
+        return $query->where(function ($inner) use ($bookingIdentifier): void {
+            $inner->where('online_active_key', $bookingIdentifier)
+                ->orWhere('visit_number', $bookingIdentifier)
+                ->orWhere('id', is_numeric($bookingIdentifier) ? (int) $bookingIdentifier : 0);
         });
     }
 }

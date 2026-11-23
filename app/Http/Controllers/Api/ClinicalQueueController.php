@@ -25,6 +25,7 @@ class ClinicalQueueController extends Controller
         ]);
 
         $ticket = $this->clinicalQueueService->callNext(
+            tenant: $this->tenant(),
             stationId: (int) $validated['station_id'],
             assignedTo: $validated['assigned_to'] ?? $request->user()?->email
         );
@@ -47,7 +48,7 @@ class ClinicalQueueController extends Controller
      */
     public function recall(Request $request, int $id): JsonResponse
     {
-        $ticket = QueueTicket::query()->findOrFail($id);
+        $ticket = $this->findTicket($id);
         $userId = $request->input('user_id');
 
         $result = $this->clinicalQueueService->recall($ticket, $userId);
@@ -63,7 +64,7 @@ class ClinicalQueueController extends Controller
      */
     public function start(Request $request, int $id): JsonResponse
     {
-        $ticket = QueueTicket::query()->findOrFail($id);
+        $ticket = $this->findTicket($id);
         $userId = $request->input('user_id');
 
         $result = $this->clinicalQueueService->start($ticket, $userId);
@@ -79,7 +80,7 @@ class ClinicalQueueController extends Controller
      */
     public function hold(Request $request, int $id): JsonResponse
     {
-        $ticket = QueueTicket::query()->findOrFail($id);
+        $ticket = $this->findTicket($id);
         $notes = $request->input('notes');
         $userId = $request->input('user_id');
 
@@ -96,7 +97,7 @@ class ClinicalQueueController extends Controller
      */
     public function resume(Request $request, int $id): JsonResponse
     {
-        $ticket = QueueTicket::query()->findOrFail($id);
+        $ticket = $this->findTicket($id);
         $userId = $request->input('user_id');
 
         $result = $this->clinicalQueueService->resume($ticket, $userId);
@@ -112,7 +113,7 @@ class ClinicalQueueController extends Controller
      */
     public function complete(Request $request, int $id): JsonResponse
     {
-        $ticket = QueueTicket::query()->findOrFail($id);
+        $ticket = $this->findTicket($id);
         $notes = $request->input('notes');
         $userId = $request->input('user_id');
 
@@ -129,7 +130,7 @@ class ClinicalQueueController extends Controller
      */
     public function skip(Request $request, int $id): JsonResponse
     {
-        $ticket = QueueTicket::query()->findOrFail($id);
+        $ticket = $this->findTicket($id);
         $notes = $request->input('notes');
         $userId = $request->input('user_id');
 
@@ -146,7 +147,7 @@ class ClinicalQueueController extends Controller
      */
     public function noShow(Request $request, int $id): JsonResponse
     {
-        $ticket = QueueTicket::query()->findOrFail($id);
+        $ticket = $this->findTicket($id);
         $notes = $request->input('notes');
         $userId = $request->input('user_id');
 
@@ -163,7 +164,7 @@ class ClinicalQueueController extends Controller
      */
     public function cancel(Request $request, int $id): JsonResponse
     {
-        $ticket = QueueTicket::query()->findOrFail($id);
+        $ticket = $this->findTicket($id);
         $notes = $request->input('notes');
         $userId = $request->input('user_id');
 
@@ -186,9 +187,10 @@ class ClinicalQueueController extends Controller
             'user_id' => ['nullable', 'string'],
         ]);
 
-        $ticket = QueueTicket::query()->findOrFail($id);
+        $ticket = $this->findTicket($id);
 
         $result = $this->clinicalQueueService->transfer(
+            tenant: $this->tenant(),
             ticket: $ticket,
             targetStationId: (int) $validated['target_station_id'],
             notes: $validated['notes'] ?? null,
@@ -199,5 +201,15 @@ class ClinicalQueueController extends Controller
             'message' => "Ticket {$ticket->queue_number} transferred successfully to new station.",
             'data' => $result,
         ]);
+    }
+
+    /**
+     * Resolve a ticket that belongs to the current tenant.
+     */
+    private function findTicket(int $id): QueueTicket
+    {
+        return QueueTicket::query()
+            ->whereHas('visit', fn($q) => $q->where('tenant_id', $this->tenantId()))
+            ->findOrFail($id);
     }
 }

@@ -6,6 +6,7 @@ use App\Enums\QueueTicketStatus;
 use App\Enums\StationType;
 use App\Http\Controllers\Api\Concerns\HandlesTableQuery;
 use App\Http\Controllers\Controller;
+use App\Models\Department;
 use App\Models\Station;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -25,7 +26,9 @@ class StationController extends Controller
             'type' => ['nullable', 'string', Rule::in(array_column(StationType::cases(), 'value'))],
         ]);
 
-        $query = Station::query()->with('department');
+        $query = Station::query()
+            ->whereHas('department', fn($q) => $q->where('facility_id', $this->facilityId()))
+            ->with('department');
 
         if (! empty($validated['department_id'])) {
             $query->where('department_id', $validated['department_id']);
@@ -67,7 +70,9 @@ class StationController extends Controller
             'type' => ['nullable', 'string', Rule::in(array_column(StationType::cases(), 'value'))],
         ]);
 
-        $query = Station::query()->orderBy('name');
+        $query = Station::query()
+            ->whereHas('department', fn($q) => $q->where('facility_id', $this->facilityId()))
+            ->orderBy('name');
 
         if (! empty($validated['department_id'])) {
             $query->where('department_id', $validated['department_id']);
@@ -96,13 +101,18 @@ class StationController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'department_id' => ['required', 'integer', 'exists:departments,id'],
+            'department_id' => ['required', 'integer'],
             'name' => ['required', 'string', 'max:255'],
-            'code' => ['required', 'string', 'max:50', 'unique:stations,code'],
+            'code' => ['required', 'string', 'max:50'],
             'type' => ['required', Rule::enum(StationType::class)],
             'queue_prefix' => ['nullable', 'string', 'max:10'],
             'is_active' => ['nullable', 'boolean'],
         ]);
+
+        // The department must belong to the current tenant's facility.
+        Department::query()
+            ->where('facility_id', $this->facilityId())
+            ->findOrFail($validated['department_id']);
 
         $station = Station::query()->create([
             'department_id' => $validated['department_id'],
@@ -124,7 +134,10 @@ class StationController extends Controller
      */
     public function show(int $id): JsonResponse
     {
-        $station = Station::query()->with('department')->findOrFail($id);
+        $station = Station::query()
+            ->whereHas('department', fn($q) => $q->where('facility_id', $this->facilityId()))
+            ->with('department')
+            ->findOrFail($id);
 
         return response()->json([
             'data' => $station,
@@ -136,12 +149,14 @@ class StationController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $station = Station::query()->findOrFail($id);
+        $station = Station::query()
+            ->whereHas('department', fn($q) => $q->where('facility_id', $this->facilityId()))
+            ->findOrFail($id);
 
         $validated = $request->validate([
-            'department_id' => ['sometimes', 'required', 'integer', 'exists:departments,id'],
+            'department_id' => ['sometimes', 'required', 'integer'],
             'name' => ['sometimes', 'required', 'string', 'max:255'],
-            'code' => ['sometimes', 'required', 'string', 'max:50', 'unique:stations,code,' . $id],
+            'code' => ['sometimes', 'required', 'string', 'max:50'],
             'type' => ['sometimes', 'required', Rule::enum(StationType::class)],
             'queue_prefix' => ['nullable', 'string', 'max:10'],
             'is_active' => ['nullable', 'boolean'],
@@ -160,10 +175,12 @@ class StationController extends Controller
      */
     public function queue(int $id): JsonResponse
     {
-        $station = Station::query()->findOrFail($id);
+        $station = Station::query()
+            ->whereHas('department', fn($q) => $q->where('facility_id', $this->facilityId()))
+            ->findOrFail($id);
 
         $tickets = $station->queueTickets()
-            ->with(['visit.patient', 'workflowStep'])
+            ->with(['visit.client', 'workflowStep'])
             ->whereIn('status', [
                 QueueTicketStatus::Created,
                 QueueTicketStatus::Called,

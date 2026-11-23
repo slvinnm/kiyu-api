@@ -5,30 +5,30 @@ namespace App\Http\Controllers\Api;
 use App\Exceptions\InvalidStateException;
 use App\Http\Controllers\Api\Concerns\HandlesTableQuery;
 use App\Http\Controllers\Controller;
-use App\Models\Patient;
+use App\Models\Client;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
-class PatientController extends Controller
+class ClientController extends Controller
 {
     use HandlesTableQuery;
 
     /**
-     * Search and list patients.
+     * Search and list clients.
      */
     public function index(Request $request): JsonResponse
     {
-        // Patients must not enumerate the patient directory; they read their
-        // own profile through /auth/me or GET /patients/{id}.
-        abort_if($this->isPatient($request), 403, 'Forbidden.');
+        // Clients must not enumerate the client directory; they read their
+        // own profile through /auth/me or GET /clients/{id}.
+        abort_if($this->isClient($request), 403, 'Forbidden.');
 
         $validated = $this->validateTableQuery($request, [
             'nik' => ['nullable', 'string', 'max:50'],
             'mrn' => ['nullable', 'string', 'max:50'],
         ]);
 
-        $query = Patient::query();
+        $query = Client::query()->where('tenant_id', $this->tenantId());
 
         if (! empty($validated['search'])) {
             $search = $validated['search'];
@@ -60,24 +60,24 @@ class PatientController extends Controller
      */
     public function statistics(Request $request): JsonResponse
     {
-        abort_if($this->isPatient($request), 403, 'Forbidden.');
+        abort_if($this->isClient($request), 403, 'Forbidden.');
 
         return response()->json([
             'data' => [
-                'total' => Patient::query()->count(),
+                'total' => Client::query()->where('tenant_id', $this->tenantId())->count(),
             ],
         ]);
     }
 
     /**
-     * Create a patient.
+     * Create a client.
      */
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'nik' => ['nullable', 'string', 'max:50', 'unique:patients,nik'],
-            'mrn' => ['nullable', 'string', 'max:50', 'unique:patients,mrn'],
+            'nik' => ['nullable', 'string', 'max:50'],
+            'mrn' => ['nullable', 'string', 'max:50'],
             'date_of_birth' => ['nullable', 'date'],
             'gender' => ['nullable', 'string', 'max:10'],
             'phone' => ['nullable', 'string', 'max:30'],
@@ -86,17 +86,17 @@ class PatientController extends Controller
             'user_id' => ['nullable', 'integer', 'exists:users,id'],
         ]);
 
-        // A patient may only create their own profile. Without this, any
-        // authenticated account could attach a patient record to another user.
-        if ($this->isPatient($request)) {
+        // A client may only create their own profile. Without this, any
+        // authenticated account could attach a client record to another user.
+        if ($this->isClient($request)) {
             $userId = $request->user()->id;
 
             if (! empty($validated['user_id']) && (int) $validated['user_id'] !== $userId) {
                 abort(403, 'Forbidden.');
             }
 
-            if (Patient::query()->where('user_id', $userId)->exists()) {
-                throw new InvalidStateException('A patient profile already exists for this account.');
+            if (Client::query()->where('user_id', $userId)->exists()) {
+                throw new InvalidStateException('A client profile already exists for this account.');
             }
 
             $validated['user_id'] = $userId;
@@ -104,7 +104,7 @@ class PatientController extends Controller
 
         $mrn = $validated['mrn'] ?? ('MRN-' . strtoupper(Str::random(8)));
 
-        $patient = Patient::query()->create([
+        $client = new Client([
             'name' => $validated['name'],
             'nik' => $validated['nik'] ?? null,
             'mrn' => $mrn,
@@ -116,39 +116,47 @@ class PatientController extends Controller
             'user_id' => $validated['user_id'] ?? null,
         ]);
 
+        $client->tenant_id = $this->tenantId();
+        $client->save();
+
         return response()->json([
-            'message' => 'Patient created successfully.',
-            'data' => $patient,
+            'message' => 'Client created successfully.',
+            'data' => $client,
         ], 201);
     }
 
     /**
-     * Show a patient.
+     * Show a client.
      */
     public function show(Request $request, int $id): JsonResponse
     {
-        $this->authorizePatientRecord($request, $id);
+        $this->authorizeClientRecord($request, $id);
 
-        $patient = Patient::query()->with(['visits.department', 'visits.activeQueueTicket'])->findOrFail($id);
+        $client = Client::query()
+            ->where('tenant_id', $this->tenantId())
+            ->with(['visits.department', 'visits.activeQueueTicket'])
+            ->findOrFail($id);
 
         return response()->json([
-            'data' => $patient,
+            'data' => $client,
         ]);
     }
 
     /**
-     * Update a patient.
+     * Update a client.
      */
     public function update(Request $request, int $id): JsonResponse
     {
-        $this->authorizePatientRecord($request, $id);
+        $this->authorizeClientRecord($request, $id);
 
-        $patient = Patient::query()->findOrFail($id);
+        $client = Client::query()
+            ->where('tenant_id', $this->tenantId())
+            ->findOrFail($id);
 
         $validated = $request->validate([
             'name' => ['sometimes', 'required', 'string', 'max:255'],
-            'nik' => ['nullable', 'string', 'max:50', 'unique:patients,nik,' . $id],
-            'mrn' => ['nullable', 'string', 'max:50', 'unique:patients,mrn,' . $id],
+            'nik' => ['nullable', 'string', 'max:50'],
+            'mrn' => ['nullable', 'string', 'max:50'],
             'date_of_birth' => ['nullable', 'date'],
             'gender' => ['nullable', 'string', 'max:10'],
             'phone' => ['nullable', 'string', 'max:30'],
@@ -156,40 +164,46 @@ class PatientController extends Controller
             'address' => ['nullable', 'string'],
         ]);
 
-        $patient->update($validated);
+        $client->update($validated);
 
         return response()->json([
-            'message' => 'Patient updated successfully.',
-            'data' => $patient,
+            'message' => 'Client updated successfully.',
+            'data' => $client,
         ]);
     }
 
     /**
-     * Get visits for a patient.
+     * Get visits for a client.
      */
     public function visits(Request $request, int $id): JsonResponse
     {
-        $this->authorizePatientRecord($request, $id);
+        $this->authorizeClientRecord($request, $id);
 
-        $patient = Patient::query()->findOrFail($id);
+        $client = Client::query()
+            ->where('tenant_id', $this->tenantId())
+            ->findOrFail($id);
 
         return response()->json([
-            'data' => $patient->visits()->with(['department', 'workflow', 'activeQueueTicket'])->latest('id')->get(),
+            'data' => $client->visits()
+                ->where('tenant_id', $this->tenantId())
+                ->with(['department', 'workflow', 'activeQueueTicket'])
+                ->latest('id')
+                ->get(),
         ]);
     }
 
     /**
-     * Deny a patient account access to another patient's record.
+     * Deny a client account access to another client's record.
      *
      * Staff operations (reception, admin) are unrestricted here and keep their
-     * existing behaviour; only the patient role is scoped to its own record.
+     * existing behaviour; only the client role is scoped to its own record.
      */
-    private function authorizePatientRecord(Request $request, int $patientId): void
+    private function authorizeClientRecord(Request $request, int $clientId): void
     {
-        if (! $this->isPatient($request)) {
+        if (! $this->isClient($request)) {
             return;
         }
 
-        abort_unless($this->patientId($request) === $patientId, 403, 'Forbidden.');
+        abort_unless($this->clientId($request) === $clientId, 403, 'Forbidden.');
     }
 }

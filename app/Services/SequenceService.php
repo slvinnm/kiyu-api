@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Exceptions\InvalidStateException;
+use App\Models\Facility;
 use App\Models\QueueCounter;
 use App\Models\Station;
 use App\Models\VisitCounter;
@@ -11,14 +13,21 @@ use Illuminate\Support\Facades\DB;
 class SequenceService
 {
     /**
-     * Generate the next unique visit number for today.
+     * Generate the next visit number for a facility today.
+     *
+     * The counter is keyed by facility and date, so two facilities may emit the
+     * same formatted number without colliding. The counter row is never reset;
+     * `last_sequence` continues from whatever already exists.
      */
-    public function generateVisitNumber(): string
+    public function generateVisitNumber(Facility $facility): string
     {
         $today = Carbon::today()->format('Y-m-d');
 
-        return DB::transaction(function () use ($today): string {
-            $counter = $this->lockCounter(VisitCounter::class, ['counter_date' => $today]);
+        return DB::transaction(function () use ($facility, $today): string {
+            $counter = $this->lockCounter(VisitCounter::class, [
+                'facility_id' => $facility->id,
+                'counter_date' => $today,
+            ]);
 
             $counter->last_sequence += 1;
             $counter->save();
@@ -29,6 +38,9 @@ class SequenceService
 
     /**
      * Generate the next queue number and internal sequence for a station today.
+     *
+     * The station is expected to have been authorised for the current tenant
+     * and facility before this is called.
      *
      * @return array{queue_number: string, internal_sequence: int}
      */
@@ -69,6 +81,10 @@ class SequenceService
      */
     private function lockCounter(string $model, array $keys): QueueCounter|VisitCounter
     {
+        if (! array_key_exists('counter_date', $keys)) {
+            throw new InvalidStateException('A counter key must include counter_date.');
+        }
+
         $model::query()->insertOrIgnore($keys + ['last_sequence' => 0]);
 
         /** @var QueueCounter|VisitCounter */

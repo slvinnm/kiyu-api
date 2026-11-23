@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Api\Concerns\HandlesTableQuery;
 use App\Http\Controllers\Controller;
+use App\Models\Department;
 use App\Models\Workflow;
 use App\Models\WorkflowStep;
 use Illuminate\Http\JsonResponse;
@@ -22,7 +23,9 @@ class WorkflowController extends Controller
             'department_id' => ['nullable', 'integer', 'exists:departments,id'],
         ]);
 
-        $query = Workflow::query()->with(['department', 'steps.station']);
+        $query = Workflow::query()
+            ->whereHas('department', fn($q) => $q->where('facility_id', $this->facilityId()))
+            ->with(['department', 'steps.station']);
 
         if (! empty($validated['department_id'])) {
             $query->where('department_id', $validated['department_id']);
@@ -50,7 +53,9 @@ class WorkflowController extends Controller
     {
         return response()->json([
             'data' => [
-                'total' => Workflow::query()->count(),
+                'total' => Workflow::query()
+                    ->whereHas('department', fn($q) => $q->where('facility_id', $this->facilityId()))
+                    ->count(),
             ],
         ]);
     }
@@ -61,10 +66,14 @@ class WorkflowController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'department_id' => ['required', 'integer', 'exists:departments,id'],
+            'department_id' => ['required', 'integer'],
             'name' => ['required', 'string', 'max:255'],
             'is_active' => ['nullable', 'boolean'],
         ]);
+
+        Department::query()
+            ->where('facility_id', $this->facilityId())
+            ->findOrFail($validated['department_id']);
 
         $workflow = Workflow::query()->create([
             'department_id' => $validated['department_id'],
@@ -83,7 +92,10 @@ class WorkflowController extends Controller
      */
     public function show(int $id): JsonResponse
     {
-        $workflow = Workflow::query()->with(['department', 'steps.station'])->findOrFail($id);
+        $workflow = Workflow::query()
+            ->whereHas('department', fn($q) => $q->where('facility_id', $this->facilityId()))
+            ->with(['department', 'steps.station'])
+            ->findOrFail($id);
 
         return response()->json([
             'data' => $workflow,
@@ -95,10 +107,12 @@ class WorkflowController extends Controller
      */
     public function addStep(Request $request, int $id): JsonResponse
     {
-        $workflow = Workflow::query()->findOrFail($id);
+        $workflow = Workflow::query()
+            ->whereHas('department', fn($q) => $q->where('facility_id', $this->facilityId()))
+            ->findOrFail($id);
 
         $validated = $request->validate([
-            'station_id' => ['required', 'integer', 'exists:stations,id'],
+            'station_id' => ['required', 'integer'],
             'name' => ['required', 'string', 'max:255'],
             'sequence' => ['required', 'integer', 'min:1'],
             'is_active' => ['nullable', 'boolean'],
@@ -132,10 +146,12 @@ class WorkflowController extends Controller
      */
     public function updateStep(Request $request, int $id): JsonResponse
     {
-        $step = WorkflowStep::query()->findOrFail($id);
+        $step = WorkflowStep::query()
+            ->whereHas('workflow.department', fn($q) => $q->where('facility_id', $this->facilityId()))
+            ->findOrFail($id);
 
         $validated = $request->validate([
-            'station_id' => ['sometimes', 'required', 'integer', 'exists:stations,id'],
+            'station_id' => ['sometimes', 'required', 'integer'],
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'sequence' => ['sometimes', 'required', 'integer', 'min:1'],
             'is_active' => ['nullable', 'boolean'],
@@ -159,7 +175,9 @@ class WorkflowController extends Controller
      */
     public function deleteStep(int $id): JsonResponse
     {
-        $step = WorkflowStep::query()->findOrFail($id);
+        $step = WorkflowStep::query()
+            ->whereHas('workflow.department', fn($q) => $q->where('facility_id', $this->facilityId()))
+            ->findOrFail($id);
         $step->delete();
 
         return response()->json([

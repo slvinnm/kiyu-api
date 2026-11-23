@@ -3,15 +3,25 @@
 namespace Tests;
 
 use App\Enums\StationType;
+use App\Enums\TenantStatus;
+use App\Models\Client;
 use App\Models\Department;
-use App\Models\Patient;
+use App\Models\Facility;
+use App\Models\KioskDevice;
 use App\Models\Station;
+use App\Models\Tenant;
 use App\Models\User;
 use App\Models\Workflow;
 use App\Models\WorkflowStep;
 
 trait SetupKiyuHospital
 {
+    protected Tenant $tenant;
+
+    protected Facility $facility;
+
+    protected string $kioskToken;
+
     protected Department $generalDepartment;
 
     protected Station $registrationStation;
@@ -42,12 +52,27 @@ trait SetupKiyuHospital
 
     protected WorkflowStep $dentalStep;
 
-    protected Patient $samplePatient;
+    protected Client $sampleClient;
 
     protected function setupHospital(): void
     {
+        // Legacy single-clinic tenant and its primary facility.
+        $this->tenant = Tenant::query()->create([
+            'name' => 'Kiyu Demo Clinic',
+            'slug' => 'kiyu-demo',
+            'status' => TenantStatus::Active,
+        ]);
+
+        $this->facility = Facility::query()->create([
+            'tenant_id' => $this->tenant->id,
+            'name' => 'Kiyu Demo Facility',
+            'code' => 'MAIN',
+            'is_active' => true,
+        ]);
+
         // General Department
         $this->generalDepartment = Department::create([
+            'facility_id' => $this->facility->id,
             'code' => 'POLI_UMUM',
             'name' => 'Poli Umum',
             'is_active' => true,
@@ -138,6 +163,7 @@ trait SetupKiyuHospital
 
         // Dental Department for Referrals
         $this->dentalDepartment = Department::create([
+            'facility_id' => $this->facility->id,
             'code' => 'POLI_GIGI',
             'name' => 'Poli Gigi',
             'is_active' => true,
@@ -183,8 +209,9 @@ trait SetupKiyuHospital
             'is_active' => true,
         ]);
 
-        // Sample Patient
-        $this->samplePatient = Patient::create([
+        // Sample Client
+        $this->sampleClient = Client::create([
+            'tenant_id' => $this->tenant->id,
             'mrn' => 'MRN-10001',
             'nik' => '3201010101900001',
             'name' => 'Budi Santoso',
@@ -195,9 +222,30 @@ trait SetupKiyuHospital
             'address' => 'Jl. Merdeka No. 10',
         ]);
 
+        // Register the kiosk device used by the public intake tests.
+        $this->kioskToken = 'test-kiosk-token';
+
+        KioskDevice::query()->create([
+            'tenant_id' => $this->tenant->id,
+            'facility_id' => $this->facility->id,
+            'name' => 'Test Kiosk',
+            'credential_hash' => hash('sha256', $this->kioskToken),
+            'is_active' => true,
+        ]);
+
+        // Every request in these tests presents the device credential and the
+        // public tenant locator, mirroring the deployed kiosk client.
+        $this->withHeaders([
+            'X-Kiosk-Token' => $this->kioskToken,
+            'X-Tenant-Slug' => $this->tenant->slug,
+        ]);
+
         // Authenticate a privileged staff user for protected API routes.
         $this->actingAs(
-            User::factory()->create(['role' => 'admin']),
+            User::factory()->create([
+                'role' => 'admin',
+                'tenant_id' => $this->tenant->id,
+            ]),
             'sanctum'
         );
     }

@@ -2,19 +2,21 @@
 
 namespace Database\Factories;
 
-use App\Models\Patient;
+use App\Models\Client;
+use App\Models\Tenant;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
- * @extends Factory<Patient>
+ * @extends Factory<Client>
  */
-class PatientFactory extends Factory
+class ClientFactory extends Factory
 {
-    protected $model = Patient::class;
+    protected $model = Client::class;
 
     public function definition(): array
     {
         return [
+            'tenant_id' => Tenant::factory(),
             'user_id' => null,
             'mrn' => 'MRN-' . fake()->unique()->numerify('########'),
             'nik' => fake()->unique()->numerify('################'),

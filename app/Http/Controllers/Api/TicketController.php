@@ -27,7 +27,9 @@ class TicketController extends Controller
             'date' => ['nullable', 'date'],
         ]);
 
-        $query = QueueTicket::query()->with(['station', 'workflowStep', 'visit.patient']);
+        $query = QueueTicket::query()
+            ->whereHas('visit', fn($q) => $q->where('tenant_id', $this->tenantId()))
+            ->with(['station', 'workflowStep', 'visit.client']);
 
         foreach (['station_id', 'status', 'visit_id', 'priority'] as $filter) {
             if (! empty($validated[$filter])) {
@@ -43,7 +45,7 @@ class TicketController extends Controller
             $search = $validated['search'];
             $query->where(function ($q) use ($search): void {
                 $q->where('queue_number', 'like', "%{$search}%")
-                    ->orWhereHas('visit.patient', fn($q) => $q->where('name', 'like', "%{$search}%"));
+                    ->orWhereHas('visit.client', fn($q) => $q->where('name', 'like', "%{$search}%"));
             });
         }
 
@@ -63,7 +65,7 @@ class TicketController extends Controller
      */
     public function statistics(Request $request): JsonResponse
     {
-        abort_if($this->isPatient($request), 403, 'Forbidden.');
+        abort_if($this->isClient($request), 403, 'Forbidden.');
 
         $validated = $request->validate([
             'status' => ['nullable', 'string', Rule::in(array_column(QueueTicketStatus::cases(), 'value'))],
@@ -71,7 +73,8 @@ class TicketController extends Controller
             'date' => ['nullable', 'date'],
         ]);
 
-        $query = QueueTicket::query();
+        $query = QueueTicket::query()
+            ->whereHas('visit', fn($q) => $q->where('tenant_id', $this->tenantId()));
 
         foreach (['status', 'station_id'] as $filter) {
             if (! empty($validated[$filter])) {
@@ -96,7 +99,8 @@ class TicketController extends Controller
     public function show(int $id): JsonResponse
     {
         $ticket = QueueTicket::query()
-            ->with(['station', 'workflowStep', 'visit.patient', 'events', 'transferredFrom', 'transferredToStation'])
+            ->whereHas('visit', fn($q) => $q->where('tenant_id', $this->tenantId()))
+            ->with(['station', 'workflowStep', 'visit.client', 'events', 'transferredFrom', 'transferredToStation'])
             ->findOrFail($id);
 
         return response()->json([
@@ -109,7 +113,9 @@ class TicketController extends Controller
      */
     public function events(int $id): JsonResponse
     {
-        $ticket = QueueTicket::query()->findOrFail($id);
+        $ticket = QueueTicket::query()
+            ->whereHas('visit', fn($q) => $q->where('tenant_id', $this->tenantId()))
+            ->findOrFail($id);
 
         return response()->json([
             'data' => $ticket->events()->orderBy('id')->get(),

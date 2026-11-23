@@ -15,7 +15,7 @@ beforeEach(function () {
 test('referral creates target visit in target department and initial queue ticket', function () {
     // 1. Create visit in General Department
     $intake = $this->postJson('/api/intake/online', [
-        'patient_id' => $this->samplePatient->id,
+        'client_id' => $this->sampleClient->id,
         'department_id' => $this->generalDepartment->id,
     ])->json('data');
 
@@ -26,7 +26,7 @@ test('referral creates target visit in target department and initial queue ticke
         'source_visit_id' => $sourceVisitId,
         'target_department_id' => $this->dentalDepartment->id,
         'priority' => Priority::Priority->value,
-        'reason' => 'Patient needs dental extraction',
+        'reason' => 'Client needs dental extraction',
         'referred_by' => 'doctor-alice',
     ]);
 
@@ -35,7 +35,7 @@ test('referral creates target visit in target department and initial queue ticke
         ->assertJsonPath('data.referral.target_department_id', $this->dentalDepartment->id)
         ->assertJsonPath('data.referral.status', ReferralStatus::Accepted->value)
         ->assertJsonPath('data.target_visit.department_id', $this->dentalDepartment->id)
-        ->assertJsonPath('data.target_visit.patient_id', $this->samplePatient->id)
+        ->assertJsonPath('data.target_visit.client_id', $this->sampleClient->id)
         ->assertJsonPath('data.target_ticket.status', QueueTicketStatus::Created->value);
 
     // Verify rejection of referral to same department
@@ -62,7 +62,7 @@ test('updating visit priority propagates to active tickets only and preserves hi
     // Complete registration -> Registration ticket becomes COMPLETED, Nurse ticket is created
     $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $intake['acquisition']['id'],
-        'patient_id' => $this->samplePatient->id,
+        'client_id' => $this->sampleClient->id,
     ]);
 
     // Active ticket is now the Nurse ticket (CREATED, priority = 1)
@@ -101,7 +101,7 @@ test('updating visit priority propagates to active tickets only and preserves hi
     ]);
 });
 
-test('public queue display exposes operational numbers without any patient PII', function () {
+test('public queue display exposes operational numbers without any client PII', function () {
     // 1. Create walk-in
     $intake = $this->postJson('/api/intake/kiosk', [
         'department_id' => $this->generalDepartment->id,
@@ -117,11 +117,11 @@ test('public queue display exposes operational numbers without any patient PII',
 
     $json = $publicRes->getContent();
 
-    // Verify NO patient PII exists in the public queue response
-    expect($json)->not->toContain($this->samplePatient->name)
-        ->not->toContain($this->samplePatient->mrn)
-        ->not->toContain($this->samplePatient->nik)
-        ->not->toContain($this->samplePatient->phone);
+    // Verify NO client PII exists in the public queue response
+    expect($json)->not->toContain($this->sampleClient->name)
+        ->not->toContain($this->sampleClient->mrn)
+        ->not->toContain($this->sampleClient->nik)
+        ->not->toContain($this->sampleClient->phone);
 
     $regStationDisplay = collect($publicRes->json('data'))->firstWhere('station_id', $this->registrationStation->id);
     expect($regStationDisplay)->not->toBeNull();

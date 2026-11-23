@@ -3,6 +3,7 @@
 namespace App\Events;
 
 use Illuminate\Broadcasting\Channel;
+use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 
@@ -11,6 +12,8 @@ class QueueCalled implements ShouldBroadcastNow
     use Dispatchable;
 
     public function __construct(
+        public ?int $tenantId,
+        public ?int $facilityId,
         public int $departmentId,
         public ?string $departmentCode,
         public int $stationId,
@@ -25,14 +28,24 @@ class QueueCalled implements ShouldBroadcastNow
     /**
      * Get the channels the event should broadcast on.
      *
-     * @return array<int, Channel>
+     * The public display is scoped per facility; staff workspaces use a
+     * tenant-namespaced private channel.
+     *
+     * @return array<int, Channel|PrivateChannel>
      */
     public function broadcastOn(): array
     {
-        return [
-            new Channel('public.queue'),
-            new Channel("department.{$this->departmentId}"),
-        ];
+        $channels = [];
+
+        if ($this->facilityId !== null) {
+            $channels[] = new Channel("public.facility.{$this->facilityId}");
+        }
+
+        if ($this->tenantId !== null) {
+            $channels[] = new PrivateChannel("tenant.{$this->tenantId}.department.{$this->departmentId}");
+        }
+
+        return $channels;
     }
 
     /**

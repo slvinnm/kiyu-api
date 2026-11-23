@@ -1,8 +1,11 @@
 <?php
 
 use App\Enums\StationType;
+use App\Enums\TenantStatus;
 use App\Models\Department;
+use App\Models\Facility;
 use App\Models\Station;
+use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -13,13 +16,28 @@ uses(RefreshDatabase::class);
 beforeEach(function () {
     Cache::flush();
 
+    $this->tenant = Tenant::query()->create([
+        'name' => 'Kiyu Demo Clinic',
+        'slug' => 'kiyu-demo',
+        'status' => TenantStatus::Active,
+    ]);
+
+    $this->facility = Facility::query()->create([
+        'tenant_id' => $this->tenant->id,
+        'name' => 'Kiyu Demo Facility',
+        'code' => 'MAIN',
+        'is_active' => true,
+    ]);
+
     $this->department = Department::create([
+        'facility_id' => $this->facility->id,
         'code' => 'GEN',
         'name' => 'Poli Umum',
         'is_active' => true,
     ]);
 
     $this->otherDepartment = Department::create([
+        'facility_id' => $this->facility->id,
         'code' => 'DNT',
         'name' => 'Poli Gigi',
         'is_active' => true,
@@ -47,14 +65,16 @@ beforeEach(function () {
         'name' => 'Admin Test',
         'email' => 'admin@kiyu.test',
         'role' => 'admin',
+        'tenant_id' => $this->tenant->id,
     ]);
 
     $this->nurse = User::factory()->create([
         'name' => 'Nurse Test',
         'email' => 'nurse@kiyu.test',
-        'role' => 'nurse',
+        'role' => 'staff',
         'department_id' => $this->department->id,
         'station_id' => $this->station->id,
+        'tenant_id' => $this->tenant->id,
     ]);
 
     $this->actingAs($this->admin, 'sanctum');
@@ -79,7 +99,7 @@ test('admin can create a staff user with a hashed password', function () {
         'name' => 'New Nurse',
         'email' => 'new.nurse@kiyu.test',
         'password' => 'secret123',
-        'role' => 'nurse',
+        'role' => 'staff',
         'department_id' => $this->department->id,
         'station_id' => $this->station->id,
     ]);
@@ -87,7 +107,7 @@ test('admin can create a staff user with a hashed password', function () {
     $response->assertCreated()
         ->assertJsonPath('message', 'User created successfully.')
         ->assertJsonPath('data.email', 'new.nurse@kiyu.test')
-        ->assertJsonPath('data.role', 'nurse')
+        ->assertJsonPath('data.role', 'staff')
         ->assertJsonPath('data.department_id', $this->department->id)
         ->assertJsonPath('data.station_id', $this->station->id);
 
@@ -106,7 +126,7 @@ test('non-admin cannot list or create users', function () {
         'name' => 'Forbidden User',
         'email' => 'forbidden@kiyu.test',
         'password' => 'secret123',
-        'role' => 'nurse',
+        'role' => 'staff',
     ])->assertForbidden();
 });
 
@@ -115,14 +135,14 @@ test('admin can update a user and leave the password unchanged', function () {
 
     $response = $this->putJson("/api/users/{$this->nurse->id}", [
         'name' => 'Nurse Updated',
-        'role' => 'doctor',
+        'role' => 'staff',
         'department_id' => $this->department->id,
         'station_id' => $this->station->id,
     ]);
 
     $response->assertOk()
         ->assertJsonPath('data.name', 'Nurse Updated')
-        ->assertJsonPath('data.role', 'doctor');
+        ->assertJsonPath('data.role', 'staff');
 
     $this->nurse->refresh();
 
@@ -148,7 +168,7 @@ test('station must belong to the selected department', function () {
         'name' => 'Mismatch User',
         'email' => 'mismatch@kiyu.test',
         'password' => 'secret123',
-        'role' => 'nurse',
+        'role' => 'staff',
         'department_id' => $this->otherDepartment->id,
         'station_id' => $this->station->id,
     ])->assertStatus(422)
@@ -160,7 +180,7 @@ test('email must be unique', function () {
         'name' => 'Duplicate Email',
         'email' => 'nurse@kiyu.test',
         'password' => 'secret123',
-        'role' => 'nurse',
+        'role' => 'staff',
     ])->assertStatus(422)
         ->assertJsonValidationErrors('email');
 });

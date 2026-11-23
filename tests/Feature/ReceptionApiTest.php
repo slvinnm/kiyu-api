@@ -50,7 +50,7 @@ test('reception call-next automatically resolves registration station and calls 
     ]);
 });
 
-test('reception complete-registration links patient, completes ticket, creates next clinical ticket, and keeps visit WAITING', function () {
+test('reception complete-registration links client, completes ticket, creates next clinical ticket, and keeps visit WAITING', function () {
     // 1. Create kiosk intake
     $intake = $this->postJson('/api/intake/kiosk', [
         'department_id' => $this->generalDepartment->id,
@@ -64,17 +64,17 @@ test('reception complete-registration links patient, completes ticket, creates n
         'department_id' => $this->generalDepartment->id,
     ])->assertStatus(200);
 
-    // 3. Complete registration linking existing patient
+    // 3. Complete registration linking existing client
     $completeRes = $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $acqId,
-        'patient_id' => $this->samplePatient->id,
+        'client_id' => $this->sampleClient->id,
         'registered_by' => 'receptionist-alice',
     ]);
 
     $completeRes->assertStatus(200)
         ->assertJsonPath('data.acquisition.status', QueueAcquisitionStatus::Registered->value)
         ->assertJsonPath('data.registration_ticket.status', QueueTicketStatus::Completed->value)
-        ->assertJsonPath('data.visit.patient_id', $this->samplePatient->id)
+        ->assertJsonPath('data.visit.client_id', $this->sampleClient->id)
         // CRITICAL INVARIANT: Visit status must remain WAITING!
         ->assertJsonPath('data.visit.status', VisitStatus::Waiting->value)
         ->assertJsonPath('data.next_ticket.status', QueueTicketStatus::Created->value)
@@ -84,7 +84,7 @@ test('reception complete-registration links patient, completes ticket, creates n
     $this->assertDatabaseHas('visits', [
         'id' => $visitId,
         'status' => VisitStatus::Waiting->value,
-        'patient_id' => $this->samplePatient->id,
+        'client_id' => $this->sampleClient->id,
     ]);
 
     $this->assertDatabaseHas('queue_acquisitions', [
@@ -99,7 +99,7 @@ test('reception complete-registration links patient, completes ticket, creates n
     ]);
 });
 
-test('reception complete-registration can create a new patient on the fly', function () {
+test('reception complete-registration can create a new client on the fly', function () {
     $intake = $this->postJson('/api/intake/manual', [
         'department_id' => $this->generalDepartment->id,
     ])->json('data');
@@ -108,7 +108,7 @@ test('reception complete-registration can create a new patient on the fly', func
 
     $completeRes = $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $acqId,
-        'patient_data' => [
+        'client_data' => [
             'name' => 'Siti Nurhaliza',
             'nik' => '3201015505950002',
             'phone' => '08987654321',
@@ -116,9 +116,9 @@ test('reception complete-registration can create a new patient on the fly', func
     ]);
 
     $completeRes->assertStatus(200)
-        ->assertJsonPath('data.visit.patient.name', 'Siti Nurhaliza');
+        ->assertJsonPath('data.visit.client.name', 'Siti Nurhaliza');
 
-    $this->assertDatabaseHas('patients', [
+    $this->assertDatabaseHas('clients', [
         'name' => 'Siti Nurhaliza',
         'nik' => '3201015505950002',
     ]);
@@ -139,13 +139,13 @@ test('reception double-completion is prevented and returns conflict 409', functi
     // 1st completion succeeds
     $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $acqId,
-        'patient_id' => $this->samplePatient->id,
+        'client_id' => $this->sampleClient->id,
     ])->assertStatus(200);
 
     // 2nd completion must fail with conflict (409)
     $secondRes = $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $acqId,
-        'patient_id' => $this->samplePatient->id,
+        'client_id' => $this->sampleClient->id,
     ]);
 
     $secondRes->assertStatus(409)

@@ -3,10 +3,13 @@
 
 use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\Billing\SubscriptionController;
+use App\Http\Controllers\Api\ClientController;
 use App\Http\Controllers\Api\ClinicalQueueController;
 use App\Http\Controllers\Api\DepartmentController;
 use App\Http\Controllers\Api\IntakeController;
-use App\Http\Controllers\Api\PatientController;
+use App\Http\Controllers\Api\Platform\PlanController;
+use App\Http\Controllers\Api\Platform\TenantController;
 use App\Http\Controllers\Api\PublicQueueController;
 use App\Http\Controllers\Api\QueueAcquisitionController;
 use App\Http\Controllers\Api\ReceptionController;
@@ -30,7 +33,7 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('auth')->controller(AuthController::class)->group(function () {
     // Public authentication
     Route::post('/login', 'login')->middleware('throttle:6,1');
-    Route::post('/register', 'register')->middleware('throttle:6,1');
+    Route::post('/register', 'register')->middleware(['throttle:6,1', 'public-tenant']);
 
     // Authenticated session
     Route::middleware('auth:sanctum')->group(function () {
@@ -51,17 +54,22 @@ Route::prefix('auth')->controller(AuthController::class)->group(function () {
 
 // Public intake: kiosk and online registration
 Route::prefix('intake')->controller(IntakeController::class)->group(function () {
-    Route::post('/kiosk', 'kiosk');
-    Route::post('/online', 'online');
-    Route::get('/online-lookup/{identifier}', 'onlineLookup');
-    Route::post('/online-checkin', 'onlineCheckin');
+    // Kiosk operations resolve tenant and facility from a registered device
+    // credential, never from the request body.
+    Route::post('/kiosk', 'kiosk')->middleware('kiosk');
+    Route::get('/online-lookup/{identifier}', 'onlineLookup')->middleware('kiosk');
+    Route::post('/online-checkin', 'onlineCheckin')->middleware('kiosk');
+
+    // Online booking is reached from the client-facing tenant site and is
+    // resolved by the public tenant locator.
+    Route::post('/online', 'online')->middleware('public-tenant');
 });
 
 // Public queue display (without personally identifiable information)
-Route::get('/public/queue', [PublicQueueController::class, 'index']);
+Route::get('/public/queue', [PublicQueueController::class, 'index'])->middleware('public-tenant');
 
 // Public organizational lookup for kiosk
-Route::get('/departments/active', [DepartmentController::class, 'active']);
+Route::get('/departments/active', [DepartmentController::class, 'active'])->middleware('public-tenant');
 
 // Public visit tracking
 Route::get('/visits/{token}/track', [VisitController::class, 'track']);
@@ -75,22 +83,22 @@ Route::get('/visits/{token}/track', [VisitController::class, 'track']);
 |
 */
 
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', 'tenant'])->group(function () {
 
     /*
     |--------------------------------------------------------------------------
     | Intake Management
     |--------------------------------------------------------------------------
     |
-    | Manual patient registration and queue acquisition management.
+    | Manual client registration and queue acquisition management.
     |
     */
 
     // Manual registration (reception)
-    Route::post('/intake/manual', [IntakeController::class, 'manual']);
+    Route::post('/intake/manual', [IntakeController::class, 'manual'])->middleware('role:admin,receptionist');
 
     // Queue acquisition records
-    Route::prefix('queue-acquisitions')->controller(QueueAcquisitionController::class)->group(function () {
+    Route::prefix('queue-acquisitions')->middleware('role:admin,receptionist')->controller(QueueAcquisitionController::class)->group(function () {
         Route::get('/', 'index');
         Route::get('/{id}', 'show')->whereNumber('id');
         Route::post('/{id}/cancel', 'cancel')->whereNumber('id');
@@ -105,7 +113,7 @@ Route::middleware('auth:sanctum')->group(function () {
     |
     */
 
-    Route::prefix('reception')->controller(ReceptionController::class)->group(function () {
+    Route::prefix('reception')->middleware('role:admin,receptionist')->controller(ReceptionController::class)->group(function () {
         Route::get('/queue', 'queue');
 
         Route::post('/call-next', 'callNext');
@@ -126,10 +134,11 @@ Route::middleware('auth:sanctum')->group(function () {
     */
 
     // Clinical queue
-    Route::post('/clinical/call-next', [ClinicalQueueController::class, 'callNext']);
+    Route::post('/clinical/call-next', [ClinicalQueueController::class, 'callNext'])
+        ->middleware('role:admin,receptionist,staff');
 
     // Ticket records and lifecycle operations
-    Route::prefix('tickets')->group(function () {
+    Route::prefix('tickets')->middleware('role:admin,receptionist,staff')->group(function () {
         // Ticket queries
         Route::get('/', [TicketController::class, 'index']);
         Route::get('/statistics', [TicketController::class, 'statistics']);
@@ -155,11 +164,11 @@ Route::middleware('auth:sanctum')->group(function () {
     | Referral Management
     |--------------------------------------------------------------------------
     |
-    | Patient referral records.
+    | Client referral records.
     |
     */
 
-    Route::prefix('referrals')->controller(ReferralController::class)->group(function () {
+    Route::prefix('referrals')->middleware('role:admin,staff')->controller(ReferralController::class)->group(function () {
         Route::get('/', 'index');
         Route::post('/', 'store');
         Route::get('/{id}', 'show')->whereNumber('id');
@@ -170,7 +179,7 @@ Route::middleware('auth:sanctum')->group(function () {
     | Visit Management
     |--------------------------------------------------------------------------
     |
-    | Patient visits, visit statistics, priority updates and cancellation.
+    | Client visits, visit statistics, priority updates and cancellation.
     |
     */
 
@@ -186,14 +195,14 @@ Route::middleware('auth:sanctum')->group(function () {
 
     /*
     |--------------------------------------------------------------------------
-    | Patient Management
+    | Client Management
     |--------------------------------------------------------------------------
     |
-    | Patient directory, patient records and visit history.
+    | Client directory, client records and visit history.
     |
     */
 
-    Route::prefix('patients')->controller(PatientController::class)->group(function () {
+    Route::prefix('clients')->controller(ClientController::class)->group(function () {
         Route::get('/', 'index');
         Route::get('/statistics', 'statistics');
         Route::post('/', 'store');
@@ -215,9 +224,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('departments')->controller(DepartmentController::class)->group(function () {
         Route::get('/', 'index');
         Route::get('/options', 'options');
-        Route::post('/', 'store');
+        Route::post('/', 'store')->middleware('role:admin');
         Route::get('/{id}', 'show')->whereNumber('id');
-        Route::put('/{id}', 'update')->whereNumber('id');
+        Route::put('/{id}', 'update')->whereNumber('id')->middleware('role:admin');
 
         Route::get('/{id}/stations', 'stations')->whereNumber('id');
         Route::get('/{id}/workflows', 'workflows')->whereNumber('id');
@@ -227,9 +236,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('stations')->controller(StationController::class)->group(function () {
         Route::get('/', 'index');
         Route::get('/options', 'options');
-        Route::post('/', 'store');
+        Route::post('/', 'store')->middleware('role:admin');
         Route::get('/{id}', 'show')->whereNumber('id');
-        Route::put('/{id}', 'update')->whereNumber('id');
+        Route::put('/{id}', 'update')->whereNumber('id')->middleware('role:admin');
 
         Route::get('/{id}/queue', 'queue')->whereNumber('id');
     });
@@ -238,15 +247,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('workflows')->controller(WorkflowController::class)->group(function () {
         Route::get('/', 'index');
         Route::get('/statistics', 'statistics');
-        Route::post('/', 'store');
+        Route::post('/', 'store')->middleware('role:admin');
         Route::get('/{id}', 'show')->whereNumber('id');
-        Route::post('/{id}/steps', 'addStep')->whereNumber('id');
+        Route::post('/{id}/steps', 'addStep')->whereNumber('id')->middleware('role:admin');
     });
 
     // Workflow steps
     Route::prefix('workflow-steps')->controller(WorkflowController::class)->group(function () {
-        Route::put('/{id}', 'updateStep')->whereNumber('id');
-        Route::delete('/{id}', 'deleteStep')->whereNumber('id');
+        Route::put('/{id}', 'updateStep')->whereNumber('id')->middleware('role:admin');
+        Route::delete('/{id}', 'deleteStep')->whereNumber('id')->middleware('role:admin');
     });
 
     /*
@@ -259,7 +268,7 @@ Route::middleware('auth:sanctum')->group(function () {
     |
     */
 
-    Route::prefix('users')->controller(UserController::class)->group(function () {
+    Route::prefix('users')->middleware('role:admin')->controller(UserController::class)->group(function () {
         Route::get('/', 'index');
         Route::post('/', 'store');
         Route::get('/{id}', 'show')->whereNumber('id');
@@ -276,5 +285,39 @@ Route::middleware('auth:sanctum')->group(function () {
     |
     */
 
-    Route::get('/audit-logs', [AuditLogController::class, 'index']);
+    Route::get('/audit-logs', [AuditLogController::class, 'index'])->middleware('role:admin');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Billing (tenant self-service)
+    |--------------------------------------------------------------------------
+    |
+    | The tenant's own subscription. Admins manage it; other roles only read.
+    |
+    */
+
+    Route::prefix('billing/subscription')->controller(SubscriptionController::class)->group(function () {
+        Route::get('/', 'show');
+        Route::post('/', 'store')->middleware('role:admin');
+        Route::post('/cancel', 'cancel')->middleware('role:admin');
+    });
+});
+
+/*
+|--------------------------------------------------------------------------
+| Platform Administration
+|--------------------------------------------------------------------------
+|
+| Platform-only routes. These never run inside a tenant context and are
+| reachable only by an account explicitly typed PLATFORM.
+|
+*/
+
+Route::prefix('platform')->middleware(['auth:sanctum', 'platform'])->group(function () {
+    Route::get('/tenants', [TenantController::class, 'index']);
+    Route::post('/tenants', [TenantController::class, 'store']);
+    Route::get('/tenants/{id}', [TenantController::class, 'show'])->whereNumber('id');
+
+    Route::get('/plans', [PlanController::class, 'index']);
+    Route::post('/plans', [PlanController::class, 'store']);
 });

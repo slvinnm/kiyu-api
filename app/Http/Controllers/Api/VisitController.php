@@ -30,29 +30,31 @@ class VisitController extends Controller
         $validated = $this->validateTableQuery($request, [
             'department_id' => ['nullable', 'integer', 'exists:departments,id'],
             'status' => ['nullable', 'string', Rule::in(array_column(VisitStatus::cases(), 'value'))],
-            'patient_id' => ['nullable', 'integer', 'exists:patients,id'],
+            'client_id' => ['nullable', 'integer', 'exists:clients,id'],
             'intake_channel' => ['nullable', 'string', Rule::in(array_column(IntakeChannel::cases(), 'value'))],
             'date' => ['nullable', 'date'],
         ]);
 
-        // A patient may only list their own visits. Staff see every visit their
+        // A client may only list their own visits. Staff see every visit their
         // operation permits, unchanged.
-        if ($this->isPatient($request)) {
-            $ownId = $this->patientId($request);
+        if ($this->isClient($request)) {
+            $ownId = $this->clientId($request);
 
             abort_if($ownId === null, 403, 'Forbidden.');
             abort_if(
-                ! empty($validated['patient_id']) && (int) $validated['patient_id'] !== $ownId,
+                ! empty($validated['client_id']) && (int) $validated['client_id'] !== $ownId,
                 403,
                 'Forbidden.'
             );
 
-            $validated['patient_id'] = $ownId;
+            $validated['client_id'] = $ownId;
         }
 
-        $query = Visit::query()->with(['patient', 'department', 'workflow']);
+        $query = Visit::query()
+            ->where('tenant_id', $this->tenantId())
+            ->with(['client', 'department', 'workflow']);
 
-        foreach (['department_id', 'status', 'patient_id', 'intake_channel'] as $filter) {
+        foreach (['department_id', 'status', 'client_id', 'intake_channel'] as $filter) {
             if (! empty($validated[$filter])) {
                 $query->where($filter, $validated[$filter]);
             }
@@ -66,7 +68,7 @@ class VisitController extends Controller
             $search = $validated['search'];
             $query->where(function ($q) use ($search): void {
                 $q->where('visit_number', 'like', "%{$search}%")
-                    ->orWhereHas('patient', fn($q) => $q
+                    ->orWhereHas('client', fn($q) => $q
                         ->where('name', 'like', "%{$search}%")
                         ->orWhere('mrn', 'like', "%{$search}%")
                         ->orWhere('nik', 'like', "%{$search}%"));
@@ -85,13 +87,14 @@ class VisitController extends Controller
     }
 
     /**
-     * Show a visit and all its details (tickets, events, acquisitions, patient).
+     * Show a visit and all its details (tickets, events, acquisitions, client).
      */
     public function show(Request $request, int $id): JsonResponse
     {
         $visit = Visit::query()
+            ->where('tenant_id', $this->tenantId())
             ->with([
-                'patient',
+                'client',
                 'department',
                 'workflow',
                 'queueAcquisitions',
@@ -102,9 +105,9 @@ class VisitController extends Controller
             ])
             ->findOrFail($id);
 
-        // Patients may only open their own visit.
-        if ($this->isPatient($request)) {
-            abort_unless($visit->patient_id === $this->patientId($request), 403, 'Forbidden.');
+        // Clients may only open their own visit.
+        if ($this->isClient($request)) {
+            abort_unless($visit->client_id === $this->clientId($request), 403, 'Forbidden.');
         }
 
         return response()->json([
@@ -113,7 +116,7 @@ class VisitController extends Controller
     }
 
     /**
-     * Track a visit by its unique token (used by kiosk and patient portal).
+     * Track a visit by its unique token (used by kiosk and client portal).
      */
     public function track(string $token): JsonResponse
     {
@@ -128,14 +131,16 @@ class VisitController extends Controller
      */
     public function acquisition(Request $request, int $id): JsonResponse
     {
-        $visit = Visit::query()->findOrFail($id);
+        $visit = Visit::query()
+            ->where('tenant_id', $this->tenantId())
+            ->findOrFail($id);
 
-        if ($this->isPatient($request)) {
-            abort_unless($visit->patient_id === $this->patientId($request), 403, 'Forbidden.');
+        if ($this->isClient($request)) {
+            abort_unless($visit->client_id === $this->clientId($request), 403, 'Forbidden.');
         }
 
         return response()->json([
-            'data' => $this->intakeService->getActiveAcquisitionForVisit($id),
+            'data' => $this->intakeService->getActiveAcquisitionForVisit($this->tenant(), $id),
         ]);
     }
 
@@ -150,14 +155,14 @@ class VisitController extends Controller
             'department_id' => ['nullable', 'integer', 'exists:departments,id'],
         ]);
 
-        $query = Visit::query();
+        $query = Visit::query()->where('tenant_id', $this->tenantId());
 
-        if ($this->isPatient($request)) {
-            $ownId = $this->patientId($request);
+        if ($this->isClient($request)) {
+            $ownId = $this->clientId($request);
 
             abort_if($ownId === null, 403, 'Forbidden.');
 
-            $query->where('patient_id', $ownId);
+            $query->where('client_id', $ownId);
         }
 
         foreach (['status', 'department_id'] as $filter) {
@@ -187,7 +192,9 @@ class VisitController extends Controller
             'user_id' => ['nullable', 'string'],
         ]);
 
-        $visit = Visit::query()->findOrFail($id);
+        $visit = Visit::query()
+            ->where('tenant_id', $this->tenantId())
+            ->findOrFail($id);
         $updatedVisit = $this->visitService->updatePriority(
             visit: $visit,
             priority: (int) $validated['priority'],
@@ -210,7 +217,9 @@ class VisitController extends Controller
             'user_id' => ['nullable', 'string'],
         ]);
 
-        $visit = Visit::query()->findOrFail($id);
+        $visit = Visit::query()
+            ->where('tenant_id', $this->tenantId())
+            ->findOrFail($id);
         $cancelledVisit = $this->visitService->cancelVisit(
             visit: $visit,
             reason: $validated['reason'] ?? null,

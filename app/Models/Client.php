@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class Patient extends Model
+class Client extends Model
 {
     use HasFactory;
 
@@ -17,6 +17,7 @@ class Patient extends Model
      * @var list<string>
      */
     protected $fillable = [
+        'tenant_id',
         'user_id',
         'mrn',
         'nik',
@@ -38,7 +39,15 @@ class Patient extends Model
     ];
 
     /**
-     * Get the user account associated with the patient, if any.
+     * Get the tenant that owns the client.
+     */
+    public function tenant(): BelongsTo
+    {
+        return $this->belongsTo(Tenant::class);
+    }
+
+    /**
+     * Get the user account associated with the client, if any.
      */
     public function user(): BelongsTo
     {
@@ -46,7 +55,7 @@ class Patient extends Model
     }
 
     /**
-     * Get the visits made by this patient.
+     * Get the visits made by this client.
      */
     public function visits(): HasMany
     {

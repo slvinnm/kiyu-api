@@ -2,7 +2,10 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\TenantStatus;
+use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
+use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -30,6 +33,31 @@ class AuthController extends Controller
             ], 422);
         }
 
+        // A platform operator has no tenant; every other role must have one.
+        // A clinic account cannot log in while its tenant is not active.
+        if ($user->isPlatformUser()) {
+            if ($user->tenant_id !== null) {
+                return response()->json([
+                    'message' => 'Email atau password salah.',
+                    'error_type' => 'INVALID_CREDENTIALS',
+                ], 422);
+            }
+        } else {
+            if ($user->tenant_id === null) {
+                return response()->json([
+                    'message' => 'Email atau password salah.',
+                    'error_type' => 'INVALID_CREDENTIALS',
+                ], 422);
+            }
+
+            if ($user->tenant?->status !== TenantStatus::Active) {
+                return response()->json([
+                    'message' => 'Akun klinik ini tidak aktif.',
+                    'error_type' => 'TENANT_INACTIVE',
+                ], 403);
+            }
+        }
+
         return response()->json([
             'message' => 'Login successful.',
             'data' => [
@@ -40,9 +68,9 @@ class AuthController extends Controller
     }
 
     /**
-     * Register a public patient account and issue a Sanctum token.
+     * Register a public client account and issue a Sanctum token.
      *
-     * Registration is deliberately restricted to the patient role. Privileged
+     * Registration is deliberately restricted to the client role. Privileged
      * roles must be provisioned by an administrator, never by public signup.
      */
     public function register(Request $request): JsonResponse
@@ -53,12 +81,23 @@ class AuthController extends Controller
             'password' => ['required', 'string', 'min:8', 'confirmed'],
         ]);
 
-        $user = User::query()->create([
+        // Public registration is tenant-scoped: the tenant comes from the
+        // public locator (set by the public-tenant middleware), never from the
+        // payload.
+        $tenant = $request->attributes->get('tenant');
+        abort_unless($tenant instanceof Tenant, 404, 'Tenant not specified.');
+
+        $user = new User([
             'name' => $validated['name'],
             'email' => $validated['email'],
             'password' => $validated['password'],
-            'role' => 'patient',
+            'role' => UserRole::Client,
         ]);
+
+        // Ownership is derived from the resolved tenant and is never
+        // mass-assignable from a request payload.
+        $user->tenant_id = $tenant->id;
+        $user->save();
 
         return response()->json([
             'message' => 'Registration successful.',
@@ -118,16 +157,16 @@ class AuthController extends Controller
      */
     private function userPayload(User $user): array
     {
-        $user->loadMissing(['patient']);
+        $user->loadMissing(['client']);
 
         return [
             'id' => $user->id,
             'name' => $user->name,
             'email' => $user->email,
-            'role' => $user->role,
+            'role' => $user->role?->value,
             'department_id' => $user->department_id,
             'station_id' => $user->station_id,
-            'profile' => $user->patient,
+            'profile' => $user->client,
         ];
     }
 }

@@ -1,0 +1,179 @@
+<?php
+
+use App\Enums\BillingInterval;
+use App\Enums\SubscriptionStatus;
+use App\Enums\TenantStatus;
+use App\Models\Facility;
+use App\Models\Plan;
+use App\Models\Subscription;
+use App\Models\Tenant;
+use App\Models\User;
+use App\Services\SubscriptionService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+
+uses(RefreshDatabase::class);
+
+/**
+ * @return array{tenant: Tenant, facility: Facility, admin: User, plan: Plan}
+ */
+function billingClinic(string $slug = 'billing-clinic'): array
+{
+    $tenant = Tenant::query()->create([
+        'name' => 'Billing Clinic',
+        'slug' => $slug,
+        'status' => TenantStatus::Active,
+    ]);
+
+    $facility = Facility::query()->create([
+        'tenant_id' => $tenant->id,
+        'name' => 'Billing Facility',
+        'code' => 'MAIN',
+        'is_active' => true,
+    ]);
+
+    $admin = User::factory()->create([
+        'role' => 'admin',
+        'tenant_id' => $tenant->id,
+    ]);
+
+    $plan = Plan::query()->create([
+        'code' => 'STANDARD',
+        'name' => 'Standard',
+        'is_active' => true,
+    ]);
+
+    $plan->prices()->create([
+        'billing_interval' => 'MONTHLY',
+        'amount' => 150_000_00,
+        'currency' => 'IDR',
+        'provider' => '',
+    ]);
+
+    $plan->entitlements()->create([
+        'feature_code' => 'queue_management',
+        'value' => ['enabled' => true],
+    ]);
+
+    return compact('tenant', 'facility', 'admin', 'plan');
+}
+
+test('starting a trial creates a trialing subscription', function () {
+    $clinic = billingClinic();
+
+    $subscription = app(SubscriptionService::class)->start(
+        tenant: $clinic['tenant'],
+        plan: $clinic['plan'],
+        interval: BillingInterval::Monthly,
+        trialDays: 14,
+    );
+
+    expect($subscription->status)->toBe(SubscriptionStatus::Trialing)
+        ->and($subscription->trial_ends_at)->not->toBeNull()
+        ->and($subscription->isEffective())->toBeTrue()
+        ->and($subscription->plan_price_id)->not->toBeNull();
+});
+
+test('only one subscription is ever effective per tenant', function () {
+    $clinic = billingClinic();
+    $service = app(SubscriptionService::class);
+
+    $first = $service->start($clinic['tenant'], $clinic['plan'], BillingInterval::Monthly, 7);
+    $second = $service->start($clinic['tenant'], $clinic['plan'], BillingInterval::Monthly);
+
+    $effective = Subscription::query()
+        ->where('tenant_id', $clinic['tenant']->id)
+        ->whereIn('status', SubscriptionStatus::effectiveValues())
+        ->count();
+
+    expect($effective)->toBe(1)
+        ->and($first->fresh()->status)->toBe(SubscriptionStatus::Cancelled)
+        ->and($second->fresh()->status)->toBe(SubscriptionStatus::Active);
+});
+
+test('an expired trial is not effective', function () {
+    $clinic = billingClinic();
+    $service = app(SubscriptionService::class);
+
+    $subscription = $service->start($clinic['tenant'], $clinic['plan'], BillingInterval::Monthly, 1);
+
+    $subscription->update(['trial_ends_at' => now()->subDay()]);
+
+    expect($subscription->fresh()->isEffective())->toBeFalse();
+});
+
+test('hasFeature reflects the plan entitlements', function () {
+    $clinic = billingClinic();
+    $service = app(SubscriptionService::class);
+
+    $service->start($clinic['tenant'], $clinic['plan'], BillingInterval::Monthly, 30);
+
+    expect($service->hasFeature($clinic['tenant'], 'queue_management'))->toBeTrue()
+        ->and($service->hasFeature($clinic['tenant'], 'multi_facility'))->toBeFalse();
+});
+
+test('a tenant admin can view and start a subscription over the API', function () {
+    $clinic = billingClinic();
+
+    $this->actingAs($clinic['admin'], 'sanctum')
+        ->getJson('/api/billing/subscription')
+        ->assertOk()
+        ->assertJsonPath('data.subscription', null);
+
+    $this->actingAs($clinic['admin'], 'sanctum')
+        ->postJson('/api/billing/subscription', [
+            'plan_code' => 'STANDARD',
+            'billing_interval' => 'MONTHLY',
+            'trial_days' => 14,
+        ])
+        ->assertCreated()
+        ->assertJsonPath('data.status', SubscriptionStatus::Trialing->value)
+        ->assertJsonPath('data.plan.code', 'STANDARD');
+
+    $this->actingAs($clinic['admin'], 'sanctum')
+        ->getJson('/api/billing/subscription')
+        ->assertOk()
+        ->assertJsonPath('data.is_effective', true);
+});
+
+test('a non-admin tenant user cannot start a subscription', function () {
+    $clinic = billingClinic();
+
+    $staff = User::factory()->create([
+        'role' => 'staff',
+        'tenant_id' => $clinic['tenant']->id,
+    ]);
+
+    $this->actingAs($staff, 'sanctum')
+        ->postJson('/api/billing/subscription', [
+            'plan_code' => 'STANDARD',
+            'billing_interval' => 'MONTHLY',
+        ])
+        ->assertForbidden();
+});
+
+test('the platform can list and create plans', function () {
+    $platform = User::factory()->create([
+        'role' => 'platform_admin',
+        'tenant_id' => null,
+    ]);
+
+    $this->actingAs($platform, 'sanctum')
+        ->postJson('/api/platform/plans', [
+            'code' => 'PRO',
+            'name' => 'Pro',
+            'prices' => [
+                ['billing_interval' => 'MONTHLY', 'amount' => 25000000, 'currency' => 'idr'],
+            ],
+            'entitlements' => [
+                ['feature_code' => 'queue_management', 'value' => ['enabled' => true]],
+            ],
+        ])
+        ->assertCreated()
+        ->assertJsonPath('data.code', 'PRO')
+        ->assertJsonPath('data.prices.0.currency', 'IDR');
+
+    $this->actingAs($platform, 'sanctum')
+        ->getJson('/api/platform/plans')
+        ->assertOk()
+        ->assertJsonPath('data.0.code', 'PRO');
+});

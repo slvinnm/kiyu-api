@@ -13,6 +13,7 @@ use App\Models\Department;
 use App\Models\QueueEvent;
 use App\Models\QueueTicket;
 use App\Models\Referral;
+use App\Models\Tenant;
 use App\Models\Visit;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -31,21 +32,35 @@ class ReferralService
      * @return array{referral: Referral, target_visit: Visit, target_ticket: QueueTicket}
      */
     public function createReferral(
+        Tenant $tenant,
         int $sourceVisitId,
         int $targetDepartmentId,
         ?int $priority = null,
         ?string $reason = null,
         ?string $referredBy = null
     ): array {
-        $sourceVisit = Visit::query()->findOrFail($sourceVisitId);
+        $sourceVisit = Visit::query()
+            ->where('tenant_id', $tenant->id)
+            ->findOrFail($sourceVisitId);
 
         if ($sourceVisit->department_id === $targetDepartmentId) {
             throw new InvalidStateException('Target department for referral cannot be the same as source visit department. Use transfer instead.');
         }
 
-        $targetDepartment = Department::query()->findOrFail($targetDepartmentId);
+        // The target department must belong to the same tenant. It may live in
+        // another facility owned by that tenant.
+        $targetDepartment = Department::query()
+            ->whereKey($targetDepartmentId)
+            ->whereHas('facility', fn($query) => $query->where('tenant_id', $tenant->id))
+            ->firstOrFail();
+
         if (! $targetDepartment->is_active) {
             throw new InvalidStateException("Target department #{$targetDepartmentId} is inactive.");
+        }
+
+        $targetFacility = $targetDepartment->facility;
+        if ($targetFacility === null) {
+            throw new InvalidStateException("Target department #{$targetDepartmentId} has no facility.");
         }
 
         $targetWorkflow = $this->workflowService->resolvePrimaryWorkflow($targetDepartmentId);
@@ -56,8 +71,10 @@ class ReferralService
         }
 
         return DB::transaction(function () use (
+            $tenant,
             $sourceVisit,
             $targetDepartmentId,
+            $targetFacility,
             $targetWorkflow,
             $firstStep,
             $priority,
@@ -65,12 +82,14 @@ class ReferralService
             $referredBy
         ): array {
             $effectivePriority = $priority ? (Priority::tryFrom($priority) ?? Priority::Normal) : $sourceVisit->priority;
-            $targetVisitNumber = $this->sequenceService->generateVisitNumber();
+            $targetVisitNumber = $this->sequenceService->generateVisitNumber($targetFacility);
             $visitToken = (string) Str::uuid();
 
             /** @var Visit $targetVisit */
             $targetVisit = Visit::query()->create([
-                'patient_id' => $sourceVisit->patient_id,
+                'tenant_id' => $tenant->id,
+                'facility_id' => $targetFacility->id,
+                'client_id' => $sourceVisit->client_id,
                 'department_id' => $targetDepartmentId,
                 'workflow_id' => $targetWorkflow->id,
                 'visit_number' => $targetVisitNumber,
@@ -132,7 +151,7 @@ class ReferralService
 
             return [
                 'referral' => $referral->load(['sourceVisit', 'targetDepartment', 'targetVisit']),
-                'target_visit' => $targetVisit->load(['patient', 'department', 'workflow']),
+                'target_visit' => $targetVisit->load(['client', 'department', 'workflow']),
                 'target_ticket' => $targetTicket->load(['station', 'workflowStep']),
             ];
         });

@@ -33,7 +33,7 @@ class KioskAndOperationalQueueTest extends TestCase
     public function test_can_lookup_online_booking_preview_at_kiosk(): void
     {
         $onlineBooking = $this->postJson('/api/intake/online', [
-            'patient_id' => $this->samplePatient->id,
+            'client_id' => $this->sampleClient->id,
             'department_id' => $this->generalDepartment->id,
             'priority' => Priority::Normal->value,
         ])->json('data');
@@ -47,8 +47,8 @@ class KioskAndOperationalQueueTest extends TestCase
             ->assertJsonPath('data.status', VisitStatus::AwaitingCheckin->value)
             ->assertJsonPath('data.department_name', 'Poli Umum');
 
-        // Verify patient name is masked for privacy
-        $this->assertStringContainsString('*', $response->json('data.patient_preview.masked_name'));
+        // Verify client name is masked for privacy
+        $this->assertStringContainsString('*', $response->json('data.client_preview.masked_name'));
     }
 
     public function test_can_recall_reception_ticket(): void
@@ -91,7 +91,7 @@ class KioskAndOperationalQueueTest extends TestCase
         $ticketId = $callNext['id'];
 
         $response = $this->postJson("/api/reception/{$ticketId}/skip", [
-            'reason' => 'Patient went to the restroom',
+            'reason' => 'Client went to the restroom',
             'user_id' => 'receptionist_1',
         ]);
 
@@ -101,7 +101,7 @@ class KioskAndOperationalQueueTest extends TestCase
         $this->assertDatabaseHas('queue_tickets', [
             'id' => $ticketId,
             'status' => QueueTicketStatus::Skipped->value,
-            'notes' => 'Patient went to the restroom',
+            'notes' => 'Client went to the restroom',
         ]);
     }
 
@@ -118,7 +118,7 @@ class KioskAndOperationalQueueTest extends TestCase
 
         $reg = $this->postJson('/api/reception/complete-registration', [
             'acquisition_id' => $intake['acquisition']['id'],
-            'patient_id' => $this->samplePatient->id,
+            'client_id' => $this->sampleClient->id,
         ])->json('data');
 
         $clinicalTicket = $reg['next_ticket'];
@@ -150,9 +150,9 @@ class KioskAndOperationalQueueTest extends TestCase
         // Complete registration with duplicate NIK
         $response = $this->postJson('/api/reception/complete-registration', [
             'acquisition_id' => $intake['acquisition']['id'],
-            'patient_data' => [
+            'client_data' => [
                 'name' => 'Budi Duplikat',
-                'nik' => $this->samplePatient->nik, // Duplicate NIK!
+                'nik' => $this->sampleClient->nik, // Duplicate NIK!
             ],
         ]);
 

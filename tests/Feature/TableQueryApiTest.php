@@ -4,8 +4,8 @@ use App\Enums\IntakeChannel;
 use App\Enums\QueueAcquisitionStatus;
 use App\Enums\QueueTicketStatus;
 use App\Models\AuditLog;
+use App\Models\Client;
 use App\Models\Department;
-use App\Models\Patient;
 use App\Models\QueueAcquisition;
 use App\Models\QueueTicket;
 use App\Models\Referral;
@@ -22,9 +22,9 @@ beforeEach(function () {
 });
 
 test('master data table endpoints paginate by default', function () {
-    Department::create(['code' => 'POLI_ANAK', 'name' => 'Poli Anak', 'is_active' => true]);
-    Department::create(['code' => 'POLI_SARAF', 'name' => 'Poli Saraf', 'is_active' => true]);
-    Department::create(['code' => 'POLI_JANTUNG', 'name' => 'Poli Jantung', 'is_active' => true]);
+    Department::create(['facility_id' => $this->facility->id, 'code' => 'POLI_ANAK', 'name' => 'Poli Anak', 'is_active' => true]);
+    Department::create(['facility_id' => $this->facility->id, 'code' => 'POLI_SARAF', 'name' => 'Poli Saraf', 'is_active' => true]);
+    Department::create(['facility_id' => $this->facility->id, 'code' => 'POLI_JANTUNG', 'name' => 'Poli Jantung', 'is_active' => true]);
 
     $this->getJson('/api/departments?per_page=2&page=1')
         ->assertOk()
@@ -80,9 +80,11 @@ test('master data options endpoints return the full lightweight list', function 
 });
 
 test('statistics endpoints return aggregate counts', function () {
-    Patient::factory()->count(3)->create();
+    Client::factory()->count(3)->create(['tenant_id' => $this->tenant->id]);
     Visit::factory()->create([
-        'patient_id' => $this->samplePatient->id,
+        'tenant_id' => $this->tenant->id,
+        'facility_id' => $this->facility->id,
+        'client_id' => $this->sampleClient->id,
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
         'visit_number' => 'V-STATS-0001',
@@ -93,7 +95,7 @@ test('statistics endpoints return aggregate counts', function () {
         ->assertOk()
         ->assertJsonPath('data.total', 2);
 
-    $this->getJson('/api/patients/statistics')
+    $this->getJson('/api/clients/statistics')
         ->assertOk()
         ->assertJsonPath('data.total', 4);
 
@@ -175,11 +177,11 @@ test('workflow search matches name and related department name', function () {
         ->assertJsonPath('data.data.0.name', 'Alur Rawat Jalan Umum');
 });
 
-test('visit search matches visit number and patient identity', function () {
-    $otherPatient = Patient::factory()->create(['name' => 'Siti Aminah', 'mrn' => 'MRN-20002', 'nik' => '3201010101900002']);
+test('visit search matches visit number and client identity', function () {
+    $otherClient = Client::factory()->create(['tenant_id' => $this->tenant->id, 'name' => 'Siti Aminah', 'mrn' => 'MRN-20002', 'nik' => '3201010101900002']);
 
     $budiVisit = Visit::factory()->create([
-        'patient_id' => $this->samplePatient->id,
+        'client_id' => $this->sampleClient->id,
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
         'visit_number' => 'V-TEST-0001',
@@ -187,7 +189,7 @@ test('visit search matches visit number and patient identity', function () {
     ]);
 
     Visit::factory()->create([
-        'patient_id' => $otherPatient->id,
+        'client_id' => $otherClient->id,
         'department_id' => $this->dentalDepartment->id,
         'workflow_id' => $this->dentalWorkflow->id,
         'visit_number' => 'V-TEST-0002',
@@ -207,12 +209,12 @@ test('visit search matches visit number and patient identity', function () {
     $this->getJson('/api/visits?search=MRN-20002')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
-        ->assertJsonPath('data.data.0.patient_id', $otherPatient->id);
+        ->assertJsonPath('data.data.0.client_id', $otherClient->id);
 });
 
-test('ticket search matches queue number and patient name', function () {
+test('ticket search matches queue number and client name', function () {
     $visit = Visit::factory()->create([
-        'patient_id' => $this->samplePatient->id,
+        'client_id' => $this->sampleClient->id,
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
         'visit_number' => 'V-TEST-0001',
@@ -229,6 +231,8 @@ test('ticket search matches queue number and patient name', function () {
 
     QueueTicket::factory()->create([
         'visit_id' => Visit::factory()->create([
+            'tenant_id' => $this->tenant->id,
+            'facility_id' => $this->facility->id,
             'department_id' => $this->generalDepartment->id,
             'workflow_id' => $this->generalWorkflow->id,
             'visit_number' => 'V-TEST-0002',
@@ -251,11 +255,11 @@ test('ticket search matches queue number and patient name', function () {
         ->assertJsonPath('data.data.0.queue_number', 'R900');
 });
 
-test('referral search matches reason and source patient identity', function () {
-    $otherPatient = Patient::factory()->create(['name' => 'Siti Aminah', 'mrn' => 'MRN-20002']);
+test('referral search matches reason and source client identity', function () {
+    $otherClient = Client::factory()->create(['tenant_id' => $this->tenant->id, 'name' => 'Siti Aminah', 'mrn' => 'MRN-20002']);
 
     $budiVisit = Visit::factory()->create([
-        'patient_id' => $this->samplePatient->id,
+        'client_id' => $this->sampleClient->id,
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
         'visit_number' => 'V-TEST-0001',
@@ -263,7 +267,7 @@ test('referral search matches reason and source patient identity', function () {
     ]);
 
     $otherVisit = Visit::factory()->create([
-        'patient_id' => $otherPatient->id,
+        'client_id' => $otherClient->id,
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
         'visit_number' => 'V-TEST-0002',
@@ -273,7 +277,7 @@ test('referral search matches reason and source patient identity', function () {
     Referral::create([
         'source_visit_id' => $budiVisit->id,
         'target_department_id' => $this->dentalDepartment->id,
-        'reason' => 'Patient needs dental extraction',
+        'reason' => 'Client needs dental extraction',
     ]);
 
     Referral::create([
@@ -285,12 +289,12 @@ test('referral search matches reason and source patient identity', function () {
     $this->getJson('/api/referrals?search=extraction')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
-        ->assertJsonPath('data.data.0.reason', 'Patient needs dental extraction');
+        ->assertJsonPath('data.data.0.reason', 'Client needs dental extraction');
 
     $this->getJson('/api/referrals?search=Budi')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
-        ->assertJsonPath('data.data.0.reason', 'Patient needs dental extraction');
+        ->assertJsonPath('data.data.0.reason', 'Client needs dental extraction');
 
     $this->getJson('/api/referrals?search=MRN-20002')
         ->assertOk()
@@ -300,6 +304,7 @@ test('referral search matches reason and source patient identity', function () {
 
 test('audit log search matches action entity user and ip', function () {
     AuditLog::create([
+        'tenant_id' => $this->tenant->id,
         'action' => 'VISIT_PRIORITY_CHANGED',
         'entity_type' => 'visit',
         'entity_id' => '1',
@@ -308,6 +313,7 @@ test('audit log search matches action entity user and ip', function () {
     ]);
 
     AuditLog::create([
+        'tenant_id' => $this->tenant->id,
         'action' => 'TICKET_CALLED',
         'entity_type' => 'queue_ticket',
         'entity_id' => '2',
@@ -316,8 +322,9 @@ test('audit log search matches action entity user and ip', function () {
     ]);
 
     AuditLog::create([
-        'action' => 'PATIENT_CREATED',
-        'entity_type' => 'patient',
+        'tenant_id' => $this->tenant->id,
+        'action' => 'CLIENT_CREATED',
+        'entity_type' => 'client',
         'entity_id' => '3',
         'user_id' => 'receptionist-1',
         'ip_address' => '192.168.1.5',
@@ -356,12 +363,16 @@ test('allowed sort columns order results descending', function () {
         ->assertJsonPath('data.data.1.name', 'Alur Rawat Gigi');
 
     $visitA = Visit::factory()->create([
+        'tenant_id' => $this->tenant->id,
+        'facility_id' => $this->facility->id,
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
         'visit_number' => 'V-TEST-0001',
         'visit_token' => (string) Str::uuid(),
     ]);
     $visitB = Visit::factory()->create([
+        'tenant_id' => $this->tenant->id,
+        'facility_id' => $this->facility->id,
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
         'visit_number' => 'V-TEST-0002',
@@ -390,11 +401,13 @@ test('allowed sort columns order results descending', function () {
         ->assertJsonPath('data.data.1.id', $referralA->id);
 
     AuditLog::create([
+        'tenant_id' => $this->tenant->id,
         'action' => 'A_FIRST',
         'entity_type' => 'visit',
         'entity_id' => '1',
     ]);
     $lastLog = AuditLog::create([
+        'tenant_id' => $this->tenant->id,
         'action' => 'Z_LAST',
         'entity_type' => 'visit',
         'entity_id' => '2',
@@ -417,7 +430,7 @@ test('array valued query params are rejected with a validation error', function 
         ->assertUnprocessable()
         ->assertJsonValidationErrors($param);
 })->with([
-    ['/api/patients', 'search'],
+    ['/api/clients', 'search'],
     ['/api/visits', 'search'],
     ['/api/visits', 'status'],
     ['/api/visits', 'date'],
@@ -449,6 +462,8 @@ test('invalid enum and date filters return a validation error', function (string
 
 test('queue acquisitions paginate by default', function () {
     $visit = Visit::factory()->create([
+        'tenant_id' => $this->tenant->id,
+        'facility_id' => $this->facility->id,
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
         'visit_number' => 'V-ACQ-0001',
@@ -471,6 +486,8 @@ test('queue acquisitions paginate by default', function () {
 
 test('a visit exposes its active acquisition through a dedicated endpoint', function () {
     $visit = Visit::factory()->create([
+        'tenant_id' => $this->tenant->id,
+        'facility_id' => $this->facility->id,
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
         'visit_number' => 'V-ACQ-0002',

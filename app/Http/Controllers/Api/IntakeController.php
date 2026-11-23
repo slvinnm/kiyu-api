@@ -25,6 +25,7 @@ class IntakeController extends Controller
         ]);
 
         $result = $this->intakeService->createKioskIntake(
+            tenant: $this->tenant(),
             departmentId: (int) $validated['department_id'],
             priority: (int) ($validated['priority'] ?? 1),
             idempotencyKey: $validated['idempotency_key'] ?? null
@@ -49,6 +50,7 @@ class IntakeController extends Controller
         ]);
 
         $result = $this->intakeService->createManualIntake(
+            tenant: $this->tenant(),
             departmentId: (int) $validated['department_id'],
             priority: (int) ($validated['priority'] ?? 1),
             idempotencyKey: $validated['idempotency_key'] ?? null,
@@ -67,29 +69,30 @@ class IntakeController extends Controller
     public function online(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'patient_id' => ['required', 'integer', 'exists:patients,id'],
+            'client_id' => ['required', 'integer', 'exists:clients,id'],
             'department_id' => ['required', 'integer', 'exists:departments,id'],
             'priority' => ['nullable', 'integer', 'in:1,2,3'],
             'idempotency_key' => ['nullable', 'string', 'max:100'],
         ]);
 
-        // A patient may only book for their own profile.
-        if ($this->isPatient($request)) {
-            $ownId = $this->patientId($request);
+        // A client may only book for their own profile.
+        if ($this->isClient($request)) {
+            $ownId = $this->clientId($request);
 
             abort_if($ownId === null, 403, 'Forbidden.');
-            abort_unless((int) $validated['patient_id'] === $ownId, 403, 'Forbidden.');
+            abort_unless((int) $validated['client_id'] === $ownId, 403, 'Forbidden.');
         }
 
         $result = $this->intakeService->createOnlineBooking(
-            patientId: (int) $validated['patient_id'],
+            tenant: $this->tenant(),
+            clientId: (int) $validated['client_id'],
             departmentId: (int) $validated['department_id'],
             priority: (int) ($validated['priority'] ?? 1),
             idempotencyKey: $validated['idempotency_key'] ?? null
         );
 
         return response()->json([
-            'message' => 'Online booking created successfully. Patient must check in at kiosk upon arrival.',
+            'message' => 'Online booking created successfully. Client must check in at kiosk upon arrival.',
             'data' => $result,
         ], 201);
     }
@@ -104,11 +107,12 @@ class IntakeController extends Controller
         ]);
 
         $result = $this->intakeService->performOnlineCheckin(
+            tenant: $this->tenant(),
             bookingIdentifier: $validated['booking_identifier']
         );
 
         return response()->json([
-            'message' => 'Check-in successful. Patient has entered the reception queue.',
+            'message' => 'Check-in successful. Client has entered the reception queue.',
             'data' => $result,
         ]);
     }
@@ -119,6 +123,7 @@ class IntakeController extends Controller
     public function onlineLookup(Request $request, string $identifier): JsonResponse
     {
         $result = $this->intakeService->lookupOnlineBooking(
+            tenant: $this->tenant(),
             bookingIdentifier: $identifier
         );
 
