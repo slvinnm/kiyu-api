@@ -157,13 +157,23 @@ class AuthController extends Controller
      */
     private function userPayload(User $user): array
     {
-        $user->loadMissing(['client']);
+        $user->loadMissing(['client', 'tenant']);
+
+        // Tenant and facility are exposed so the browser can join the correct
+        // Reverb channel. A tenant has one active facility in V1, so the
+        // facility needs no separate locator.
+        $facility = $user->tenant?->facilities()
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->first();
 
         return [
             'id' => $user->id,
             'name' => $user->name,
             'email' => $user->email,
             'role' => $user->role?->value,
+            'tenant_id' => $user->tenant_id,
+            'facility_id' => $facility?->id,
             'department_id' => $user->department_id,
             'station_id' => $user->station_id,
             'profile' => $user->client,
