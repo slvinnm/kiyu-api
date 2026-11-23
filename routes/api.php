@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\Platform\PlanController;
 use App\Http\Controllers\Api\Platform\TenantController;
 use App\Http\Controllers\Api\PublicQueueController;
 use App\Http\Controllers\Api\QueueAcquisitionController;
+use App\Http\Controllers\Api\QueueMonitorController;
 use App\Http\Controllers\Api\ReceptionController;
 use App\Http\Controllers\Api\ReferralController;
 use App\Http\Controllers\Api\ReportController;
@@ -256,6 +257,10 @@ Route::middleware(['auth:sanctum', 'tenant'])->group(function () {
         Route::get('/{id}/stations', 'stations')->whereNumber('id');
         Route::get('/{id}/workflows', 'workflows')->whereNumber('id');
     });
+
+    // Sanctum bearer tokens; this returns the same read model per tenant.
+    Route::get('/queue/monitor', [QueueMonitorController::class, 'index'])
+        ->middleware('role:admin,receptionist,staff');
 
     // Stations
     Route::prefix('stations')->controller(StationController::class)->group(function () {
