@@ -32,6 +32,9 @@ class KioskDeviceFactory extends Factory
             'facility_id' => $facility->id,
             'name' => 'Kiosk ' . fake()->unique()->numerify('##'),
             'credential_hash' => hash('sha256', Str::random(64)),
+            // A factory device is operational by default: it has completed
+            // pairing, so its credential is live.
+            'paired_at' => now(),
             'is_active' => true,
             'last_seen_at' => null,
             'expires_at' => null,
@@ -46,6 +49,19 @@ class KioskDeviceFactory extends Factory
         return $this->state(fn(array $attributes) => [
             'tenant_id' => $facility->tenant_id,
             'facility_id' => $facility->id,
+        ]);
+    }
+
+    /**
+     * Indicate that the device is registered but has not redeemed its pairing
+     * code, so its credential must never authenticate.
+     */
+    public function awaitingPairing(): static
+    {
+        return $this->state(fn(array $attributes) => [
+            'paired_at' => null,
+            'pairing_code_hash' => hash('sha256', 'PAIRING00'),
+            'pairing_expires_at' => now()->addMinutes(30),
         ]);
     }
 

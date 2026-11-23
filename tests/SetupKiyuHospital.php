@@ -230,6 +230,7 @@ trait SetupKiyuHospital
             'facility_id' => $this->facility->id,
             'name' => 'Test Kiosk',
             'credential_hash' => hash('sha256', $this->kioskToken),
+            'paired_at' => now(),
             'is_active' => true,
         ]);
 

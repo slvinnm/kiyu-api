@@ -66,7 +66,7 @@ test('a tenant cannot create a kiosk device beyond its limit', function () {
         ->postJson('/api/kiosk-devices', ['name' => 'Kiosk 1'])
         ->assertCreated()
         ->assertJsonPath('data.device.name', 'Kiosk 1')
-        ->assertJsonStructure(['data' => ['device', 'credential']]);
+        ->assertJsonStructure(['data' => ['device', 'pairing_code']]);
 
     $this->actingAs($clinic['admin'], 'sanctum')
         ->postJson('/api/kiosk-devices', ['name' => 'Kiosk 2'])
@@ -75,31 +75,58 @@ test('a tenant cannot create a kiosk device beyond its limit', function () {
     $this->assertDatabaseCount('kiosk_devices', 1);
 });
 
-test('the kiosk credential is returned once and never persisted in plain text', function () {
+test('the pairing code is returned once and never persisted in plain text', function () {
     $clinic = capacityClinic([Feature::MaxKioskDevices->value => 2]);
 
-    $credential = $this->actingAs($clinic['admin'], 'sanctum')
+    $pairingCode = $this->actingAs($clinic['admin'], 'sanctum')
         ->postJson('/api/kiosk-devices', ['name' => 'Kiosk'])
+        ->json('data.pairing_code');
+
+    expect($pairingCode)->toBeString()->not->toBeEmpty();
+
+    $stored = KioskDevice::query()->firstOrFail();
+    expect($stored->pairing_code_hash)->toBe(hash('sha256', $pairingCode))
+        ->and($stored->getAttribute('pairing_code_hash'))->not->toBe($pairingCode);
+
+    // The list endpoint never exposes the hashes or the code.
+    $this->actingAs($clinic['admin'], 'sanctum')
+        ->getJson('/api/kiosk-devices')
+        ->assertOk()
+        ->assertJsonMissingPath('data.0.credential_hash')
+        ->assertJsonMissingPath('data.0.pairing_code_hash');
+});
+
+test('a device redeems its pairing code for a credential exactly once', function () {
+    $clinic = capacityClinic([Feature::MaxKioskDevices->value => 1]);
+
+    $pairingCode = $this->actingAs($clinic['admin'], 'sanctum')
+        ->postJson('/api/kiosk-devices', ['name' => 'Kiosk'])
+        ->json('data.pairing_code');
+
+    $credential = $this->postJson('/api/kiosk/pair', ['pairing_code' => $pairingCode])
+        ->assertOk()
+        ->assertJsonPath('data.device.tenant.slug', $clinic['tenant']->slug)
         ->json('data.credential');
 
     expect($credential)->toBeString()->not->toBeEmpty();
 
     $stored = KioskDevice::query()->firstOrFail();
     expect($stored->credential_hash)->toBe(hash('sha256', $credential))
-        ->and($stored->getAttribute('credential_hash'))->not->toBe($credential);
+        ->and($stored->pairing_code_hash)->toBeNull();
 
-    // The list endpoint never exposes the hash or credential.
-    $this->actingAs($clinic['admin'], 'sanctum')
-        ->getJson('/api/kiosk-devices')
-        ->assertOk()
-        ->assertJsonMissingPath('data.0.credential_hash');
+    // The code is burned: a replay is rejected.
+    $this->postJson('/api/kiosk/pair', ['pairing_code' => $pairingCode])
+        ->assertNotFound();
 });
 
 test('a revoked kiosk device cannot resolve a tenant', function () {
     $clinic = capacityClinic([Feature::MaxKioskDevices->value => 1]);
 
-    $credential = $this->actingAs($clinic['admin'], 'sanctum')
+    $pairingCode = $this->actingAs($clinic['admin'], 'sanctum')
         ->postJson('/api/kiosk-devices', ['name' => 'Kiosk'])
+        ->json('data.pairing_code');
+
+    $credential = $this->postJson('/api/kiosk/pair', ['pairing_code' => $pairingCode])
         ->json('data.credential');
 
     $deviceId = KioskDevice::query()->firstOrFail()->id;
@@ -112,6 +139,78 @@ test('a revoked kiosk device cannot resolve a tenant', function () {
     $this->withHeader('X-Kiosk-Token', $credential)
         ->postJson('/api/intake/kiosk', ['department_id' => $clinic['department']->id])
         ->assertForbidden();
+});
+
+test('an unpaired device cannot authenticate with its placeholder credential', function () {
+    $clinic = capacityClinic([Feature::MaxKioskDevices->value => 1]);
+
+    // Register but never redeem the pairing code.
+    $this->actingAs($clinic['admin'], 'sanctum')
+        ->postJson('/api/kiosk-devices', ['name' => 'Kiosk'])
+        ->assertCreated();
+
+    $device = KioskDevice::query()->firstOrFail();
+    expect($device->paired_at)->toBeNull()
+        ->and($device->isUsable())->toBeFalse();
+
+    // No credential was ever issued, so the kiosk route rejects any token.
+    $this->withHeader('X-Kiosk-Token', 'anything')
+        ->postJson('/api/intake/kiosk', ['department_id' => $clinic['department']->id])
+        ->assertForbidden();
+});
+
+test('the device list reports pairing state but never exposes hashes', function () {
+    $clinic = capacityClinic([Feature::MaxKioskDevices->value => 2]);
+
+    $this->actingAs($clinic['admin'], 'sanctum')
+        ->postJson('/api/kiosk-devices', ['name' => 'Awaiting'])
+        ->assertCreated();
+
+    $this->actingAs($clinic['admin'], 'sanctum')
+        ->getJson('/api/kiosk-devices')
+        ->assertOk()
+        ->assertJsonPath('data.0.is_paired', false)
+        ->assertJsonPath('data.0.is_awaiting_pairing', true)
+        ->assertJsonMissingPath('data.0.credential_hash')
+        ->assertJsonMissingPath('data.0.pairing_code_hash');
+});
+
+test('a pairing code cannot be reissued for an already-paired device', function () {
+    $clinic = capacityClinic([Feature::MaxKioskDevices->value => 1]);
+
+    $pairingCode = $this->actingAs($clinic['admin'], 'sanctum')
+        ->postJson('/api/kiosk-devices', ['name' => 'Kiosk'])
+        ->json('data.pairing_code');
+
+    $this->postJson('/api/kiosk/pair', ['pairing_code' => $pairingCode])->assertOk();
+
+    $deviceId = KioskDevice::query()->firstOrFail()->id;
+
+    $this->actingAs($clinic['admin'], 'sanctum')
+        ->postJson("/api/kiosk-devices/{$deviceId}/pairing-code")
+        ->assertStatus(409);
+});
+
+test('a pairing code can be reissued for a device that has not paired', function () {
+    $clinic = capacityClinic([Feature::MaxKioskDevices->value => 1]);
+
+    $firstCode = $this->actingAs($clinic['admin'], 'sanctum')
+        ->postJson('/api/kiosk-devices', ['name' => 'Kiosk'])
+        ->json('data.pairing_code');
+
+    $deviceId = KioskDevice::query()->firstOrFail()->id;
+
+    $secondCode = $this->actingAs($clinic['admin'], 'sanctum')
+        ->postJson("/api/kiosk-devices/{$deviceId}/pairing-code")
+        ->assertOk()
+        ->json('data.pairing_code');
+
+    expect($secondCode)->not->toBe($firstCode);
+
+    // The superseded code no longer works; the new one does.
+    $this->postJson('/api/kiosk/pair', ['pairing_code' => $firstCode])->assertNotFound();
+
+    $this->postJson('/api/kiosk/pair', ['pairing_code' => $secondCode])->assertOk();
 });
 
 test('a tenant cannot create a facility beyond its limit', function () {

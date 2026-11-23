@@ -2,7 +2,8 @@
 
 namespace App\Http\Middleware;
 
-use App\Models\KioskDevice;
+use App\Exceptions\InvalidStateException;
+use App\Services\KioskDeviceResolver;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -16,6 +17,10 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class ResolveKioskDevice
 {
+    public function __construct(
+        private readonly KioskDeviceResolver $resolver,
+    ) {}
+
     /**
      * Handle an incoming request.
      */
@@ -25,19 +30,11 @@ class ResolveKioskDevice
 
         abort_if($token === '', 403, 'A kiosk device credential is required.');
 
-        /** @var KioskDevice|null $device */
-        $device = KioskDevice::query()
-            ->with(['tenant', 'facility'])
-            ->where('credential_hash', hash('sha256', $token))
-            ->first();
-
-        abort_if($device === null || ! $device->isUsable(), 403, 'The kiosk device credential is invalid or revoked.');
-
-        abort_if(
-            $device->facility === null || $device->facility->tenant_id !== $device->tenant_id,
-            403,
-            'The kiosk device is not bound to a valid facility.',
-        );
+        try {
+            $device = $this->resolver->resolve($token);
+        } catch (InvalidStateException $e) {
+            abort(403, $e->getMessage());
+        }
 
         $request->attributes->set('tenant', $device->tenant);
         $request->attributes->set('facility', $device->facility);

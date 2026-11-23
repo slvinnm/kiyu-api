@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\DepartmentController;
 use App\Http\Controllers\Api\FacilityController;
 use App\Http\Controllers\Api\IntakeController;
 use App\Http\Controllers\Api\KioskDeviceController;
+use App\Http\Controllers\Api\KioskPairingController;
 use App\Http\Controllers\Api\Platform\PlanController;
 use App\Http\Controllers\Api\Platform\TenantController;
 use App\Http\Controllers\Api\PublicQueueController;
@@ -71,11 +72,19 @@ Route::prefix('intake')->controller(IntakeController::class)->group(function () 
     Route::post('/online', 'online')->middleware('public-tenant');
 });
 
+// Kiosk device onboarding. A device redeems the short pairing code an admin
+// generated and receives its long-lived credential. Rate limited because the
+// code is short; the code is single-use and expires.
+Route::post('/kiosk/pair', [KioskPairingController::class, 'pair'])
+    ->middleware('throttle:10,1');
+
 // Public queue display (without personally identifiable information)
-Route::get('/public/queue', [PublicQueueController::class, 'index'])->middleware('public-tenant');
+Route::get('/public/queue', [PublicQueueController::class, 'index'])
+    ->middleware(['public-tenant', 'throttle:120,1']);
 
 // Public organizational lookup for kiosk
-Route::get('/departments/active', [DepartmentController::class, 'active'])->middleware('public-tenant');
+Route::get('/departments/active', [DepartmentController::class, 'active'])
+    ->middleware(['public-tenant', 'throttle:120,1']);
 
 // Public visit tracking
 Route::get('/visits/{token}/track', [VisitController::class, 'track']);
@@ -334,6 +343,7 @@ Route::middleware(['auth:sanctum', 'tenant'])->group(function () {
         Route::get('/', 'index')->middleware('role:admin');
         Route::post('/', 'store')->middleware('role:admin');
         Route::delete('/{id}', 'destroy')->whereNumber('id')->middleware('role:admin');
+        Route::post('/{id}/pairing-code', 'reissuePairingCode')->whereNumber('id')->middleware('role:admin');
     });
 
     /*
@@ -421,6 +431,7 @@ Route::prefix('platform')->middleware(['auth:sanctum', 'platform'])->group(funct
         Route::get('/kiosk-devices', [KioskDeviceController::class, 'index']);
         Route::post('/kiosk-devices', [KioskDeviceController::class, 'store']);
         Route::delete('/kiosk-devices/{id}', [KioskDeviceController::class, 'destroy'])->whereNumber('id');
+        Route::post('/kiosk-devices/{id}/pairing-code', [KioskDeviceController::class, 'reissuePairingCode'])->whereNumber('id');
 
         // Visits (read + staff actions)
         Route::get('/visits', [VisitController::class, 'index']);

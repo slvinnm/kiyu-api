@@ -3,8 +3,10 @@
 namespace App\Http\Middleware;
 
 use App\Enums\TenantStatus;
+use App\Exceptions\InvalidStateException;
 use App\Models\Facility;
 use App\Models\Tenant;
+use App\Services\KioskDeviceResolver;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -14,20 +16,39 @@ use Symfony\Component\HttpFoundation\Response;
  *
  * The locator is a public identifier (slug) and never grants membership or
  * staff access. Resolution order:
- *   1. `X-Tenant-Slug` header (used by the public frontend and kiosk shell)
- *   2. `tenant` route parameter
- *   3. the request host's first label (tenant subdomain)
+ *   1. `X-Kiosk-Token` header (a registered kiosk device; strongest, because it
+ *      is a hashed credential and also binds the facility)
+ *   2. `X-Tenant-Slug` header (used by the public frontend and kiosk shell)
+ *   3. `tenant` route parameter
+ *   4. the request host's first label (tenant subdomain)
  *
  * A body `tenant_id` is deliberately never accepted. The facility is the
- * tenant's single active facility in V1.
+ * tenant's single active facility in V1, unless a kiosk device pins it.
  */
 class ResolvePublicTenant
 {
+    public function __construct(
+        private readonly KioskDeviceResolver $kioskDevices,
+    ) {}
+
     /**
      * Handle an incoming request.
      */
     public function handle(Request $request, Closure $next): Response
     {
+        try {
+            $device = $this->kioskDevices->resolve((string) $request->header('X-Kiosk-Token', ''));
+        } catch (InvalidStateException $e) {
+            abort(403, $e->getMessage());
+        }
+
+        if ($device !== null) {
+            $request->attributes->set('tenant', $device->tenant);
+            $request->attributes->set('facility', $device->facility);
+
+            return $next($request);
+        }
+
         $slug = $this->resolveSlug($request);
 
         if ($slug === null) {

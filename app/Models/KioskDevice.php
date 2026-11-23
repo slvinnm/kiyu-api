@@ -20,6 +20,9 @@ class KioskDevice extends Model
         'facility_id',
         'name',
         'credential_hash',
+        'pairing_code_hash',
+        'pairing_expires_at',
+        'paired_at',
         'is_active',
         'last_seen_at',
         'expires_at',
@@ -32,6 +35,7 @@ class KioskDevice extends Model
      */
     protected $hidden = [
         'credential_hash',
+        'pairing_code_hash',
     ];
 
     /**
@@ -43,15 +47,42 @@ class KioskDevice extends Model
         'is_active' => 'boolean',
         'last_seen_at' => 'datetime',
         'expires_at' => 'datetime',
+        'pairing_expires_at' => 'datetime',
+        'paired_at' => 'datetime',
     ];
 
     /**
+     * Whether the device has redeemed a pairing code and holds a real
+     * credential. A registered-but-unpaired device stores only a placeholder
+     * credential hash and must never authenticate.
+     */
+    public function isPaired(): bool
+    {
+        return $this->paired_at !== null;
+    }
+
+    /**
      * Determine whether the device credential may currently be used.
+     *
+     * The device must be paired, active, and (when set) not past its expiry.
      */
     public function isUsable(): bool
     {
-        return $this->is_active
+        return $this->isPaired()
+            && $this->is_active
             && ($this->expires_at === null || $this->expires_at->isFuture());
+    }
+
+    /**
+     * Whether the device is waiting for an operator to redeem its pairing code.
+     */
+    public function isAwaitingPairing(): bool
+    {
+        return ! $this->isPaired()
+            && $this->is_active
+            && $this->pairing_code_hash !== null
+            && $this->pairing_expires_at !== null
+            && $this->pairing_expires_at->isFuture();
     }
 
     /**
