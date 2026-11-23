@@ -9,6 +9,7 @@ use App\Enums\QueueTicketStatus;
 use App\Enums\VisitStatus;
 use App\Exceptions\BusinessConflictException;
 use App\Exceptions\InvalidStateException;
+use App\Jobs\SendQueueCallWhatsApp;
 use App\Models\Client;
 use App\Models\Department;
 use App\Models\QueueAcquisition;
@@ -17,7 +18,6 @@ use App\Models\QueueTicket;
 use App\Models\Station;
 use App\Models\Tenant;
 use App\Models\Visit;
-use App\Support\DateScope;
 use App\Support\QueueBroadcast;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -69,7 +69,7 @@ class ReceptionService
             ->with(['visit.client', 'station', 'workflowStep'])
             ->where('station_id', $registrationStation->id)
             ->where('status', QueueTicketStatus::Created)
-            ->tap(fn($query) => DateScope::apply($query, $today))
+            ->whereDate('created_at', $today)
             ->orderBy('priority', 'desc')
             ->orderBy('internal_sequence', 'asc')
             ->get();
@@ -79,13 +79,13 @@ class ReceptionService
             ->with(['visit.client', 'station', 'workflowStep'])
             ->where('station_id', $registrationStation->id)
             ->where('status', QueueTicketStatus::OnHold)
-            ->tap(fn($query) => DateScope::apply($query, $today))
+            ->whereDate('created_at', $today)
             ->get();
 
         $calledCountToday = QueueTicket::query()
             ->where('station_id', $registrationStation->id)
             ->whereIn('status', [QueueTicketStatus::Called, QueueTicketStatus::Completed, QueueTicketStatus::Skipped, QueueTicketStatus::NoShow])
-            ->tap(fn($query) => DateScope::apply($query, $today))
+            ->whereDate('created_at', $today)
             ->count();
 
         return [
@@ -161,9 +161,10 @@ class ReceptionService
         });
 
         if ($ticket) {
-            $ticket->loadMissing(['station.department']);
+            $ticket->loadMissing(['station.department', 'visit.client']);
 
             QueueBroadcast::called($ticket);
+            SendQueueCallWhatsApp::forTicket($ticket);
         }
 
         return $ticket;

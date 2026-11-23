@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\Feature;
 use App\Enums\UserRole;
 use App\Exceptions\InvalidStateException;
 use App\Http\Controllers\Api\Concerns\HandlesTableQuery;
@@ -9,6 +10,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Department;
 use App\Models\Station;
 use App\Models\User;
+use App\Services\SubscriptionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -17,6 +19,10 @@ use Illuminate\Validation\ValidationException;
 class UserController extends Controller
 {
     use HandlesTableQuery;
+
+    public function __construct(
+        private readonly SubscriptionService $subscriptions,
+    ) {}
 
     /**
      * List staff users.
@@ -74,6 +80,11 @@ class UserController extends Controller
         ]);
 
         $this->validateAssignedOrganisation($validated);
+
+        // Only staff roles count against the seat limit; clients do not.
+        if ($validated['role'] !== UserRole::Client->value) {
+            $this->subscriptions->ensureCapacity($this->tenant(), Feature::MaxStaff);
+        }
 
         $user = new User([
             'name' => $validated['name'],
@@ -182,7 +193,13 @@ class UserController extends Controller
 
     private function authorizeAdmin(Request $request): void
     {
-        abort_unless($request->user()?->role === UserRole::Admin, 403, 'Forbidden.');
+        $user = $request->user();
+
+        abort_unless(
+            $user !== null && ($user->role === UserRole::Admin || $user->isPlatformUser()),
+            403,
+            'Forbidden.',
+        );
     }
 
     /**

@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\BillingInterval;
+use App\Enums\Feature;
 use App\Enums\SubscriptionStatus;
 use App\Enums\TenantStatus;
 use App\Models\Facility;
@@ -50,8 +51,13 @@ function billingClinic(string $slug = 'billing-clinic'): array
     ]);
 
     $plan->entitlements()->create([
-        'feature_code' => 'queue_management',
-        'value' => ['enabled' => true],
+        'feature_code' => Feature::QueueManagement->value,
+        'value' => null,
+    ]);
+
+    $plan->entitlements()->create([
+        'feature_code' => Feature::MaxKioskDevices->value,
+        'value' => ['limit' => 2],
     ]);
 
     return compact('tenant', 'facility', 'admin', 'plan');
@@ -107,8 +113,22 @@ test('hasFeature reflects the plan entitlements', function () {
 
     $service->start($clinic['tenant'], $clinic['plan'], BillingInterval::Monthly, 30);
 
-    expect($service->hasFeature($clinic['tenant'], 'queue_management'))->toBeTrue()
-        ->and($service->hasFeature($clinic['tenant'], 'multi_facility'))->toBeFalse();
+    expect($service->hasFeature($clinic['tenant'], Feature::QueueManagement))->toBeTrue()
+        ->and($service->hasFeature($clinic['tenant'], Feature::AdvancedReports))->toBeFalse();
+});
+
+test('a limit entitlement reports its cap and usage', function () {
+    $clinic = billingClinic();
+    $service = app(SubscriptionService::class);
+
+    // The fixture plan grants max_kiosk_devices: 2.
+    $service->start($clinic['tenant'], $clinic['plan'], BillingInterval::Monthly, 30);
+
+    $limit = $service->limit($clinic['tenant'], Feature::MaxKioskDevices);
+
+    expect($limit)->toBe(2)
+        ->and($service->usage($clinic['tenant'], Feature::MaxKioskDevices))->toBe(0)
+        ->and($service->hasCapacityFor($clinic['tenant'], Feature::MaxKioskDevices))->toBeTrue();
 });
 
 test('a tenant admin can view and start a subscription over the API', function () {
@@ -165,12 +185,19 @@ test('the platform can list and create plans', function () {
                 ['billing_interval' => 'MONTHLY', 'amount' => 25000000, 'currency' => 'idr'],
             ],
             'entitlements' => [
-                ['feature_code' => 'queue_management', 'value' => ['enabled' => true]],
+                ['feature_code' => 'queue_management'],
+                ['feature_code' => 'max_facilities', 'limit' => 3],
             ],
         ])
         ->assertCreated()
         ->assertJsonPath('data.code', 'PRO')
         ->assertJsonPath('data.prices.0.currency', 'IDR');
+
+    $plan = Plan::query()->where('code', 'PRO')->firstOrFail();
+    $limit = $plan->entitlements()->where('feature_code', 'max_facilities')->firstOrFail();
+
+    expect($limit->value)->toBe(['limit' => 3])
+        ->and($plan->entitlements()->where('feature_code', 'queue_management')->firstOrFail()->value)->toBeNull();
 
     $this->actingAs($platform, 'sanctum')
         ->getJson('/api/platform/plans')

@@ -5,24 +5,10 @@ namespace App\Http\Controllers;
 use App\Enums\UserRole;
 use App\Models\Facility;
 use App\Models\Tenant;
-use App\Support\DateScope;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\Request;
 
 abstract class Controller
 {
-    /**
-     * Restrict a query to the calendar day of `$date` (index-friendly).
-     */
-    protected function whereOnDate(
-        Builder|QueryBuilder $query,
-        mixed $date,
-        string $column = 'created_at'
-    ): void {
-        DateScope::apply($query, $date, $column);
-    }
-
     /**
      * Whether the authenticated user is a client account.
      *

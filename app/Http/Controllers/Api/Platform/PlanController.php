@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Platform;
 
+use App\Enums\Feature;
 use App\Http\Controllers\Controller;
 use App\Models\Plan;
 use Illuminate\Http\JsonResponse;
@@ -41,8 +42,8 @@ class PlanController extends Controller
             'prices.*.amount' => ['required', 'integer', 'min:0'],
             'prices.*.currency' => ['required', 'string', 'size:3'],
             'entitlements' => ['nullable', 'array'],
-            'entitlements.*.feature_code' => ['required', 'string', 'max:100'],
-            'entitlements.*.value' => ['nullable', 'array'],
+            'entitlements.*.feature_code' => ['required', 'string', Rule::in(Feature::allValues())],
+            'entitlements.*.limit' => ['nullable', 'integer', 'min:0'],
         ]);
 
         $plan = Plan::query()->create([
@@ -62,9 +63,13 @@ class PlanController extends Controller
         }
 
         foreach ($validated['entitlements'] ?? [] as $entitlement) {
+            $feature = Feature::from($entitlement['feature_code']);
+
             $plan->entitlements()->create([
-                'feature_code' => $entitlement['feature_code'],
-                'value' => $entitlement['value'] ?? [],
+                'feature_code' => $feature->value,
+                'value' => $feature->isLimit()
+                    ? ['limit' => (int) ($entitlement['limit'] ?? 0)]
+                    : null,
             ]);
         }
 

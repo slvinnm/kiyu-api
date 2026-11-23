@@ -1,6 +1,8 @@
 <?php
 
+use App\Enums\TenantStatus;
 use App\Models\Client;
+use App\Models\Tenant;
 use App\Models\User;
 use App\Models\Visit;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -128,4 +130,39 @@ test('staff access to client records is unchanged', function () {
     $this->getJson('/api/visits')
         ->assertOk()
         ->assertJsonPath('data.total', 2);
+});
+
+test('staff can link a client to a user in the same tenant', function () {
+    $member = User::factory()->create([
+        'role' => 'client',
+        'tenant_id' => $this->tenant->id,
+    ]);
+
+    $this->postJson('/api/clients', [
+        'name' => 'Linked Client',
+        'user_id' => $member->id,
+    ])
+        ->assertCreated()
+        ->assertJsonPath('data.user_id', $member->id);
+});
+
+test('staff cannot link a client to a user from another tenant', function () {
+    $foreignTenant = Tenant::query()->create([
+        'name' => 'Foreign Clinic',
+        'slug' => 'foreign-clinic',
+        'status' => TenantStatus::Active,
+    ]);
+
+    $foreignUser = User::factory()->create([
+        'role' => 'client',
+        'tenant_id' => $foreignTenant->id,
+    ]);
+
+    $this->postJson('/api/clients', [
+        'name' => 'Impostor Target',
+        'user_id' => $foreignUser->id,
+    ])
+        ->assertStatus(422);
+
+    $this->assertDatabaseMissing('clients', ['user_id' => $foreignUser->id]);
 });

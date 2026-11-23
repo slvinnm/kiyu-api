@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Enums\Feature;
 use App\Models\Tenant;
 use App\Services\SubscriptionService;
 use Closure;
@@ -12,7 +13,8 @@ use Symfony\Component\HttpFoundation\Response;
  * Restrict a route to tenants whose effective subscription grants a feature.
  *
  * Usage: `->middleware('feature:multi_facility')`. The current tenant comes
- * from the resolved context, never from the request.
+ * from the resolved context, never from the request. An unknown feature code
+ * aborts so a typo is caught at request time rather than silently denying.
  */
 class EnsurePlanFeature
 {
@@ -27,12 +29,18 @@ class EnsurePlanFeature
     {
         $tenant = $request->attributes->get('tenant');
 
-        if (! $tenant instanceof Tenant) {
-            abort(403, 'Forbidden.');
-        }
+        abort_unless($tenant instanceof Tenant, 403, 'Forbidden.');
+
+        $resolved = Feature::tryFrom($feature);
+
+        abort_if(
+            $resolved === null,
+            500,
+            "Unknown plan feature '{$feature}'.",
+        );
 
         abort_unless(
-            $this->subscriptions->hasFeature($tenant, $feature),
+            $this->subscriptions->hasFeature($tenant, $resolved),
             403,
             "Your plan does not include the '{$feature}' feature.",
         );

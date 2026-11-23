@@ -4,6 +4,7 @@ use App\Http\Middleware\EnsurePlanFeature;
 use App\Http\Middleware\EnsurePlatformAccount;
 use App\Http\Middleware\EnsureUserRole;
 use App\Http\Middleware\ResolveKioskDevice;
+use App\Http\Middleware\ResolvePlatformTenant;
 use App\Http\Middleware\ResolvePublicTenant;
 use App\Http\Middleware\ResolveTenant;
 use Illuminate\Foundation\Application;
@@ -26,6 +27,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'kiosk' => ResolveKioskDevice::class,
             'public-tenant' => ResolvePublicTenant::class,
             'platform' => EnsurePlatformAccount::class,
+            'platform-tenant' => ResolvePlatformTenant::class,
             'feature' => EnsurePlanFeature::class,
         ]);
     })

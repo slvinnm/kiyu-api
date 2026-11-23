@@ -307,7 +307,8 @@ return new class extends Migration
             $table->id();
             $table->foreignId('plan_id')->constrained('plans')->cascadeOnDelete();
             $table->string('feature_code');
-            $table->json('value');
+            // Null for a toggle; {"limit": n} for a limit feature.
+            $table->json('value')->nullable();
             $table->timestamps();
 
             $table->unique(['plan_id', 'feature_code']);

@@ -35,4 +35,57 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | WhatsApp Gateway (provider-neutral)
+    |--------------------------------------------------------------------------
+    |
+    | Any provider is configured here; the code never hard-codes one. The
+    | `endpoint`, `headers` and `body` templates use {placeholders} that the
+    | gateway fills per message:
+    |
+    |   {to}        recipient phone number
+    |   {body}      message text
+    |   {type}      text | image | video | document
+    |   {media_url} media URL for non-text types
+    |   {filename}  document filename
+    |
+    | Enable with WHATSAPP_ENABLED=true and point the endpoint at your
+    | provider. Edit the templates here to match the provider's payload.
+    |
+    */
+
+    /*
+    |--------------------------------------------------------------------------
+    | Payment Gateway (Midtrans)
+    |--------------------------------------------------------------------------
+    |
+    | Snap charges and webhook signatures. Switch to production by setting
+    | MIDTRANS_SNAP_BASE to https://app.midtrans.com/snap/v1 and using the
+    | production server key.
+    |
+    */
+
+    'midtrans' => [
+        'server_key' => env('MIDTRANS_SERVER_KEY', ''),
+        'client_key' => env('MIDTRANS_CLIENT_KEY', ''),
+        'snap_base' => env('MIDTRANS_SNAP_BASE', 'https://app.sandbox.midtrans.com/snap/v1'),
+        'timeout' => (int) env('MIDTRANS_TIMEOUT', 15),
+    ],
+
+    'whatsapp' => [
+        'enabled' => (bool) env('WHATSAPP_ENABLED', false),
+        'endpoint' => env('WHATSAPP_ENDPOINT'),
+        'method' => env('WHATSAPP_METHOD', 'POST'),
+        'timeout' => (int) env('WHATSAPP_TIMEOUT', 15),
+        'headers' => [
+            'Authorization' => env('WHATSAPP_TOKEN'),
+        ],
+        'body' => [
+            'target' => '{to}',
+            'message' => '{body}',
+            'url' => '{media_url}',
+        ],
+    ],
+
 ];

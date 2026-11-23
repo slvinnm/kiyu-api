@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\BillingInterval;
+use App\Enums\Feature;
 use App\Enums\SubscriptionStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -66,6 +67,58 @@ class Subscription extends Model
         }
 
         return true;
+    }
+
+    /**
+     * Whether the subscription's plan grants the feature.
+     *
+     * For a toggle a granted row means "on"; for a limit a granted row means a
+     * positive cap (a limit of 0 is treated as not granted).
+     */
+    public function hasFeature(Feature $feature): bool
+    {
+        if (! $this->isEffective()) {
+            return false;
+        }
+
+        $entitlement = $this->plan->entitlements
+            ->firstWhere('feature_code', $feature->value);
+
+        if ($entitlement === null) {
+            return false;
+        }
+
+        return $feature->isToggle() || $this->readLimit($entitlement) > 0;
+    }
+
+    /**
+     * The numeric limit granted for a feature, or the feature's default when
+     * the plan does not grant it.
+     */
+    public function featureLimit(Feature $feature): int
+    {
+        if (! $this->isEffective()) {
+            return $feature->defaultLimit();
+        }
+
+        $entitlement = $this->plan->entitlements
+            ->firstWhere('feature_code', $feature->value);
+
+        if ($entitlement === null) {
+            return $feature->defaultLimit();
+        }
+
+        return $this->readLimit($entitlement);
+    }
+
+    /**
+     * Read the integer limit stored in an entitlement's value.
+     */
+    private function readLimit(PlanEntitlement $entitlement): int
+    {
+        $value = $entitlement->value ?? [];
+
+        return (int) ($value['limit'] ?? 0);
     }
 
     /**

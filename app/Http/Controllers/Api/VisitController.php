@@ -61,7 +61,7 @@ class VisitController extends Controller
         }
 
         if (! empty($validated['date'])) {
-            $this->whereOnDate($query, $validated['date']);
+            $query->whereDate('created_at', $validated['date']);
         }
 
         if (! empty($validated['search'])) {
@@ -172,7 +172,7 @@ class VisitController extends Controller
         }
 
         if (! empty($validated['date'])) {
-            $this->whereOnDate($query, $validated['date']);
+            $query->whereDate('created_at', $validated['date']);
         }
 
         return response()->json([

@@ -3,21 +3,27 @@
 
 use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\Billing\PaymentController;
 use App\Http\Controllers\Api\Billing\SubscriptionController;
+use App\Http\Controllers\Api\Billing\WebhookController;
 use App\Http\Controllers\Api\ClientController;
 use App\Http\Controllers\Api\ClinicalQueueController;
 use App\Http\Controllers\Api\DepartmentController;
+use App\Http\Controllers\Api\FacilityController;
 use App\Http\Controllers\Api\IntakeController;
+use App\Http\Controllers\Api\KioskDeviceController;
 use App\Http\Controllers\Api\Platform\PlanController;
 use App\Http\Controllers\Api\Platform\TenantController;
 use App\Http\Controllers\Api\PublicQueueController;
 use App\Http\Controllers\Api\QueueAcquisitionController;
 use App\Http\Controllers\Api\ReceptionController;
 use App\Http\Controllers\Api\ReferralController;
+use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\StationController;
 use App\Http\Controllers\Api\TicketController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\VisitController;
+use App\Http\Controllers\Api\WhatsAppController;
 use App\Http\Controllers\Api\WorkflowController;
 use Illuminate\Support\Facades\Route;
 
@@ -73,6 +79,10 @@ Route::get('/departments/active', [DepartmentController::class, 'active'])->midd
 
 // Public visit tracking
 Route::get('/visits/{token}/track', [VisitController::class, 'track']);
+
+// Payment provider webhook. Public (no auth/tenant): the payload is untrusted
+// until PaymentService verifies its signature; replays are idempotent.
+Route::post('/webhooks/payments/{provider}', [WebhookController::class, 'handle']);
 
 /*
 |--------------------------------------------------------------------------
@@ -189,8 +199,8 @@ Route::middleware(['auth:sanctum', 'tenant'])->group(function () {
         Route::get('/{id}', 'show')->whereNumber('id');
         Route::get('/{id}/acquisition', 'acquisition')->whereNumber('id');
 
-        Route::patch('/{id}/priority', 'updatePriority')->whereNumber('id');
-        Route::post('/{id}/cancel', 'cancel')->whereNumber('id');
+        Route::patch('/{id}/priority', 'updatePriority')->whereNumber('id')->middleware('role:admin,receptionist,staff');
+        Route::post('/{id}/cancel', 'cancel')->whereNumber('id')->middleware('role:admin,receptionist,staff');
     });
 
     /*
@@ -240,7 +250,7 @@ Route::middleware(['auth:sanctum', 'tenant'])->group(function () {
         Route::get('/{id}', 'show')->whereNumber('id');
         Route::put('/{id}', 'update')->whereNumber('id')->middleware('role:admin');
 
-        Route::get('/{id}/queue', 'queue')->whereNumber('id');
+        Route::get('/{id}/queue', 'queue')->whereNumber('id')->middleware('role:admin,receptionist,staff');
     });
 
     // Workflows
@@ -301,6 +311,63 @@ Route::middleware(['auth:sanctum', 'tenant'])->group(function () {
         Route::post('/', 'store')->middleware('role:admin');
         Route::post('/cancel', 'cancel')->middleware('role:admin');
     });
+
+    // Start a payment charge for the tenant's subscription.
+    Route::post('/billing/pay', [PaymentController::class, 'charge'])->middleware('role:admin');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Organisation Resources (limit-gated)
+    |--------------------------------------------------------------------------
+    |
+    | Creating a facility or kiosk device is capped by the plan's max_* limit.
+    |
+    */
+
+    Route::prefix('facilities')->controller(FacilityController::class)->group(function () {
+        Route::get('/', 'index')->middleware('role:admin');
+        Route::post('/', 'store')->middleware('role:admin');
+        Route::put('/{id}', 'update')->whereNumber('id')->middleware('role:admin');
+    });
+
+    Route::prefix('kiosk-devices')->controller(KioskDeviceController::class)->group(function () {
+        Route::get('/', 'index')->middleware('role:admin');
+        Route::post('/', 'store')->middleware('role:admin');
+        Route::delete('/{id}', 'destroy')->whereNumber('id')->middleware('role:admin');
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | Reports
+    |--------------------------------------------------------------------------
+    |
+    | JSON summaries need basic_reports; the CSV export is an advanced feature.
+    |
+    */
+
+    Route::prefix('reports')->controller(ReportController::class)->group(function () {
+        Route::get('/summary', 'summary')
+            ->middleware(['role:admin,receptionist', 'feature:basic_reports']);
+        Route::get('/visits/export', 'exportVisits')
+            ->middleware(['role:admin', 'feature:advanced_reports']);
+        Route::post('/visits/export-file', 'exportFile')
+            ->middleware(['role:admin', 'feature:advanced_reports']);
+        Route::get('/download', 'download')
+            ->name('reports.download')
+            ->middleware(['role:admin', 'feature:advanced_reports']);
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | WhatsApp notifications
+    |--------------------------------------------------------------------------
+    |
+    | Provider-neutral gateway; requires the whatsapp_notifications feature.
+    |
+    */
+
+    Route::post('/whatsapp/messages', [WhatsAppController::class, 'send'])
+        ->middleware(['role:admin,receptionist', 'feature:whatsapp_notifications']);
 });
 
 /*
@@ -320,4 +387,48 @@ Route::prefix('platform')->middleware(['auth:sanctum', 'platform'])->group(funct
 
     Route::get('/plans', [PlanController::class, 'index']);
     Route::post('/plans', [PlanController::class, 'store']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Tenant support: act as a clinic admin on a chosen tenant
+    |--------------------------------------------------------------------------
+    |
+    | `platform-tenant` binds the target tenant from {tenant}, then the normal
+    | tenant-scoped controllers run against that tenant. Feature and limit
+    | checks use the target tenant's subscription, so support never bypasses
+    | plan enforcement.
+    |
+    */
+
+    Route::prefix('/tenants/{tenant}/manage')->middleware('platform-tenant')->group(function () {
+        // Staff users
+        Route::get('/users', [UserController::class, 'index']);
+        Route::post('/users', [UserController::class, 'store']);
+        Route::get('/users/{id}', [UserController::class, 'show'])->whereNumber('id');
+        Route::put('/users/{id}', [UserController::class, 'update'])->whereNumber('id');
+        Route::delete('/users/{id}', [UserController::class, 'destroy'])->whereNumber('id');
+
+        // Client records
+        Route::get('/clients', [ClientController::class, 'index']);
+        Route::get('/clients/{id}', [ClientController::class, 'show'])->whereNumber('id');
+        Route::put('/clients/{id}', [ClientController::class, 'update'])->whereNumber('id');
+        Route::get('/clients/{id}/visits', [ClientController::class, 'visits'])->whereNumber('id');
+
+        // Facilities and kiosk devices
+        Route::get('/facilities', [FacilityController::class, 'index']);
+        Route::post('/facilities', [FacilityController::class, 'store']);
+        Route::put('/facilities/{id}', [FacilityController::class, 'update'])->whereNumber('id');
+        Route::get('/kiosk-devices', [KioskDeviceController::class, 'index']);
+        Route::post('/kiosk-devices', [KioskDeviceController::class, 'store']);
+        Route::delete('/kiosk-devices/{id}', [KioskDeviceController::class, 'destroy'])->whereNumber('id');
+
+        // Visits (read + staff actions)
+        Route::get('/visits', [VisitController::class, 'index']);
+        Route::get('/visits/{id}', [VisitController::class, 'show'])->whereNumber('id');
+        Route::post('/visits/{id}/cancel', [VisitController::class, 'cancel'])->whereNumber('id');
+        Route::patch('/visits/{id}/priority', [VisitController::class, 'updatePriority'])->whereNumber('id');
+
+        // Audit trail for the tenant
+        Route::get('/audit-logs', [AuditLogController::class, 'index']);
+    });
 });

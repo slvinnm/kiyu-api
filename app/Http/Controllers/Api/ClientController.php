@@ -6,6 +6,7 @@ use App\Exceptions\InvalidStateException;
 use App\Http\Controllers\Api\Concerns\HandlesTableQuery;
 use App\Http\Controllers\Controller;
 use App\Models\Client;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -100,6 +101,13 @@ class ClientController extends Controller
             }
 
             $validated['user_id'] = $userId;
+        }
+
+        // When a client is linked to a user account, that user must belong to
+        // this tenant. `exists:users,id` alone would accept another clinic's
+        // user, so the tenant is checked here.
+        if (! empty($validated['user_id'])) {
+            $this->assertUserInTenant((int) $validated['user_id']);
         }
 
         $mrn = $validated['mrn'] ?? ('MRN-' . strtoupper(Str::random(8)));
@@ -205,5 +213,18 @@ class ClientController extends Controller
         }
 
         abort_unless($this->clientId($request) === $clientId, 403, 'Forbidden.');
+    }
+
+    /**
+     * Abort unless the given user belongs to the current tenant.
+     */
+    private function assertUserInTenant(int $userId): void
+    {
+        $belongs = User::query()
+            ->whereKey($userId)
+            ->where('tenant_id', $this->tenantId())
+            ->exists();
+
+        abort_unless($belongs, 422, 'The linked user does not belong to this clinic.');
     }
 }

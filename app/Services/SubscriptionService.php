@@ -3,7 +3,10 @@
 namespace App\Services;
 
 use App\Enums\BillingInterval;
+use App\Enums\Feature;
 use App\Enums\SubscriptionStatus;
+use App\Enums\UserRole;
+use App\Exceptions\BusinessConflictException;
 use App\Exceptions\InvalidStateException;
 use App\Models\Plan;
 use App\Models\PlanPrice;
@@ -169,18 +172,68 @@ class SubscriptionService
     /**
      * Whether the tenant's effective subscription grants the given feature.
      */
-    public function hasFeature(Tenant $tenant, string $featureCode): bool
+    public function hasFeature(Tenant $tenant, Feature $feature): bool
     {
-        $subscription = $this->effectiveSubscription($tenant);
+        return $this->effectiveSubscription($tenant)?->hasFeature($feature) ?? false;
+    }
 
-        if ($subscription === null || ! $subscription->isEffective()) {
-            return false;
+    /**
+     * The numeric cap granted for a limit feature (0 when not granted).
+     */
+    public function limit(Tenant $tenant, Feature $feature): int
+    {
+        return $this->effectiveSubscription($tenant)?->featureLimit($feature)
+            ?? $feature->defaultLimit();
+    }
+
+    /**
+     * Current usage of a limited resource for the tenant.
+     */
+    public function usage(Tenant $tenant, Feature $feature): int
+    {
+        return match ($feature) {
+            Feature::MaxFacilities => $tenant->facilities()->count(),
+            Feature::MaxStaff => $tenant->users()->where('role', '!=', UserRole::Client->value)->count(),
+            Feature::MaxKioskDevices => $tenant->kioskDevices()->count(),
+            default => 0,
+        };
+    }
+
+    /**
+     * Whether the tenant may add one more unit of the limited resource.
+     *
+     * Limits are only enforced once the tenant has an effective subscription.
+     * A freshly onboarded tenant without a plan is not quota-blocked, so
+     * provisioning and pre-billing setups keep working.
+     */
+    public function hasCapacityFor(Tenant $tenant, Feature $feature): bool
+    {
+        if ($this->effectiveSubscription($tenant) === null) {
+            return true;
         }
 
-        return $subscription->plan
-            ->entitlements()
-            ->where('feature_code', $featureCode)
-            ->exists();
+        return $this->usage($tenant, $feature) < $this->limit($tenant, $feature);
+    }
+
+    /**
+     * Throw when the tenant is at its limit for the feature.
+     *
+     * Controllers call this before creating a limited resource so the check
+     * lives in one place rather than being duplicated per endpoint.
+     *
+     * @throws BusinessConflictException
+     */
+    public function ensureCapacity(Tenant $tenant, Feature $feature): void
+    {
+        if (! $this->hasCapacityFor($tenant, $feature)) {
+            throw new BusinessConflictException(
+                sprintf(
+                    'Your plan allows at most %d %s. Upgrade to add more.',
+                    $this->limit($tenant, $feature),
+                    str_replace('max_', '', $feature->value),
+                ),
+            );
+        }
     }
 
     /**

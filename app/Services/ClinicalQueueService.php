@@ -6,6 +6,7 @@ use App\Enums\QueueEventType;
 use App\Enums\QueueTicketStatus;
 use App\Enums\VisitStatus;
 use App\Exceptions\InvalidStateException;
+use App\Jobs\SendQueueCallWhatsApp;
 use App\Models\QueueEvent;
 use App\Models\QueueTicket;
 use App\Models\Station;
@@ -79,9 +80,10 @@ class ClinicalQueueService
         });
 
         if ($ticket) {
-            $ticket->loadMissing(['station.department']);
+            $ticket->loadMissing(['station.department', 'visit.client']);
 
             QueueBroadcast::called($ticket);
+            SendQueueCallWhatsApp::forTicket($ticket);
         }
 
         return $ticket;
