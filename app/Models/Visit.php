@@ -39,6 +39,23 @@ class Visit extends Model
     ];
 
     /**
+     * The attributes that should be hidden for serialization.
+     *
+     * `visit_token` authorises public tracking of a visit without a session, so
+     * it must never be serialized into an API response. The tracking endpoint
+     * accepts the token as a path segment; callers that need it (the tracking
+     * link sent to a client) read it from the model explicitly.
+     *
+     * `online_active_key` stays visible on purpose: the client booking flow
+     * needs it to perform the later check-in.
+     *
+     * @var list<string>
+     */
+    protected $hidden = [
+        'visit_token',
+    ];
+
+    /**
      * The attributes that should be cast.
      *
      * @var array<string, string>
