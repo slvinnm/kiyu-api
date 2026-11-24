@@ -10,3 +10,6 @@ Artisan::command('inspire', function () {
 
 // Remove generated report exports daily so storage does not fill up.
 Schedule::command('exports:purge --days=7')->dailyAt('02:00');
+
+// Terminate lapsed trials and honour subscriptions cancelled at period end.
+Schedule::command('subscriptions:expire')->hourly();

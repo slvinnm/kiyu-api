@@ -235,3 +235,35 @@ test('the platform can list and create plans', function () {
         ->assertOk()
         ->assertJsonPath('data.0.code', 'PRO');
 });
+
+test('the expiry command ends lapsed trials and paid periods', function () {
+    $clinic = billingClinic();
+    $service = app(SubscriptionService::class);
+
+    $trial = $service->start($clinic['tenant'], $clinic['plan'], BillingInterval::Monthly, 7);
+    $trial->update(['trial_ends_at' => now()->subMinute()]);
+
+    $this->artisan('subscriptions:expire')->assertSuccessful();
+
+    expect($trial->fresh()->status)->toBe(SubscriptionStatus::Expired)
+        ->and($trial->fresh()->isEffective())->toBeFalse();
+});
+
+test('the expiry command cancels a subscription at its period end', function () {
+    $clinic = billingClinic();
+    $service = app(SubscriptionService::class);
+
+    $trial = $service->start($clinic['tenant'], $clinic['plan'], BillingInterval::Monthly, 7);
+    $service->cancelAtPeriodEnd($clinic['tenant']);
+
+    // Still inside the period: nothing happens yet.
+    $this->artisan('subscriptions:expire')->assertSuccessful();
+    expect($trial->fresh()->status)->toBe(SubscriptionStatus::Trialing);
+
+    // Past the period: the cancellation takes effect.
+    $trial->update(['trial_ends_at' => now()->subMinute()]);
+    $this->artisan('subscriptions:expire')->assertSuccessful();
+
+    expect($trial->fresh()->status)->toBe(SubscriptionStatus::Cancelled)
+        ->and($trial->fresh()->cancelled_at)->not->toBeNull();
+});
