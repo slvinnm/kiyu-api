@@ -71,9 +71,11 @@ Route::prefix('intake')->controller(IntakeController::class)->group(function () 
     Route::get('/online-lookup/{identifier}', 'onlineLookup')->middleware(['kiosk', 'throttle:60,1']);
     Route::post('/online-checkin', 'onlineCheckin')->middleware(['kiosk', 'throttle:30,1']);
 
-    // Online booking is reached from the client-facing tenant site and is
-    // resolved by the public tenant locator.
-    Route::post('/online', 'online')->middleware(['public-tenant', 'throttle:10,1']);
+    // Online booking is reached from the client-facing tenant site. It
+    // requires a signed-in tenant user: the tenant and the booking client are
+    // derived from the token, never from the request body alone.
+    Route::post('/online', 'online')
+        ->middleware(['auth:sanctum', 'tenant', 'throttle:10,1']);
 });
 
 // Kiosk device onboarding. A device redeems the short pairing code an admin

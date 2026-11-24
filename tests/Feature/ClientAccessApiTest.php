@@ -98,12 +98,16 @@ test('a client cannot open another client visit detail', function () {
 });
 
 test('a client cannot book an appointment for another client', function () {
-    $this->actingAs($this->clientUser, 'sanctum')
+    // The body client_id is ignored for a client account: the booking is
+    // always created against the caller's own profile.
+    $response = $this->actingAs($this->clientUser, 'sanctum')
         ->postJson('/api/intake/online', [
             'client_id' => $this->otherClient->id,
             'department_id' => $this->generalDepartment->id,
         ])
-        ->assertForbidden();
+        ->assertCreated();
+
+    expect($response->json('data.visit.client_id'))->toBe($this->ownClient->id);
 
     $this->actingAs($this->clientUser, 'sanctum')
         ->postJson('/api/intake/online', [
@@ -111,6 +115,17 @@ test('a client cannot book an appointment for another client', function () {
             'department_id' => $this->generalDepartment->id,
         ])
         ->assertCreated();
+});
+
+test('online booking requires authentication', function () {
+    // The setup authenticates an admin for the other tests; drop the guard so
+    // this request is genuinely unauthenticated.
+    $this->app['auth']->forgetGuards();
+
+    $this->postJson('/api/intake/online', [
+        'client_id' => $this->otherClient->id,
+        'department_id' => $this->generalDepartment->id,
+    ])->assertUnauthorized();
 });
 
 test('a client cannot attach a profile to another user', function () {

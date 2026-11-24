@@ -65,27 +65,36 @@ class IntakeController extends Controller
 
     /**
      * Create an online booking intake.
+     *
+     * The booking always belongs to the signed-in client's own profile; the
+     * body's `client_id` is ignored. Staff may book on behalf of a client.
      */
     public function online(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'client_id' => ['required', 'integer', 'exists:clients,id'],
+            'client_id' => ['nullable', 'integer', 'exists:clients,id'],
             'department_id' => ['required', 'integer', 'exists:departments,id'],
             'priority' => ['nullable', 'integer', 'in:1,2,3'],
             'idempotency_key' => ['nullable', 'string', 'max:100'],
         ]);
 
-        // A client may only book for their own profile.
+        // A client may only book for their own profile. Staff roles keep the
+        // existing ability to book for any client in their tenant.
         if ($this->isClient($request)) {
             $ownId = $this->clientId($request);
 
             abort_if($ownId === null, 403, 'Forbidden.');
-            abort_unless((int) $validated['client_id'] === $ownId, 403, 'Forbidden.');
+
+            $clientId = $ownId;
+        } else {
+            $clientId = isset($validated['client_id']) ? (int) $validated['client_id'] : null;
+
+            abort_if($clientId === null, 422, 'A client_id is required.');
         }
 
         $result = $this->intakeService->createOnlineBooking(
             tenant: $this->tenant(),
-            clientId: (int) $validated['client_id'],
+            clientId: $clientId,
             departmentId: (int) $validated['department_id'],
             priority: (int) ($validated['priority'] ?? 1),
             idempotencyKey: $validated['idempotency_key'] ?? null
