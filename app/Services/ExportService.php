@@ -71,7 +71,15 @@ class ExportService
      */
     public function absolutePath(int $tenantId, string $path): string
     {
-        abort_unless(str_starts_with($path, $this->tenantDirectory($tenantId)), 403, 'Forbidden.');
+        // The trailing separator is required: without it `exports/1` is also a
+        // prefix of `exports/12`, so tenant 1 could read tenant 12's files.
+        abort_unless(
+            str_starts_with($path, $this->tenantDirectory($tenantId) . '/'),
+            403,
+            'Forbidden.',
+        );
+
+        abort_if(str_contains($path, '..'), 403, 'Forbidden.');
 
         abort_unless(Storage::disk(self::DISK)->exists($path), 404, 'Export not found.');
 

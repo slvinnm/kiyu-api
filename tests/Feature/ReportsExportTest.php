@@ -16,6 +16,7 @@ use App\Services\SubscriptionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 uses(RefreshDatabase::class);
 
@@ -147,6 +148,24 @@ test('a tenant cannot download another tenant export', function () {
     $this->actingAs($b['admin'], 'sanctum')
         ->get("/api/reports/download?path={$path}")
         ->assertForbidden();
+});
+
+test('a tenant id that is a string prefix of another cannot read its exports', function () {
+    // `exports/1` is a prefix of `exports/12`, so the guard must compare the
+    // full directory segment, not a bare string prefix.
+    Storage::disk('local')->put('exports/12/secret.pdf', 'tenant twelve');
+
+    $service = app(ExportService::class);
+
+    expect(fn() => $service->absolutePath(1, 'exports/12/secret.pdf'))
+        ->toThrow(HttpException::class);
+});
+
+test('an export path containing traversal is refused', function () {
+    $service = app(ExportService::class);
+
+    expect(fn() => $service->absolutePath(1, 'exports/1/../../.env'))
+        ->toThrow(HttpException::class);
 });
 
 test('the export file endpoint requires advanced_reports', function () {
