@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Services\ExportService;
 use App\Services\ReportService;
+use App\Support\LocalDay;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -28,14 +29,15 @@ class ReportController extends Controller
      */
     public function summary(Request $request): JsonResponse
     {
-        [$from, $to] = $this->range($request);
+        $range = $this->range($request);
         $tenantId = $this->tenantId();
         $facilityId = $this->facilityId();
+        $period = ['from' => $range['from'], 'to' => $range['to']];
 
         return response()->json([
             'data' => [
-                'visits' => $this->reports->visitSummary($tenantId, $facilityId, $from, $to),
-                'queue' => $this->reports->queueSummary($tenantId, $facilityId, $from, $to),
+                'visits' => $this->reports->visitSummary($tenantId, $facilityId, $range['start'], $range['end'], $period),
+                'queue' => $this->reports->queueSummary($tenantId, $facilityId, $range['start'], $range['end'], $period),
             ],
         ]);
     }
@@ -45,18 +47,18 @@ class ReportController extends Controller
      */
     public function exportVisits(Request $request): StreamedResponse
     {
-        [$from, $to] = $this->range($request);
+        $range = $this->range($request);
         $tenantId = $this->tenantId();
         $facilityId = $this->facilityId();
 
-        $filename = sprintf('visits-%s-%s.csv', $from->toDateString(), $to->toDateString());
+        $filename = sprintf('visits-%s-%s.csv', $range['from'], $range['to']);
 
-        return response()->streamDownload(function () use ($tenantId, $facilityId, $from, $to): void {
+        return response()->streamDownload(function () use ($tenantId, $facilityId, $range): void {
             $handle = fopen('php://output', 'wb');
 
             fputcsv($handle, ['visit_number', 'status', 'intake_channel', 'client_mrn', 'client_name', 'department', 'created_at']);
 
-            foreach ($this->reports->visitRows($tenantId, $facilityId, $from, $to) as $visit) {
+            foreach ($this->reports->visitRows($tenantId, $facilityId, $range['start'], $range['end']) as $visit) {
                 fputcsv($handle, [
                     $visit->visit_number,
                     $visit->status?->value,
@@ -82,13 +84,13 @@ class ReportController extends Controller
             'format' => ['required', 'string', 'in:xlsx,pdf'],
         ]);
 
-        [$from, $to] = $this->range($request);
+        $range = $this->range($request);
         $tenantId = $this->tenantId();
         $facilityId = $this->facilityId();
 
         $path = $validated['format'] === 'xlsx'
-            ? $this->exports->visitsToExcel($tenantId, $facilityId, $from, $to)
-            : $this->exports->visitsToPdf($tenantId, $facilityId, $from, $to);
+            ? $this->exports->visitsToExcel($tenantId, $facilityId, $range['start'], $range['end'], $range['from'], $range['to'])
+            : $this->exports->visitsToPdf($tenantId, $facilityId, $range['start'], $range['end'], $range['from'], $range['to']);
 
         return response()->json([
             'message' => 'Export generated.',
@@ -116,9 +118,12 @@ class ReportController extends Controller
     }
 
     /**
-     * Resolve the requested date range, defaulting to today.
+     * Resolve the requested date range, defaulting to the clinic's today.
      *
-     * @return array{0: Carbon, 1: Carbon}
+     * `from`/`to` are the clinic-local calendar dates the caller asked for;
+     * `start`/`end` are the UTC instants the queries compare against.
+     *
+     * @return array{start: Carbon, end: Carbon, from: string, to: string}
      */
     private function range(Request $request): array
     {
@@ -127,9 +132,17 @@ class ReportController extends Controller
             'to' => ['nullable', 'date', 'after_or_equal:from'],
         ]);
 
-        $from = isset($validated['from']) ? Carbon::parse($validated['from']) : Carbon::today();
-        $to = isset($validated['to']) ? Carbon::parse($validated['to']) : Carbon::today();
+        $timezone = $this->tenant()->timezone;
+        $today = LocalDay::date($timezone);
 
-        return [$from, $to];
+        $from = $validated['from'] ?? $today;
+        $to = $validated['to'] ?? $today;
+
+        return [
+            'start' => LocalDay::boundsForDate($from, $timezone)[0],
+            'end' => LocalDay::boundsForDate($to, $timezone)[1],
+            'from' => Carbon::parse($from)->toDateString(),
+            'to' => Carbon::parse($to)->toDateString(),
+        ];
     }
 }

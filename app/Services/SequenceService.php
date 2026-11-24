@@ -7,7 +7,7 @@ use App\Models\Facility;
 use App\Models\QueueCounter;
 use App\Models\Station;
 use App\Models\VisitCounter;
-use Illuminate\Support\Carbon;
+use App\Support\LocalDay;
 use Illuminate\Support\Facades\DB;
 
 class SequenceService
@@ -17,13 +17,15 @@ class SequenceService
      *
      * The counter is keyed by facility and date, so two facilities may emit the
      * same formatted number without colliding. The counter row is never reset;
-     * `last_sequence` continues from whatever already exists.
+     * `last_sequence` continues from whatever already exists. "Today" is the
+     * facility's local day, not the app timezone's.
      */
     public function generateVisitNumber(Facility $facility): string
     {
-        $today = Carbon::today()->format('Y-m-d');
+        $timezone = $facility->timezone ?: $facility->tenant?->timezone;
+        $today = LocalDay::date($timezone);
 
-        return DB::transaction(function () use ($facility, $today): string {
+        return DB::transaction(function () use ($facility, $today, $timezone): string {
             $counter = $this->lockCounter(VisitCounter::class, [
                 'facility_id' => $facility->id,
                 'counter_date' => $today,
@@ -32,7 +34,7 @@ class SequenceService
             $counter->last_sequence += 1;
             $counter->save();
 
-            return sprintf('V-%s-%04d', Carbon::today()->format('Ymd'), $counter->last_sequence);
+            return sprintf('V-%s-%04d', LocalDay::compactDate($timezone), $counter->last_sequence);
         });
     }
 
@@ -46,7 +48,9 @@ class SequenceService
      */
     public function generateQueueNumber(Station $station): array
     {
-        $today = Carbon::today()->format('Y-m-d');
+        $timezone = $station->department?->facility?->timezone
+            ?: $station->department?->facility?->tenant?->timezone;
+        $today = LocalDay::date($timezone);
 
         return DB::transaction(function () use ($station, $today): array {
             $counter = $this->lockCounter(QueueCounter::class, [

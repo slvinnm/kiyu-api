@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Enums\QueueTicketStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Station;
+use App\Support\LocalDay;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -33,7 +34,9 @@ class PublicQueueController extends Controller
             $query->where('department_id', $validated['department_id']);
         }
 
-        $stations = $query->get()->map(function (Station $station): array {
+        [$dayStart, $dayEnd] = LocalDay::bounds($this->tenant()->timezone);
+
+        $stations = $query->get()->map(function (Station $station) use ($dayStart, $dayEnd): array {
             // Get currently active ticket (CALLED or IN_PROGRESS)
             $currentTicket = $station->queueTickets()
                 ->whereIn('status', [QueueTicketStatus::Called, QueueTicketStatus::InProgress])
@@ -49,7 +52,7 @@ class PublicQueueController extends Controller
             // Next 5 upcoming tickets (scope to station and today for clean numbering)
             $upcomingTickets = $station->queueTickets()
                 ->where('status', QueueTicketStatus::Created)
-                ->whereDate('created_at', now()->toDateString())
+                ->whereBetween('created_at', [$dayStart, $dayEnd])
                 ->orderBy('priority', 'desc')
                 ->orderBy('internal_sequence', 'asc')
                 ->limit(5)

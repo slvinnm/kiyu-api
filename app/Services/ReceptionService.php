@@ -18,6 +18,7 @@ use App\Models\QueueTicket;
 use App\Models\Station;
 use App\Models\Tenant;
 use App\Models\Visit;
+use App\Support\LocalDay;
 use App\Support\QueueBroadcast;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -52,7 +53,7 @@ class ReceptionService
             throw new InvalidStateException("Provided station #{$stationId} does not match active registration station #{$registrationStation->id}.");
         }
 
-        $today = now()->format('Y-m-d');
+        [$dayStart, $dayEnd] = LocalDay::bounds($tenant->timezone);
 
         // "Current calling" is per-operator: a ticket called by a colleague at
         // the same desk must not appear as this user's current client.
@@ -69,7 +70,7 @@ class ReceptionService
             ->with(['visit.client', 'station', 'workflowStep'])
             ->where('station_id', $registrationStation->id)
             ->where('status', QueueTicketStatus::Created)
-            ->whereDate('created_at', $today)
+            ->whereBetween('created_at', [$dayStart, $dayEnd])
             ->orderBy('priority', 'desc')
             ->orderBy('internal_sequence', 'asc')
             ->get();
@@ -79,13 +80,13 @@ class ReceptionService
             ->with(['visit.client', 'station', 'workflowStep'])
             ->where('station_id', $registrationStation->id)
             ->where('status', QueueTicketStatus::OnHold)
-            ->whereDate('created_at', $today)
+            ->whereBetween('created_at', [$dayStart, $dayEnd])
             ->get();
 
         $calledCountToday = QueueTicket::query()
             ->where('station_id', $registrationStation->id)
             ->whereIn('status', [QueueTicketStatus::Called, QueueTicketStatus::Completed, QueueTicketStatus::Skipped, QueueTicketStatus::NoShow])
-            ->whereDate('created_at', $today)
+            ->whereBetween('created_at', [$dayStart, $dayEnd])
             ->count();
 
         return [

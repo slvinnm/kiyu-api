@@ -29,8 +29,14 @@ class ExportService
     /**
      * Export the visit rows for the range to Excel, returning the stored path.
      */
-    public function visitsToExcel(int $tenantId, int $facilityId, Carbon $from, Carbon $to): string
-    {
+    public function visitsToExcel(
+        int $tenantId,
+        int $facilityId,
+        Carbon $from,
+        Carbon $to,
+        ?string $reportFrom = null,
+        ?string $reportTo = null,
+    ): string {
         $rows = $this->visitRows($tenantId, $facilityId, $from, $to);
         $path = $this->pathFor($tenantId, 'xlsx');
 
@@ -47,16 +53,27 @@ class ExportService
     /**
      * Export the visit summary to PDF, returning the stored path.
      */
-    public function visitsToPdf(int $tenantId, int $facilityId, Carbon $from, Carbon $to): string
-    {
-        $summary = $this->reports->visitSummary($tenantId, $facilityId, $from, $to);
+    public function visitsToPdf(
+        int $tenantId,
+        int $facilityId,
+        Carbon $from,
+        Carbon $to,
+        ?string $reportFrom = null,
+        ?string $reportTo = null,
+    ): string {
+        $period = [
+            'from' => $reportFrom ?? $from->toDateString(),
+            'to' => $reportTo ?? $to->toDateString(),
+        ];
+
+        $summary = $this->reports->visitSummary($tenantId, $facilityId, $from, $to, $period);
         $rows = $this->visitRows($tenantId, $facilityId, $from->copy(), $to->copy());
 
         $pdf = Pdf::loadView('reports.visits', [
             'summary' => $summary,
             'rows' => $rows,
-            'from' => $from->toDateString(),
-            'to' => $to->toDateString(),
+            'from' => $period['from'],
+            'to' => $period['to'],
         ]);
 
         $path = $this->pathFor($tenantId, 'pdf');

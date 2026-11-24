@@ -19,12 +19,12 @@ class ReportService
      *
      * @return array<string, mixed>
      */
-    public function visitSummary(int $tenantId, int $facilityId, Carbon $from, Carbon $to): array
+    public function visitSummary(int $tenantId, int $facilityId, Carbon $from, Carbon $to, ?array $period = null): array
     {
         $visits = Visit::query()
             ->where('tenant_id', $tenantId)
             ->where('facility_id', $facilityId)
-            ->whereBetween('created_at', [$from->startOfDay(), $to->copy()->endOfDay()]);
+            ->whereBetween('created_at', [$from, $to]);
 
         $byStatus = (clone $visits)
             ->selectRaw('status, COUNT(*) AS total')
@@ -40,7 +40,7 @@ class ReportService
         $completed = (int) ($byStatus['COMPLETED'] ?? 0);
 
         return [
-            'period' => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
+            'period' => $period ?? ['from' => $from->toDateString(), 'to' => $to->toDateString()],
             'total_visits' => $total,
             'completed_visits' => $completed,
             'completion_rate' => $total > 0 ? round($completed / $total * 100, 1) : 0.0,
@@ -55,13 +55,13 @@ class ReportService
      *
      * @return array<string, mixed>
      */
-    public function queueSummary(int $tenantId, int $facilityId, Carbon $from, Carbon $to): array
+    public function queueSummary(int $tenantId, int $facilityId, Carbon $from, Carbon $to, ?array $period = null): array
     {
         $tickets = QueueTicket::query()
             ->whereHas('visit', fn($query) => $query
                 ->where('tenant_id', $tenantId)
                 ->where('facility_id', $facilityId))
-            ->whereBetween('created_at', [$from->startOfDay(), $to->copy()->endOfDay()]);
+            ->whereBetween('created_at', [$from, $to]);
 
         $byStatus = (clone $tickets)
             ->selectRaw('status, COUNT(*) AS total')
@@ -73,7 +73,7 @@ class ReportService
         $noShow = (clone $tickets)->where('status', 'NO_SHOW')->count();
 
         return [
-            'period' => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
+            'period' => $period ?? ['from' => $from->toDateString(), 'to' => $to->toDateString()],
             'total_tickets' => (clone $tickets)->count(),
             'served' => $served,
             'skipped' => $skipped,
@@ -97,7 +97,7 @@ class ReportService
         return Visit::query()
             ->where('tenant_id', $tenantId)
             ->where('facility_id', $facilityId)
-            ->whereBetween('created_at', [$from->startOfDay(), $to->copy()->endOfDay()])
+            ->whereBetween('created_at', [$from, $to])
             ->with(['client:id,name,mrn', 'department:id,code,name'])
             ->orderBy('id')
             ->lazyById();
@@ -112,7 +112,7 @@ class ReportService
             ->where('tenant_id', $tenantId)
             ->where('facility_id', $facilityId)
             ->whereNotNull('checked_in_at')
-            ->whereBetween('created_at', [$from->startOfDay(), $to->copy()->endOfDay()])
+            ->whereBetween('created_at', [$from, $to])
             ->get(['created_at', 'checked_in_at']);
 
         if ($visits->isEmpty()) {

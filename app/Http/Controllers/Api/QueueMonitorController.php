@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Enums\QueueTicketStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Station;
+use App\Support\LocalDay;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -29,7 +30,7 @@ class QueueMonitorController extends Controller
         ]);
 
         $query = Station::query()
-            ->whereHas('department', fn ($q) => $q->where('facility_id', $this->facilityId()))
+            ->whereHas('department', fn($q) => $q->where('facility_id', $this->facilityId()))
             ->where('is_active', true)
             ->with(['department:id,name,code']);
 
@@ -41,7 +42,9 @@ class QueueMonitorController extends Controller
             $query->where('department_id', $validated['department_id']);
         }
 
-        $stations = $query->get()->map(function (Station $station): array {
+        [$dayStart, $dayEnd] = LocalDay::bounds($this->tenant()->timezone);
+
+        $stations = $query->get()->map(function (Station $station) use ($dayStart, $dayEnd): array {
             $currentTicket = $station->queueTickets()
                 ->whereIn('status', [QueueTicketStatus::Called, QueueTicketStatus::InProgress])
                 ->latest('updated_at')
@@ -54,7 +57,7 @@ class QueueMonitorController extends Controller
 
             $upcomingTickets = $station->queueTickets()
                 ->where('status', QueueTicketStatus::Created)
-                ->whereDate('created_at', now()->toDateString())
+                ->whereBetween('created_at', [$dayStart, $dayEnd])
                 ->orderBy('priority', 'desc')
                 ->orderBy('internal_sequence', 'asc')
                 ->limit(5)
