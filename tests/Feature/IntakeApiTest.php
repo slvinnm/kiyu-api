@@ -5,6 +5,7 @@ use App\Enums\QueueAcquisitionStatus;
 use App\Enums\QueueTicketStatus;
 use App\Enums\VisitStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Tests\SetupKiyuHospital;
 
 uses(RefreshDatabase::class, SetupKiyuHospital::class);
@@ -158,4 +159,14 @@ test('idempotency key returns same result for identical payload and 409 for conf
         'department_id' => $this->dentalDepartment->id,
         'idempotency_key' => $key,
     ])->assertStatus(409);
+});
+
+test('public visit tracking is rate limited', function () {
+    $token = (string) Str::uuid();
+
+    for ($i = 0; $i < 60; $i++) {
+        $this->getJson("/api/visits/{$token}/track")->assertStatus(422);
+    }
+
+    $this->getJson("/api/visits/{$token}/track")->assertStatus(429);
 });

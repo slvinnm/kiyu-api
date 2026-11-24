@@ -65,14 +65,15 @@ Route::prefix('auth')->controller(AuthController::class)->group(function () {
 // Public intake: kiosk and online registration
 Route::prefix('intake')->controller(IntakeController::class)->group(function () {
     // Kiosk operations resolve tenant and facility from a registered device
-    // credential, never from the request body.
-    Route::post('/kiosk', 'kiosk')->middleware('kiosk');
-    Route::get('/online-lookup/{identifier}', 'onlineLookup')->middleware('kiosk');
-    Route::post('/online-checkin', 'onlineCheckin')->middleware('kiosk');
+    // credential, never from the request body. Throttled per device IP so a
+    // shared kiosk cannot be used to flood the queue.
+    Route::post('/kiosk', 'kiosk')->middleware(['kiosk', 'throttle:30,1']);
+    Route::get('/online-lookup/{identifier}', 'onlineLookup')->middleware(['kiosk', 'throttle:60,1']);
+    Route::post('/online-checkin', 'onlineCheckin')->middleware(['kiosk', 'throttle:30,1']);
 
     // Online booking is reached from the client-facing tenant site and is
     // resolved by the public tenant locator.
-    Route::post('/online', 'online')->middleware('public-tenant');
+    Route::post('/online', 'online')->middleware(['public-tenant', 'throttle:10,1']);
 });
 
 // Kiosk device onboarding. A device redeems the short pairing code an admin
@@ -93,12 +94,16 @@ Route::get('/public/queue', [PublicQueueController::class, 'index'])
 Route::get('/departments/active', [DepartmentController::class, 'active'])
     ->middleware(['public-tenant', 'throttle:120,1']);
 
-// Public visit tracking
-Route::get('/visits/{token}/track', [VisitController::class, 'track']);
+// Public visit tracking. The token is the only credential, so the endpoint is
+// rate limited to keep token guessing and scraping expensive.
+Route::get('/visits/{token}/track', [VisitController::class, 'track'])
+    ->middleware('throttle:60,1');
 
 // Payment provider webhook. Public (no auth/tenant): the payload is untrusted
-// until PaymentService verifies its signature; replays are idempotent.
-Route::post('/webhooks/payments/{provider}', [WebhookController::class, 'handle']);
+// until PaymentService verifies its signature; replays are idempotent. The
+// throttle bounds the SHA-512 HMAC work an unauthenticated caller can trigger.
+Route::post('/webhooks/payments/{provider}', [WebhookController::class, 'handle'])
+    ->middleware('throttle:120,1');
 
 /*
 |--------------------------------------------------------------------------
