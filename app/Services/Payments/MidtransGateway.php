@@ -4,6 +4,7 @@ namespace App\Services\Payments;
 
 use App\Contracts\PaymentGateway;
 use App\Exceptions\InvalidStateException;
+use App\Models\Payment;
 use App\Models\Subscription;
 use Illuminate\Support\Facades\Http;
 
@@ -95,11 +96,20 @@ class MidtransGateway implements PaymentGateway
     }
 
     /**
-     * The deterministic order id for a subscription charge.
+     * The order id for a subscription charge attempt.
+     *
+     * Sequential per subscription instead of time-based: two charges started
+     * in the same second must not collide on the unique
+     * (provider, provider_transaction_id) index, and the counter makes the
+     * attempt number recoverable from the row itself.
      */
     public function orderId(Subscription $subscription): string
     {
-        return sprintf('SUB-%d-%s', $subscription->id, now()->format('YmdHis'));
+        $attempt = Payment::query()
+            ->where('subscription_id', $subscription->id)
+            ->count() + 1;
+
+        return sprintf('SUB-%d-%03d', $subscription->id, $attempt);
     }
 
     /**

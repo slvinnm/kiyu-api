@@ -171,3 +171,36 @@ test('a non-admin cannot start a charge', function () {
         ->postJson('/api/billing/pay')
         ->assertForbidden();
 });
+
+test('two charges on the same subscription never share an order id', function () {
+    Http::fake(['*/transactions' => Http::response(['token' => 't', 'redirect_url' => 'r'])]);
+
+    $clinic = payingClinic();
+
+    $this->actingAs($clinic['admin'], 'sanctum')->postJson('/api/billing/pay')->assertCreated();
+    $this->actingAs($clinic['admin'], 'sanctum')->postJson('/api/billing/pay')->assertCreated();
+
+    $ids = Payment::query()->orderBy('id')->pluck('provider_transaction_id');
+
+    expect($ids)->toHaveCount(2)
+        ->and($ids->first())->not->toBe($ids->last())
+        ->and($ids->first())->toEndWith('-001')
+        ->and($ids->last())->toEndWith('-002');
+});
+
+test('a webhook retry that omits the transaction id is still idempotent', function () {
+    Http::fake(['*/transactions' => Http::response(['token' => 't', 'redirect_url' => 'r'])]);
+
+    $clinic = payingClinic();
+    $this->actingAs($clinic['admin'], 'sanctum')->postJson('/api/billing/pay')->assertCreated();
+
+    $payment = Payment::query()->firstOrFail();
+    $payload = midtransPayload($payment->provider_transaction_id);
+    unset($payload['transaction_id']);
+
+    $this->postJson('/api/webhooks/payments/midtrans', $payload)->assertOk();
+    $this->postJson('/api/webhooks/payments/midtrans', $payload)->assertOk();
+
+    expect(BillingWebhookEvent::query()->count())->toBe(1)
+        ->and($payment->fresh()->status)->toBe(PaymentStatus::Paid);
+});

@@ -82,18 +82,26 @@ class PaymentService
             throw new InvalidStateException('Webhook signature verification failed.');
         }
 
-        $eventId = (string) ($payload['transaction_id'] ?? $payload['order_id'] ?? '');
+        // Dedupe on the order and the status it reports, not on the provider's
+        // transaction id. A retried settlement carries the same order_id and
+        // status, while a genuine transition (pending -> settlement) is a
+        // different event and must still be applied. Keying on transaction_id
+        // let a retry that omitted it slip through as a second event.
+        $orderId = (string) ($payload['order_id'] ?? '');
+        $status = (string) ($payload['transaction_status'] ?? '');
 
-        if ($eventId === '') {
-            throw new InvalidStateException('Webhook payload is missing a transaction id.');
+        if ($orderId === '' || $status === '') {
+            throw new InvalidStateException('Webhook payload is missing an order id or transaction status.');
         }
 
-        DB::transaction(function () use ($provider, $payload, $eventId): void {
+        $eventId = $orderId . ':' . $status;
+
+        DB::transaction(function () use ($provider, $payload, $status, $eventId): void {
             // Idempotency: the unique (provider, event_id) makes a replay a no-op.
             $event = BillingWebhookEvent::query()->firstOrCreate(
                 ['provider' => $provider, 'event_id' => $eventId],
                 [
-                    'event_type' => (string) ($payload['transaction_status'] ?? 'unknown'),
+                    'event_type' => $status,
                     'payload' => $payload,
                     'status' => 'RECEIVED',
                     'received_at' => Carbon::now(),
