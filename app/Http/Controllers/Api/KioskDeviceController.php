@@ -51,11 +51,16 @@ class KioskDeviceController extends Controller
 
     /**
      * Register a kiosk device and return its one-time pairing code.
+     *
+     * The facility is taken from the request context (single-facility tenants
+     * resolve it implicitly) or from an explicit `facility_id` the caller
+     * administers. Devices are per-facility; the quota, however, is tenant-wide.
      */
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
+            'facility_id' => ['nullable', 'integer', 'exists:facilities,id'],
             'expires_at' => ['nullable', 'date', 'after:now'],
         ]);
 
@@ -67,7 +72,7 @@ class KioskDeviceController extends Controller
 
         $device = KioskDevice::query()->create([
             'tenant_id' => $tenant->id,
-            'facility_id' => $this->facilityId(),
+            'facility_id' => $this->resolveDeviceFacility($request, $validated['facility_id'] ?? null),
             'name' => $validated['name'],
             'credential_hash' => $this->pairing->placeholderCredentialHash(),
             'pairing_code_hash' => hash('sha256', $pairingCode),

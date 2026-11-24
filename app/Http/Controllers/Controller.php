@@ -9,6 +9,7 @@ use App\Models\Tenant;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Exists;
+use Illuminate\Validation\ValidationException;
 
 abstract class Controller
 {
@@ -87,6 +88,49 @@ abstract class Controller
     protected function facilityId(): int
     {
         return $this->facility()->id;
+    }
+
+    /**
+     * The facility a device record belongs to.
+     *
+     * Device creation is the one place a caller may name a facility explicitly:
+     * a tenant admin provisioning kiosks across several locations picks the
+     * location per device. Order: the explicit id (validated against the tenant
+     * and the caller's reach), then the request-context facility when the user
+     * can reach exactly one. It never guesses among several.
+     *
+     * @throws ValidationException when no facility can be determined
+     */
+    protected function resolveDeviceFacility(Request $request, ?int $requested): int
+    {
+        if ($requested !== null) {
+            $facility = Facility::query()
+                ->whereKey($requested)
+                ->where('tenant_id', $this->tenantId())
+                ->first();
+
+            abort_if($facility === null, 404, 'Facility not found.');
+
+            $user = $request->user();
+
+            abort_unless(
+                $user !== null && $user->canAccessFacility($facility->id),
+                403,
+                'You cannot manage devices at this facility.',
+            );
+
+            return $facility->id;
+        }
+
+        $context = request()->attributes->get('facility');
+
+        if ($context instanceof Facility) {
+            return $context->id;
+        }
+
+        throw ValidationException::withMessages([
+            'facility_id' => ['Choose the facility this device belongs to.'],
+        ]);
     }
 
     /**

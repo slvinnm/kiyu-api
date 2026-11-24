@@ -105,7 +105,7 @@ Route::middleware(['auth:sanctum', 'tenant'])
     ->group(function () {
 
         Route::post('/intake/manual', [IntakeController::class, 'manual'])
-            ->middleware('role:tenant_admin,facility_admin,operator');
+            ->middleware(['facility', 'role:tenant_admin,facility_admin,operator']);
 
         Route::prefix('queue-acquisitions')
             ->middleware('role:tenant_admin,facility_admin,operator')
@@ -117,7 +117,7 @@ Route::middleware(['auth:sanctum', 'tenant'])
             });
 
         Route::prefix('reception')
-            ->middleware('role:tenant_admin,facility_admin,operator')
+            ->middleware(['facility', 'role:tenant_admin,facility_admin,operator'])
             ->controller(ReceptionController::class)
             ->group(function () {
                 Route::get('/queue', 'queue');
@@ -135,10 +135,10 @@ Route::middleware(['auth:sanctum', 'tenant'])
         */
 
         Route::post('/queue/call-next', [QueueController::class, 'callNext'])
-            ->middleware('role:tenant_admin,facility_admin,operator,staff');
+            ->middleware(['facility', 'role:tenant_admin,facility_admin,operator,staff']);
 
         Route::prefix('tickets')
-            ->middleware('role:tenant_admin,facility_admin,operator,staff')
+            ->middleware(['facility', 'role:tenant_admin,facility_admin,operator,staff'])
             ->group(function () {
                 Route::get('/', [TicketController::class, 'index']);
                 Route::get('/statistics', [TicketController::class, 'statistics']);
@@ -213,6 +213,7 @@ Route::middleware(['auth:sanctum', 'tenant'])
 
         Route::prefix('departments')
             ->controller(DepartmentController::class)
+            ->middleware('facility')
             ->group(function () {
                 Route::get('/', 'index')
                     ->middleware('role:tenant_admin,facility_admin,operator,staff');
@@ -237,10 +238,11 @@ Route::middleware(['auth:sanctum', 'tenant'])
             });
 
         Route::get('/queue/monitor', [QueueMonitorController::class, 'index'])
-            ->middleware('role:tenant_admin,facility_admin,operator,staff');
+            ->middleware(['facility', 'role:tenant_admin,facility_admin,operator,staff']);
 
         Route::prefix('stations')
             ->controller(StationController::class)
+            ->middleware('facility')
             ->group(function () {
                 Route::get('/', 'index')
                     ->middleware('role:tenant_admin,facility_admin,operator,staff');
@@ -263,6 +265,7 @@ Route::middleware(['auth:sanctum', 'tenant'])
 
         Route::prefix('workflows')
             ->controller(WorkflowController::class)
+            ->middleware('facility')
             ->group(function () {
                 Route::get('/', 'index')
                     ->middleware('role:tenant_admin,facility_admin,operator,staff');
@@ -286,10 +289,10 @@ Route::middleware(['auth:sanctum', 'tenant'])
             ->group(function () {
                 Route::put('/{id}', 'updateStep')
                     ->whereNumber('id')
-                    ->middleware('role:tenant_admin,facility_admin');
+                    ->middleware(['facility', 'role:tenant_admin,facility_admin']);
                 Route::delete('/{id}', 'deleteStep')
                     ->whereNumber('id')
-                    ->middleware('role:tenant_admin,facility_admin');
+                    ->middleware(['facility', 'role:tenant_admin,facility_admin']);
             });
 
         /*
@@ -369,6 +372,8 @@ Route::middleware(['auth:sanctum', 'tenant'])
         Route::prefix('kiosk-devices')
             ->controller(KioskDeviceController::class)
             ->group(function () {
+                // Listing is tenant-wide (the quota is per tenant), but a device
+                // always belongs to one facility, so creation needs a context.
                 Route::get('/', 'index')
                     ->middleware('role:tenant_admin,facility_admin');
                 Route::post('/', 'store')
@@ -400,6 +405,7 @@ Route::middleware(['auth:sanctum', 'tenant'])
 
         Route::prefix('reports')
             ->controller(ReportController::class)
+            ->middleware('facility')
             ->group(function () {
                 Route::get('/summary', 'summary')
                     ->middleware(['role:tenant_admin,operator', 'feature:basic_reports']);

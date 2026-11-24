@@ -27,7 +27,13 @@ return [
         explode(',', (string) env('CORS_ALLOWED_ORIGINS', '')),
     ))),
 
-    'allowed_origins_patterns' => [],
+    // Tenant subdomains are dynamic, so an explicit list cannot cover them.
+    // Patterns are anchored regexes matched against the full origin; they are
+    // still opt-in and must stay narrow (one slug label, first-party domain).
+    'allowed_origins_patterns' => array_values(array_filter(array_map(
+        'trim',
+        explode(',', (string) env('CORS_ALLOWED_ORIGIN_PATTERNS', '')),
+    ))),
 
     'allowed_headers' => ['*'],
 
