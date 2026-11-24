@@ -158,3 +158,35 @@ test('public kiosk endpoints require a tenant locator but no user token', functi
         ->getJson('/api/public/queue')
         ->assertOk();
 });
+
+test('login failures are indistinguishable across unknown email bad password and inactive tenant', function () {
+    $suspended = Tenant::query()->create([
+        'name' => 'Suspended Clinic',
+        'slug' => 'suspended-clinic',
+        'status' => TenantStatus::Suspended,
+    ]);
+
+    Facility::query()->create([
+        'tenant_id' => $suspended->id,
+        'name' => 'Suspended Facility',
+        'code' => 'MAIN',
+        'is_active' => true,
+    ]);
+
+    User::factory()->create([
+        'email' => 'suspended@kiyu.test',
+        'password' => Hash::make('password'),
+        'role' => 'receptionist',
+        'tenant_id' => $suspended->id,
+    ]);
+
+    foreach ([
+        ['email' => 'nobody@kiyu.test', 'password' => 'password'],
+        ['email' => 'staff@kiyu.test', 'password' => 'wrong-password'],
+        ['email' => 'suspended@kiyu.test', 'password' => 'password'],
+    ] as $payload) {
+        $this->postJson('/api/auth/login', $payload)
+            ->assertStatus(422)
+            ->assertJsonPath('error_type', 'INVALID_CREDENTIALS');
+    }
+});

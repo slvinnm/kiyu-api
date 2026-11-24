@@ -19,7 +19,13 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['*'],
+    // Explicit allowlist: a wildcard would let any site call the API with a
+    // bearer token from injected JavaScript. Add each first-party frontend
+    // origin, comma-separated, in CORS_ALLOWED_ORIGINS.
+    'allowed_origins' => array_values(array_filter(array_map(
+        'trim',
+        explode(',', (string) env('CORS_ALLOWED_ORIGINS', '')),
+    ))),
 
     'allowed_origins_patterns' => [],
 

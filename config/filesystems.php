@@ -33,7 +33,9 @@ return [
         'local' => [
             'driver' => 'local',
             'root' => storage_path('app/private'),
-            'serve' => true,
+            // Not served: the private disk also holds report exports, and the
+            // `serve` flag would register public GET/PUT routes for it.
+            'serve' => false,
             'throw' => false,
             'report' => false,
         ],

@@ -253,16 +253,17 @@ Route::middleware(['auth:sanctum', 'tenant'])->group(function () {
     |
     */
 
-    // Departments
+    // Departments. Reads are for staff; a client account has no reason to
+    // enumerate the clinic's organisational structure.
     Route::prefix('departments')->controller(DepartmentController::class)->group(function () {
-        Route::get('/', 'index');
-        Route::get('/options', 'options');
+        Route::get('/', 'index')->middleware('role:admin,receptionist,staff');
+        Route::get('/options', 'options')->middleware('role:admin,receptionist,staff');
         Route::post('/', 'store')->middleware('role:admin');
-        Route::get('/{id}', 'show')->whereNumber('id');
+        Route::get('/{id}', 'show')->whereNumber('id')->middleware('role:admin,receptionist,staff');
         Route::put('/{id}', 'update')->whereNumber('id')->middleware('role:admin');
 
-        Route::get('/{id}/stations', 'stations')->whereNumber('id');
-        Route::get('/{id}/workflows', 'workflows')->whereNumber('id');
+        Route::get('/{id}/stations', 'stations')->whereNumber('id')->middleware('role:admin,receptionist,staff');
+        Route::get('/{id}/workflows', 'workflows')->whereNumber('id')->middleware('role:admin,receptionist,staff');
     });
 
     // Sanctum bearer tokens; this returns the same read model per tenant.
@@ -271,10 +272,10 @@ Route::middleware(['auth:sanctum', 'tenant'])->group(function () {
 
     // Stations
     Route::prefix('stations')->controller(StationController::class)->group(function () {
-        Route::get('/', 'index');
-        Route::get('/options', 'options');
+        Route::get('/', 'index')->middleware('role:admin,receptionist,staff');
+        Route::get('/options', 'options')->middleware('role:admin,receptionist,staff');
         Route::post('/', 'store')->middleware('role:admin');
-        Route::get('/{id}', 'show')->whereNumber('id');
+        Route::get('/{id}', 'show')->whereNumber('id')->middleware('role:admin,receptionist,staff');
         Route::put('/{id}', 'update')->whereNumber('id')->middleware('role:admin');
 
         Route::get('/{id}/queue', 'queue')->whereNumber('id')->middleware('role:admin,receptionist,staff');
@@ -282,10 +283,10 @@ Route::middleware(['auth:sanctum', 'tenant'])->group(function () {
 
     // Workflows
     Route::prefix('workflows')->controller(WorkflowController::class)->group(function () {
-        Route::get('/', 'index');
-        Route::get('/statistics', 'statistics');
+        Route::get('/', 'index')->middleware('role:admin,receptionist,staff');
+        Route::get('/statistics', 'statistics')->middleware('role:admin,receptionist,staff');
         Route::post('/', 'store')->middleware('role:admin');
-        Route::get('/{id}', 'show')->whereNumber('id');
+        Route::get('/{id}', 'show')->whereNumber('id')->middleware('role:admin,receptionist,staff');
         Route::post('/{id}/steps', 'addStep')->whereNumber('id')->middleware('role:admin');
     });
 

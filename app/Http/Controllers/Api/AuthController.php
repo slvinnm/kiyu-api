@@ -26,36 +26,16 @@ class AuthController extends Controller
 
         $user = User::query()->where('email', $validated['email'])->first();
 
-        if (! $user || ! Hash::check($validated['password'], $user->password)) {
+        // Every failure returns the same body and status so a caller cannot
+        // tell a wrong password from an unknown email or an inactive tenant.
+        if (! $user
+            || ! Hash::check($validated['password'], $user->password)
+            || ! $this->accountCanAuthenticate($user)
+        ) {
             return response()->json([
                 'message' => 'Email atau password salah.',
                 'error_type' => 'INVALID_CREDENTIALS',
             ], 422);
-        }
-
-        // A platform operator has no tenant; every other role must have one.
-        // A clinic account cannot log in while its tenant is not active.
-        if ($user->isPlatformUser()) {
-            if ($user->tenant_id !== null) {
-                return response()->json([
-                    'message' => 'Email atau password salah.',
-                    'error_type' => 'INVALID_CREDENTIALS',
-                ], 422);
-            }
-        } else {
-            if ($user->tenant_id === null) {
-                return response()->json([
-                    'message' => 'Email atau password salah.',
-                    'error_type' => 'INVALID_CREDENTIALS',
-                ], 422);
-            }
-
-            if ($user->tenant?->status !== TenantStatus::Active) {
-                return response()->json([
-                    'message' => 'Akun klinik ini tidak aktif.',
-                    'error_type' => 'TENANT_INACTIVE',
-                ], 403);
-            }
         }
 
         return response()->json([
@@ -141,11 +121,30 @@ class AuthController extends Controller
     }
 
     /**
+     * Whether the account is allowed to sign in at all.
+     *
+     * A platform operator has no tenant; every other role must have one and
+     * that tenant must be active.
+     */
+    private function accountCanAuthenticate(User $user): bool
+    {
+        if ($user->isPlatformUser()) {
+            return $user->tenant_id === null;
+        }
+
+        if ($user->tenant_id === null) {
+            return false;
+        }
+
+        return $user->tenant?->status === TenantStatus::Active;
+    }
+
+    /**
      * Issue a time-limited Sanctum personal access token.
      */
     private function issueToken(User $user): string
     {
-        $ttlMinutes = (int) env('AUTH_TOKEN_TTL_MINUTES', 480);
+        $ttlMinutes = (int) config('auth.token_ttl_minutes', 480);
 
         return $user->createToken('web', ['*'], now()->addMinutes($ttlMinutes))->plainTextToken;
     }

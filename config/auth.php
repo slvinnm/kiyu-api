@@ -114,4 +114,16 @@ return [
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
 
+    /*
+    |--------------------------------------------------------------------------
+    | API Token Lifetime
+    |--------------------------------------------------------------------------
+    |
+    | Minutes a Sanctum personal access token stays valid after it is issued.
+    | Read through config() so `config:cache` deploys keep the configured value.
+    |
+    */
+
+    'token_ttl_minutes' => (int) env('AUTH_TOKEN_TTL_MINUTES', 480),
+
 ];

@@ -270,3 +270,35 @@ test('a station can be moved inside its own facility', function () {
 
     expect($this->a['station']->fresh()->department_id)->toBe($extra->id);
 });
+
+test('a client account cannot read organisational master data', function () {
+    $clientUser = User::factory()->create([
+        'role' => 'client',
+        'tenant_id' => $this->a['tenant']->id,
+    ]);
+
+    foreach ([
+        '/api/departments',
+        '/api/departments/options',
+        "/api/departments/{$this->a['department']->id}",
+        '/api/stations',
+        '/api/stations/options',
+        '/api/workflows',
+        '/api/workflows/statistics',
+    ] as $uri) {
+        $this->actingAs($clientUser, 'sanctum')
+            ->getJson($uri)
+            ->assertForbidden();
+    }
+});
+
+test('staff can still read organisational master data', function () {
+    $staff = User::factory()->create([
+        'role' => 'staff',
+        'tenant_id' => $this->a['tenant']->id,
+    ]);
+
+    $this->actingAs($staff, 'sanctum')
+        ->getJson('/api/departments')
+        ->assertOk();
+});
