@@ -20,7 +20,7 @@ class ClinicalQueueController extends Controller
     public function callNext(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'station_id' => ['required', 'integer', 'exists:stations,id'],
+            'station_id' => ['required', 'integer', $this->stationRule()],
         ]);
 
         $ticket = $this->clinicalQueueService->callNext(
@@ -181,7 +181,7 @@ class ClinicalQueueController extends Controller
     public function transfer(Request $request, int $id): JsonResponse
     {
         $validated = $request->validate([
-            'target_station_id' => ['required', 'integer', 'exists:stations,id'],
+            'target_station_id' => ['required', 'integer', $this->stationRule()],
             'notes' => ['nullable', 'string'],
         ]);
 

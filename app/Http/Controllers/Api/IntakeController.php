@@ -24,7 +24,7 @@ class IntakeController extends Controller
     public function kiosk(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'department_id' => ['required', 'integer', 'exists:departments,id'],
+            'department_id' => ['required', 'integer', $this->departmentRule()],
             'idempotency_key' => ['nullable', 'string', 'max:100'],
         ]);
 
@@ -47,7 +47,7 @@ class IntakeController extends Controller
     public function manual(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'department_id' => ['required', 'integer', 'exists:departments,id'],
+            'department_id' => ['required', 'integer', $this->departmentRule()],
             'priority' => ['nullable', 'integer', 'in:1,2,3'],
             'idempotency_key' => ['nullable', 'string', 'max:100'],
         ]);
@@ -75,8 +75,8 @@ class IntakeController extends Controller
     public function online(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'client_id' => ['nullable', 'integer', 'exists:clients,id'],
-            'department_id' => ['required', 'integer', 'exists:departments,id'],
+            'client_id' => ['nullable', 'integer', $this->clientRule()],
+            'department_id' => ['required', 'integer', $this->departmentRule()],
             'priority' => ['nullable', 'integer', 'in:1,2,3'],
             'idempotency_key' => ['nullable', 'string', 'max:100'],
         ]);

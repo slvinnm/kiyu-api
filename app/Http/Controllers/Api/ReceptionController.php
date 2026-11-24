@@ -19,8 +19,8 @@ class ReceptionController extends Controller
     public function queue(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'department_id' => ['required', 'integer', 'exists:departments,id'],
-            'station_id' => ['nullable', 'integer', 'exists:stations,id'],
+            'department_id' => ['required', 'integer', $this->departmentRule()],
+            'station_id' => ['nullable', 'integer', $this->stationRule()],
         ]);
 
         $queue = $this->receptionService->getReceptionQueue(
@@ -42,8 +42,8 @@ class ReceptionController extends Controller
     public function callNext(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'department_id' => ['required', 'integer', 'exists:departments,id'],
-            'station_id' => ['nullable', 'integer', 'exists:stations,id'],
+            'department_id' => ['required', 'integer', $this->departmentRule()],
+            'station_id' => ['nullable', 'integer', $this->stationRule()],
         ]);
 
         $ticket = $this->receptionService->callNext(
@@ -73,7 +73,7 @@ class ReceptionController extends Controller
     {
         $validated = $request->validate([
             'acquisition_id' => ['required', 'integer', 'exists:queue_acquisitions,id'],
-            'client_id' => ['nullable', 'integer', 'exists:clients,id'],
+            'client_id' => ['nullable', 'integer', $this->clientRule()],
             'client_data' => ['nullable', 'array'],
             'client_data.name' => ['required_with:client_data', 'string', 'max:255'],
             'client_data.nik' => ['nullable', 'string', 'max:50'],

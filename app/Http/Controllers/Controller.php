@@ -3,9 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Enums\UserRole;
+use App\Models\Department;
 use App\Models\Facility;
 use App\Models\Tenant;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Exists;
 
 abstract class Controller
 {
@@ -84,5 +87,47 @@ abstract class Controller
     protected function facilityId(): int
     {
         return $this->facility()->id;
+    }
+
+    /**
+     * A validation rule that only accepts a department inside this facility.
+     *
+     * `exists:departments,id` alone accepts another clinic's department; the
+     * services re-check ownership, but a scoped rule turns the mistake into a
+     * clear 422 instead of a later 404 or a cross-tenant write attempt.
+     */
+    protected function departmentRule(): Exists
+    {
+        return Rule::exists('departments', 'id')
+            ->where('facility_id', $this->facilityId());
+    }
+
+    /**
+     * A validation rule that only accepts a station inside this facility.
+     */
+    protected function stationRule(): Exists
+    {
+        return Rule::exists('stations', 'id')->where(
+            fn($query) => $query->whereIn(
+                'department_id',
+                Department::query()->where('facility_id', $this->facilityId())->select('id'),
+            ),
+        );
+    }
+
+    /**
+     * A validation rule that only accepts a client of the current tenant.
+     */
+    protected function clientRule(): Exists
+    {
+        return Rule::exists('clients', 'id')->where('tenant_id', $this->tenantId());
+    }
+
+    /**
+     * A validation rule that only accepts a visit of the current tenant.
+     */
+    protected function visitRule(): Exists
+    {
+        return Rule::exists('visits', 'id')->where('tenant_id', $this->tenantId());
     }
 }

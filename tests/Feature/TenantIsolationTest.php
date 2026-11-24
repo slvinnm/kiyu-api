@@ -176,11 +176,13 @@ test('visit numbering is independent per facility', function () {
 });
 
 test('a manual intake cannot target a department from another tenant', function () {
+    // The scoped exists rule rejects it before the service runs.
     $this->actingAs($this->a['admin'], 'sanctum')
         ->postJson('/api/intake/manual', [
             'department_id' => $this->b['department']->id,
         ])
-        ->assertNotFound();
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('department_id');
 });
 
 test('a manual intake accepts a department from the current tenant', function () {
@@ -209,7 +211,8 @@ test('a kiosk device credential resolves its own facility', function () {
         ->postJson('/api/intake/kiosk', [
             'department_id' => $this->b['department']->id,
         ])
-        ->assertNotFound();
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('department_id');
 });
 
 test('a missing kiosk credential is rejected', function () {

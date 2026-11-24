@@ -63,7 +63,7 @@ class ReferralController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'source_visit_id' => ['required', 'integer', 'exists:visits,id'],
+            'source_visit_id' => ['required', 'integer', $this->visitRule()],
             'target_department_id' => ['required', 'integer', 'exists:departments,id'],
             'priority' => ['nullable', 'integer', 'in:1,2,3'],
             'reason' => ['nullable', 'string'],
