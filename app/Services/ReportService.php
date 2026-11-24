@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\QueueTicket;
 use App\Models\Visit;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\LazyCollection;
 
 /**
  * Operational reports for a tenant, scoped by facility and date range.
@@ -90,9 +91,9 @@ class ReportService
     /**
      * Rows for the visit CSV export.
      *
-     * @return iterable<int, array<string, mixed>>
+     * @return LazyCollection<int, Visit>
      */
-    public function visitRows(int $tenantId, int $facilityId, Carbon $from, Carbon $to): iterable
+    public function visitRows(int $tenantId, int $facilityId, Carbon $from, Carbon $to): LazyCollection
     {
         return Visit::query()
             ->where('tenant_id', $tenantId)
@@ -108,21 +109,16 @@ class ReportService
      */
     private function averageWaitMinutes(int $tenantId, int $facilityId, Carbon $from, Carbon $to): ?float
     {
-        $visits = Visit::query()
+        // Aggregated in SQL: loading every visit just to average two columns
+        // grows linearly with the reporting range.
+        $average = Visit::query()
             ->where('tenant_id', $tenantId)
             ->where('facility_id', $facilityId)
             ->whereNotNull('checked_in_at')
             ->whereBetween('created_at', [$from, $to])
-            ->get(['created_at', 'checked_in_at']);
+            ->selectRaw('AVG(TIMESTAMPDIFF(MINUTE, created_at, checked_in_at)) AS minutes')
+            ->value('minutes');
 
-        if ($visits->isEmpty()) {
-            return null;
-        }
-
-        $minutes = $visits->avg(
-            fn(Visit $visit): float => $visit->created_at->diffInMinutes($visit->checked_in_at),
-        );
-
-        return $minutes === null ? null : round((float) $minutes, 1);
+        return $average === null ? null : round((float) $average, 1);
     }
 }

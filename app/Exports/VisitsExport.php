@@ -2,8 +2,8 @@
 
 namespace App\Exports;
 
-use Illuminate\Support\Collection;
-use Maatwebsite\Excel\Concerns\FromCollection;
+use Generator;
+use Maatwebsite\Excel\Concerns\FromGenerator;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 
@@ -11,19 +11,22 @@ use Maatwebsite\Excel\Concerns\WithHeadings;
  * A flat visits export. Rows are pre-collected by the caller so the export
  * and the on-screen report share one query shape.
  */
-class VisitsExport implements FromCollection, ShouldAutoSize, WithHeadings
+class VisitsExport implements FromGenerator, ShouldAutoSize, WithHeadings
 {
     /**
-     * @param  Collection<int, array<string, mixed>>  $rows
+     * @param  iterable<int, array<int, string|null>>  $rows
      */
-    public function __construct(private readonly Collection $rows) {}
+    public function __construct(private readonly iterable $rows) {}
 
     /**
+     * Stream the rows instead of materialising the whole range: a year-long
+     * export must not need the entire visit table in memory.
+     *
      * {@inheritDoc}
      */
-    public function collection(): Collection
+    public function generator(): Generator
     {
-        return $this->rows;
+        yield from $this->rows;
     }
 
     /**

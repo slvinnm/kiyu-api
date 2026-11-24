@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Enums\QueueTicketStatus;
 use App\Models\Facility;
+use App\Models\QueueTicket;
 use App\Models\Station;
 use Illuminate\Support\Collection;
 
@@ -39,9 +40,39 @@ final class StationQueueSnapshot
 
         [$dayStart, $dayEnd] = LocalDay::bounds($facility->timezone ?: $facility->tenant?->timezone);
 
-        return $query->get()->map(
-            fn(Station $station): array => self::forStation($station, $dayStart, $dayEnd),
-        );
+        $stations = $query->get();
+
+        if ($stations->isEmpty()) {
+            return collect();
+        }
+
+        // One query per fact for all stations, not three per station: displays
+        // poll this endpoint, so the station count must not multiply the cost.
+        $stationIds = $stations->modelKeys();
+
+        $current = QueueTicket::query()
+            ->whereIn('station_id', $stationIds)
+            ->whereIn('status', [QueueTicketStatus::Called, QueueTicketStatus::InProgress])
+            ->orderByDesc('updated_at')
+            ->get(['id', 'station_id', 'queue_number', 'status', 'called_at', 'started_at'])
+            ->unique('station_id')
+            ->keyBy('station_id');
+
+        $waiting = QueueTicket::query()
+            ->whereIn('station_id', $stationIds)
+            ->where('status', QueueTicketStatus::Created)
+            ->orderBy('priority', 'desc')
+            ->orderBy('internal_sequence', 'asc')
+            ->get(['id', 'station_id', 'queue_number', 'priority', 'internal_sequence', 'created_at'])
+            ->groupBy('station_id');
+
+        return $stations->map(fn(Station $station): array => self::forStation(
+            $station,
+            $current->get($station->id),
+            $waiting->get($station->id, collect()),
+            $dayStart,
+            $dayEnd,
+        ));
     }
 
     /**
@@ -49,24 +80,18 @@ final class StationQueueSnapshot
      *
      * @return array<string, mixed>
      */
-    private static function forStation(Station $station, mixed $dayStart, mixed $dayEnd): array
-    {
-        $currentTicket = $station->queueTickets()
-            ->whereIn('status', [QueueTicketStatus::Called, QueueTicketStatus::InProgress])
-            ->latest('updated_at')
-            ->select(['id', 'station_id', 'queue_number', 'status', 'called_at', 'started_at'])
-            ->first();
+    private static function forStation(
+        Station $station,
+        ?QueueTicket $currentTicket,
+        Collection $waiting,
+        mixed $dayStart,
+        mixed $dayEnd,
+    ): array {
+        $waitingCount = $waiting->count();
 
-        $waitingCount = $station->queueTickets()
-            ->where('status', QueueTicketStatus::Created)
-            ->count();
-
-        $upcomingTickets = $station->queueTickets()
-            ->where('status', QueueTicketStatus::Created)
-            ->whereBetween('created_at', [$dayStart, $dayEnd])
-            ->orderBy('priority', 'desc')
-            ->orderBy('internal_sequence', 'asc')
-            ->limit(5)
+        $upcomingTickets = $waiting
+            ->filter(fn(QueueTicket $ticket): bool => $ticket->created_at->betweenIncluded($dayStart, $dayEnd))
+            ->take(5)
             ->pluck('queue_number');
 
         return [

@@ -7,6 +7,7 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\LazyCollection;
 use Maatwebsite\Excel\Facades\Excel;
 
 /**
@@ -71,6 +72,7 @@ class ExportService
 
         $pdf = Pdf::loadView('reports.visits', [
             'summary' => $summary,
+            // Blade iterates this once, so the lazy collection is fine as-is.
             'rows' => $rows,
             'from' => $period['from'],
             'to' => $period['to'],
@@ -129,11 +131,14 @@ class ExportService
     /**
      * Normalised rows shared by the Excel and PDF exports.
      *
-     * @return Collection<int, array<int, string|null>>
+     * Excel streams these lazily; the PDF view needs them all at once, so it
+     * materialises them itself.
+     *
+     * @return LazyCollection<int, array<int, string|null>>
      */
-    private function visitRows(int $tenantId, int $facilityId, Carbon $from, Carbon $to): Collection
+    private function visitRows(int $tenantId, int $facilityId, Carbon $from, Carbon $to): LazyCollection
     {
-        return collect($this->reports->visitRows($tenantId, $facilityId, $from, $to))
+        return $this->reports->visitRows($tenantId, $facilityId, $from, $to)
             ->map(fn($visit): array => [
                 $visit->visit_number,
                 $visit->status?->value,
