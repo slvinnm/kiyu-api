@@ -181,8 +181,10 @@ class StationController extends Controller
     /**
      * View the operational queue for this station.
      */
-    public function queue(int $id): JsonResponse
+    public function queue(Request $request, int $id): JsonResponse
     {
+        $validated = $this->validateTableQuery($request);
+
         $station = Station::query()
             ->whereHas('department', fn($q) => $q->where('facility_id', $this->facilityId()))
             ->findOrFail($id);
@@ -202,7 +204,7 @@ class StationController extends Controller
                 ELSE 4 END")
             ->orderBy('priority', 'desc')
             ->orderBy('internal_sequence', 'asc')
-            ->get();
+            ->paginate($this->tablePerPage($validated));
 
         return response()->json([
             'station' => $station,

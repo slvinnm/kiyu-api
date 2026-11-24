@@ -140,9 +140,10 @@ class ClientController extends Controller
     {
         $this->authorizeClientRecord($request, $id);
 
+        // Visit history is paginated through /clients/{id}/visits; embedding
+        // every visit here would grow without bound for a long-standing client.
         $client = Client::query()
             ->where('tenant_id', $this->tenantId())
-            ->with(['visits.department', 'visits.activeQueueTicket'])
             ->findOrFail($id);
 
         return response()->json([
@@ -191,12 +192,14 @@ class ClientController extends Controller
             ->where('tenant_id', $this->tenantId())
             ->findOrFail($id);
 
+        $validated = $this->validateTableQuery($request);
+
         return response()->json([
             'data' => $client->visits()
                 ->where('tenant_id', $this->tenantId())
                 ->with(['department', 'workflow', 'activeQueueTicket'])
                 ->latest('id')
-                ->get(),
+                ->paginate($this->tablePerPage($validated)),
         ]);
     }
 

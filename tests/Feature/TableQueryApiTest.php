@@ -513,3 +513,33 @@ test('a visit exposes its active acquisition through a dedicated endpoint', func
         ->assertOk()
         ->assertJsonPath('data', null);
 });
+
+test('client visit history and station queue are paginated', function () {
+    $client = Client::query()->create([
+        'tenant_id' => $this->tenant->id,
+        'mrn' => 'MRN-PAGE-1',
+        'name' => 'Paged Client',
+    ]);
+
+    foreach (range(1, 3) as $i) {
+        Visit::factory()->create([
+            'tenant_id' => $this->tenant->id,
+            'facility_id' => $this->facility->id,
+            'client_id' => $client->id,
+            'department_id' => $this->generalDepartment->id,
+            'workflow_id' => $this->generalWorkflow->id,
+            'visit_number' => "V-PAGE-000{$i}",
+            'visit_token' => (string) Str::uuid(),
+        ]);
+    }
+
+    $this->getJson("/api/clients/{$client->id}/visits?per_page=2")
+        ->assertOk()
+        ->assertJsonPath('data.total', 3)
+        ->assertJsonPath('data.per_page', 2)
+        ->assertJsonCount(2, 'data.data');
+
+    $this->getJson("/api/stations/{$this->registrationStation->id}/queue?per_page=1")
+        ->assertOk()
+        ->assertJsonStructure(['station', 'data' => ['data', 'per_page', 'total']]);
+});

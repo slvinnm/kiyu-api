@@ -485,7 +485,12 @@ class ClinicalQueueService
     }
 
     /**
-     * Transfer a ticket to another compatible station in the same department and workflow step.
+     * Transfer a ticket to another compatible station in the same department.
+     *
+     * The replacement ticket keeps the original `workflow_step_id` because it
+     * still represents the same step of the workflow; only the station that
+     * serves it changes. Report and display queries must therefore group by
+     * `queue_tickets.station_id`, never by the step's configured station.
      *
      * @return array{old_ticket: QueueTicket, new_ticket: QueueTicket}
      */

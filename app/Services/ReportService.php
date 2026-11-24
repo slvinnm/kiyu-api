@@ -81,6 +81,9 @@ class ReportService
             'no_show' => $noShow,
             'no_show_rate' => $served > 0 ? round($noShow / $served * 100, 1) : 0.0,
             'by_status' => $byStatus,
+            // Group by the ticket's actual station, not the workflow step's
+            // configured station: a transferred ticket serves at a different
+            // station while keeping its original step.
             'by_station' => (clone $tickets)
                 ->selectRaw('station_id, COUNT(*) AS total')
                 ->groupBy('station_id')
