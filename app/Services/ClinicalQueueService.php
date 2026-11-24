@@ -361,10 +361,21 @@ class ClinicalQueueService
     {
         return DB::transaction(function () use ($ticket, $notes, $userId): QueueTicket {
             /** @var QueueTicket $lockedTicket */
-            $lockedTicket = QueueTicket::query()->lockForUpdate()->findOrFail($ticket->id);
+            $lockedTicket = QueueTicket::query()
+                ->with(['visit.workflow', 'workflowStep'])
+                ->lockForUpdate()
+                ->findOrFail($ticket->id);
 
             if (! in_array($lockedTicket->status, [QueueTicketStatus::Called, QueueTicketStatus::InProgress], true)) {
                 throw new InvalidStateException("Ticket cannot be skipped from status '{$lockedTicket->status->value}'.");
+            }
+
+            // Skipping is only allowed when the workflow step permits it. An
+            // optional step is always skippable; otherwise the step must set
+            // can_skip explicitly.
+            $step = $lockedTicket->workflowStep;
+            if ($step !== null && ! $step->isSkippable()) {
+                throw new InvalidStateException("Step '{$step->name}' cannot be skipped.");
             }
 
             $prevStatus = $lockedTicket->status;
@@ -381,6 +392,10 @@ class ClinicalQueueService
                 'user_id' => $userId,
                 'payload' => ['notes' => $notes],
             ]);
+
+            // Skipping a step moves the client on: without this the visit
+            // would hold no active ticket and stall in WAITING forever.
+            $this->advanceWorkflow($lockedTicket, $userId, 'Advancement after skipped step');
 
             return $lockedTicket->fresh(['station', 'workflowStep']);
         });
@@ -425,7 +440,10 @@ class ClinicalQueueService
     {
         return DB::transaction(function () use ($ticket, $notes, $userId): QueueTicket {
             /** @var QueueTicket $lockedTicket */
-            $lockedTicket = QueueTicket::query()->lockForUpdate()->findOrFail($ticket->id);
+            $lockedTicket = QueueTicket::query()
+                ->with(['visit.workflow', 'workflowStep'])
+                ->lockForUpdate()
+                ->findOrFail($ticket->id);
 
             if ($lockedTicket->status->isHistorical()) {
                 throw new InvalidStateException('Historical ticket cannot be cancelled.');
@@ -445,6 +463,10 @@ class ClinicalQueueService
                 'user_id' => $userId,
                 'payload' => ['notes' => $notes],
             ]);
+
+            // Cancelling the ticket that was the visit's only remaining work
+            // must not leave the visit waiting on a ticket nobody will serve.
+            $this->advanceWorkflow($lockedTicket, $userId, 'Advancement after cancelled ticket');
 
             return $lockedTicket->fresh(['station', 'workflowStep']);
         });
@@ -552,5 +574,62 @@ class ClinicalQueueService
                 'new_ticket' => $newTicket->load(['station', 'workflowStep']),
             ];
         });
+    }
+
+    /**
+     * Move a visit along after its current step ended without being served.
+     *
+     * Shared by skip and cancel so the two cannot drift: the visit either
+     * starts the next step or, when no required step is left, is completed.
+     * Must be called inside the caller's transaction.
+     */
+    private function advanceWorkflow(QueueTicket $ticket, ?string $userId, string $reason): void
+    {
+        /** @var Visit|null $visit */
+        $visit = $ticket->visit;
+
+        if ($visit === null || $visit->status->isTerminal()) {
+            return;
+        }
+
+        $workflow = $visit->workflow;
+
+        if ($workflow === null) {
+            return;
+        }
+
+        $nextStep = $this->workflowService->resolveNextStep($workflow, $ticket->workflowStep->sequence);
+
+        if ($nextStep !== null) {
+            $numbering = $this->sequenceService->generateQueueNumber($nextStep->station);
+
+            /** @var QueueTicket $nextTicket */
+            $nextTicket = QueueTicket::query()->create([
+                'visit_id' => $visit->id,
+                'workflow_step_id' => $nextStep->id,
+                'station_id' => $nextStep->station_id,
+                'queue_number' => $numbering['queue_number'],
+                'priority' => $visit->priority,
+                'internal_sequence' => $numbering['internal_sequence'],
+                'status' => QueueTicketStatus::Created,
+            ]);
+
+            QueueEvent::query()->create([
+                'queue_ticket_id' => $nextTicket->id,
+                'event_type' => QueueEventType::Created,
+                'from_status' => null,
+                'to_status' => QueueTicketStatus::Created->value,
+                'user_id' => $userId,
+                'payload' => ['reason' => $reason],
+            ]);
+
+            return;
+        }
+
+        // No further step: the visit is finished.
+        $visit->update([
+            'status' => VisitStatus::Completed,
+            'completed_at' => now(),
+        ]);
     }
 }

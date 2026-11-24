@@ -158,7 +158,6 @@ class VisitService
                         ] : null,
 
                         'is_optional' => $step->is_optional,
-                        'is_repeatable' => $step->is_repeatable,
                         'can_skip' => $step->can_skip,
                     ],
 

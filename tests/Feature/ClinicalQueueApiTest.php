@@ -241,3 +241,55 @@ test('queue audit entries are scoped to the acting tenant', function () {
     expect($actions)->toContain('RECEPTION_CALL_NEXT')
         ->and($actions)->toContain('CLINICAL_CALL_NEXT');
 });
+
+test('a step cannot be skipped unless its step is skippable', function () {
+    $intake = $this->postJson('/api/intake/kiosk', [
+        'department_id' => $this->generalDepartment->id,
+    ])->json('data');
+
+    $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
+    $this->postJson('/api/reception/complete-registration', [
+        'acquisition_id' => $intake['acquisition']['id'],
+        'client_id' => $this->sampleClient->id,
+    ]);
+
+    $nurseTicket = $this->postJson('/api/clinical/call-next', [
+        'station_id' => $this->nurseStation->id,
+    ])->json('data');
+
+    // The seeded nurse step is mandatory.
+    $this->postJson("/api/tickets/{$nurseTicket['id']}/skip")
+        ->assertStatus(422)
+        ->assertJsonPath('error_type', 'INVALID_STATE');
+
+    $this->nurseStep->update(['can_skip' => true]);
+
+    $this->postJson("/api/tickets/{$nurseTicket['id']}/skip")->assertOk();
+});
+
+test('skipping a ticket advances the visit to the next step', function () {
+    $intake = $this->postJson('/api/intake/kiosk', [
+        'department_id' => $this->generalDepartment->id,
+    ])->json('data');
+
+    $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
+    $this->postJson('/api/reception/complete-registration', [
+        'acquisition_id' => $intake['acquisition']['id'],
+        'client_id' => $this->sampleClient->id,
+    ]);
+
+    $nurseTicket = $this->postJson('/api/clinical/call-next', [
+        'station_id' => $this->nurseStation->id,
+    ])->json('data');
+
+    $this->nurseStep->update(['can_skip' => true]);
+
+    $this->postJson("/api/tickets/{$nurseTicket['id']}/skip")->assertOk();
+
+    // A doctor-station ticket now exists for the visit.
+    $this->assertDatabaseHas('queue_tickets', [
+        'visit_id' => $intake['visit']['id'],
+        'station_id' => $this->doctorStation1->id,
+        'status' => QueueTicketStatus::Created->value,
+    ]);
+});

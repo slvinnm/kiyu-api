@@ -119,10 +119,7 @@ class WorkflowController extends Controller
             'sequence' => ['required', 'integer', 'min:1'],
             'is_active' => ['nullable', 'boolean'],
             'is_optional' => ['nullable', 'boolean'],
-            'is_repeatable' => ['nullable', 'boolean'],
             'can_skip' => ['nullable', 'boolean'],
-            'completion_requirements' => ['nullable', 'array'],
-            'entry_conditions' => ['nullable', 'array'],
         ]);
 
         $step = $workflow->steps()->create([
@@ -131,10 +128,7 @@ class WorkflowController extends Controller
             'sequence' => $validated['sequence'],
             'is_active' => $validated['is_active'] ?? true,
             'is_optional' => $validated['is_optional'] ?? false,
-            'is_repeatable' => $validated['is_repeatable'] ?? false,
             'can_skip' => $validated['can_skip'] ?? false,
-            'completion_requirements' => $validated['completion_requirements'] ?? null,
-            'entry_conditions' => $validated['entry_conditions'] ?? null,
         ]);
 
         return response()->json([
@@ -158,10 +152,7 @@ class WorkflowController extends Controller
             'sequence' => ['sometimes', 'required', 'integer', 'min:1'],
             'is_active' => ['nullable', 'boolean'],
             'is_optional' => ['nullable', 'boolean'],
-            'is_repeatable' => ['nullable', 'boolean'],
             'can_skip' => ['nullable', 'boolean'],
-            'completion_requirements' => ['nullable', 'array'],
-            'entry_conditions' => ['nullable', 'array'],
         ]);
 
         $step->update($validated);

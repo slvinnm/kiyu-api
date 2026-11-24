@@ -23,10 +23,7 @@ class WorkflowStep extends Model
         'sequence',
         'is_active',
         'is_optional',
-        'is_repeatable',
         'can_skip',
-        'completion_requirements',
-        'entry_conditions',
     ];
 
     /**
@@ -38,11 +35,19 @@ class WorkflowStep extends Model
         'sequence' => 'integer',
         'is_active' => 'boolean',
         'is_optional' => 'boolean',
-        'is_repeatable' => 'boolean',
         'can_skip' => 'boolean',
-        'completion_requirements' => 'array',
-        'entry_conditions' => 'array',
     ];
+
+    /**
+     * Whether a ticket parked on this step may be skipped.
+     *
+     * An optional step is skippable by definition; a mandatory one only when
+     * it opts in with `can_skip`.
+     */
+    public function isSkippable(): bool
+    {
+        return $this->is_optional || $this->can_skip;
+    }
 
     /**
      * Get the workflow that owns the step.

@@ -222,6 +222,10 @@ class ReceptionService
 
     /**
      * Skip a reception ticket (client not present, defer).
+     *
+     * Unlike a clinical skip this does not advance the workflow: the client
+     * is still at the desk and will be recalled, so the visit keeps waiting
+     * on the registration step.
      */
     public function skip(Tenant $tenant, int $ticketId, ?string $reason = null, ?string $userId = null): QueueTicket
     {

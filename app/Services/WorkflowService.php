@@ -66,6 +66,10 @@ class WorkflowService
 
     /**
      * Resolve the next active workflow step after the given sequence.
+     *
+     * Optional steps are still offered as a ticket, because staff may choose
+     * to serve them; a visit is not blocked on them. See
+     * {@see hasPendingRequiredSteps()} for that side.
      */
     public function resolveNextStep(Workflow $workflow, int $currentSequence): ?WorkflowStep
     {
@@ -79,5 +83,23 @@ class WorkflowService
             })
             ->orderBy('sequence', 'asc')
             ->first();
+    }
+
+    /**
+     * Whether a required (non-optional) step is still pending after this one.
+     *
+     * Used when a ticket is skipped: an optional step can be skipped without
+     * closing the visit, but jumping over the last required step ends the
+     * workflow.
+     */
+    public function hasPendingRequiredSteps(Workflow $workflow, int $currentSequence): bool
+    {
+        return WorkflowStep::query()
+            ->where('workflow_id', $workflow->id)
+            ->where('is_active', true)
+            ->where('is_optional', false)
+            ->where('sequence', '>', $currentSequence)
+            ->whereHas('station', fn($query) => $query->where('is_active', true))
+            ->exists();
     }
 }

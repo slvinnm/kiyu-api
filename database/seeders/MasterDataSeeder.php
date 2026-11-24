@@ -175,10 +175,7 @@ class MasterDataSeeder extends Seeder
                     'name' => $step['name'],
                     'is_active' => true,
                     'is_optional' => false,
-                    'is_repeatable' => false,
                     'can_skip' => false,
-                    'completion_requirements' => null,
-                    'entry_conditions' => null,
                 ]
             );
         }
@@ -216,10 +213,7 @@ class MasterDataSeeder extends Seeder
                     'name' => $step['name'],
                     'is_active' => true,
                     'is_optional' => false,
-                    'is_repeatable' => false,
                     'can_skip' => false,
-                    'completion_requirements' => null,
-                    'entry_conditions' => null,
                 ]
             );
         }
