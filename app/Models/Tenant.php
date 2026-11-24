@@ -2,12 +2,10 @@
 
 namespace App\Models;
 
-use App\Enums\SubscriptionStatus;
 use App\Enums\TenantStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Tenant extends Model
 {
@@ -100,15 +98,5 @@ class Tenant extends Model
     public function subscriptions(): HasMany
     {
         return $this->hasMany(Subscription::class);
-    }
-
-    /**
-     * The single effective subscription, if one is in force.
-     */
-    public function currentSubscription(): HasOne
-    {
-        return $this->hasOne(Subscription::class)
-            ->whereIn('status', SubscriptionStatus::effectiveValues())
-            ->latest('id');
     }
 }

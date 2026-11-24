@@ -388,6 +388,10 @@ class VisitService
     public function cancelVisit(Visit $visit, ?string $reason = null, ?string $userId = null): Visit
     {
         return DB::transaction(function () use ($visit, $reason, $userId): Visit {
+            if ($visit->status === VisitStatus::Cancelled) {
+                throw new InvalidStateException("Visit #{$visit->visit_number} is already cancelled.");
+            }
+
             if ($visit->status === VisitStatus::Completed) {
                 throw new InvalidStateException("Completed visit #{$visit->visit_number} cannot be cancelled.");
             }

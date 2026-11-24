@@ -17,10 +17,11 @@ class QueueTicketFactory extends Factory
 
     public function definition(): array
     {
+        // No hard-coded ids: station and step must exist, so tests always pass
+        // their own. A default of 1 would fail the foreign keys on any database
+        // that is not the demo seed.
         return [
             'visit_id' => Visit::factory(),
-            'workflow_step_id' => 1,
-            'station_id' => 1,
             'queue_number' => 'A' . str_pad((string) fake()->numberBetween(1, 999), 3, '0', STR_PAD_LEFT),
             'priority' => Priority::Normal,
             'internal_sequence' => fake()->numberBetween(1, 999),

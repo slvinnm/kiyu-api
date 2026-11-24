@@ -102,6 +102,9 @@ class IntakeService
 
             if ($existingAcq) {
                 if ($existingAcq->channel === IntakeChannel::Online && (int) $existingAcq->department_id === $departmentId) {
+                    // An online booking has no ticket until the client checks
+                    // in, so `ticket` is null here by design. That is the same
+                    // value the first, non-replayed call returned.
                     return [
                         'visit' => $existingAcq->visit->load(['client', 'department', 'workflow']),
                         'acquisition' => $existingAcq,

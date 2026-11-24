@@ -47,6 +47,14 @@ class SubscriptionService
 
         $price = $this->resolvePrice($plan, $interval, $currency);
 
+        // A paid plan with no price row could be created but never charged,
+        // leaving the tenant permanently unable to activate it.
+        if ($trialDays === null && $price === null) {
+            throw new InvalidStateException(
+                "Plan '{$plan->code}' has no active price for the {$interval->value} interval.",
+            );
+        }
+
         return DB::transaction(function () use ($tenant, $plan, $interval, $trialDays, $price): Subscription {
             $this->lockTenant($tenant);
             $this->cancelEffective($tenant);
@@ -76,46 +84,6 @@ class SubscriptionService
     }
 
     /**
-     * Change the plan on the tenant's effective subscription.
-     *
-     * The old row is preserved; a new subscription row records the new plan and
-     * period, keeping billing history intact.
-     */
-    public function changePlan(
-        Tenant $tenant,
-        Plan $plan,
-        BillingInterval $interval,
-        ?string $currency = null,
-    ): Subscription {
-        if (! $plan->is_active) {
-            throw new InvalidStateException("Plan '{$plan->code}' is not active.");
-        }
-
-        $price = $this->resolvePrice($plan, $interval, $currency);
-
-        return DB::transaction(function () use ($tenant, $plan, $interval, $price): Subscription {
-            $this->lockTenant($tenant);
-            $this->cancelEffective($tenant);
-
-            $now = Carbon::now();
-
-            $subscription = new Subscription([
-                'tenant_id' => $tenant->id,
-                'plan_id' => $plan->id,
-                'plan_price_id' => $price?->id,
-                'billing_interval' => $interval,
-                'status' => SubscriptionStatus::Active,
-                'cancel_at_period_end' => false,
-            ]);
-            $subscription->current_period_start = $now;
-            $subscription->current_period_end = $now->copy()->addMonths($interval->months());
-            $subscription->save();
-
-            return $subscription;
-        });
-    }
-
-    /**
      * Cancel the tenant's effective subscription at the end of its period.
      */
     public function cancelAtPeriodEnd(Tenant $tenant): Subscription
@@ -130,29 +98,6 @@ class SubscriptionService
             }
 
             $subscription->update(['cancel_at_period_end' => true]);
-
-            return $subscription;
-        });
-    }
-
-    /**
-     * Cancel the tenant's effective subscription immediately.
-     */
-    public function cancelNow(Tenant $tenant): Subscription
-    {
-        return DB::transaction(function () use ($tenant): Subscription {
-            $this->lockTenant($tenant);
-
-            $subscription = $this->effectiveSubscription($tenant);
-
-            if ($subscription === null) {
-                throw new InvalidStateException('The tenant has no effective subscription to cancel.');
-            }
-
-            $subscription->update([
-                'status' => SubscriptionStatus::Cancelled,
-                'cancelled_at' => Carbon::now(),
-            ]);
 
             return $subscription;
         });

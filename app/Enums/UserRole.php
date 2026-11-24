@@ -58,16 +58,6 @@ enum UserRole: string
     }
 
     /**
-     * Every role value, including the platform role.
-     *
-     * @return list<string>
-     */
-    public static function allValues(): array
-    {
-        return array_map(fn(self $role): string => $role->value, self::cases());
-    }
-
-    /**
      * Whether this role operates inside a tenant.
      */
     public function isTenantRole(): bool
@@ -81,21 +71,5 @@ enum UserRole: string
     public function isPlatform(): bool
     {
         return $this === self::PlatformAdmin;
-    }
-
-    /**
-     * Whether this role is the tenant administrator.
-     */
-    public function isAdmin(): bool
-    {
-        return $this === self::Admin;
-    }
-
-    /**
-     * Whether this role is the self-service end user.
-     */
-    public function isClient(): bool
-    {
-        return $this === self::Client;
     }
 }

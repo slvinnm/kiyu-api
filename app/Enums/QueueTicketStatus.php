@@ -15,14 +15,6 @@ enum QueueTicketStatus: string
     case Transferred = 'TRANSFERRED';
 
     /**
-     * Determine if ticket is eligible for call-next.
-     */
-    public function isCallable(): bool
-    {
-        return $this === self::Created;
-    }
-
-    /**
      * Determine if ticket is an active / pending ticket.
      */
     public function isActive(): bool

@@ -39,7 +39,7 @@ class PaymentService
 
         $subscription = Subscription::query()
             ->where('tenant_id', $tenant->id)
-            ->whereIn('status', ['TRIALING', 'ACTIVE', 'PAST_DUE'])
+            ->whereIn('status', SubscriptionStatus::effectiveValues())
             ->latest('id')
             ->first();
 

@@ -44,12 +44,4 @@ class PlanPrice extends Model
     {
         return $this->belongsTo(Plan::class);
     }
-
-    /**
-     * A human-readable price, e.g. "IDR 150,000".
-     */
-    public function formattedAmount(): string
-    {
-        return sprintf('%s %s', $this->currency, number_format($this->amount / 100, 2));
-    }
 }

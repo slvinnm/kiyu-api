@@ -6,7 +6,6 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Department extends Model
 {
@@ -57,14 +56,6 @@ class Department extends Model
     public function workflows(): HasMany
     {
         return $this->hasMany(Workflow::class);
-    }
-
-    /**
-     * Get the primary active workflow for the department.
-     */
-    public function primaryWorkflow(): HasOne
-    {
-        return $this->hasOne(Workflow::class)->where('is_active', true)->latest('id');
     }
 
     /**

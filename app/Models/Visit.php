@@ -151,12 +151,4 @@ class Visit extends Model
     {
         return $this->hasMany(Referral::class, 'source_visit_id');
     }
-
-    /**
-     * Get referrals where this visit is the target.
-     */
-    public function incomingReferrals(): HasMany
-    {
-        return $this->hasMany(Referral::class, 'target_visit_id');
-    }
 }

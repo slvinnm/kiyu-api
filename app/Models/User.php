@@ -73,14 +73,6 @@ class User extends Authenticatable
     }
 
     /**
-     * Whether the account holds one of the given roles.
-     */
-    public function hasRole(UserRole ...$roles): bool
-    {
-        return $this->role !== null && in_array($this->role, $roles, true);
-    }
-
-    /**
      * Get the tenant the user belongs to.
      */
     public function tenant(): BelongsTo

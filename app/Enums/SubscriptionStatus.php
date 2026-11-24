@@ -19,8 +19,12 @@ enum SubscriptionStatus: string
     }
 
     /**
-     * Statuses that count toward the "one effective subscription per tenant"
-     * rule.
+     * Statuses that occupy the tenant's single subscription slot.
+     *
+     * This is deliberately wider than {@see isEffective()}: PAST_DUE means the
+     * tenant has a subscription on file that it has not paid for. It reserves
+     * the slot and is what a charge is raised against, but it grants no
+     * features and no capacity until a payment promotes it to ACTIVE.
      *
      * @return list<self>
      */
