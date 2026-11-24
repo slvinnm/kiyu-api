@@ -472,6 +472,7 @@ test('queue acquisitions paginate by default', function () {
 
     QueueAcquisition::create([
         'visit_id' => $visit->id,
+        'tenant_id' => $this->tenant->id,
         'department_id' => $this->generalDepartment->id,
         'channel' => IntakeChannel::Manual,
         'status' => QueueAcquisitionStatus::Acquired,
@@ -496,6 +497,7 @@ test('a visit exposes its active acquisition through a dedicated endpoint', func
 
     $acquisition = QueueAcquisition::create([
         'visit_id' => $visit->id,
+        'tenant_id' => $this->tenant->id,
         'department_id' => $this->generalDepartment->id,
         'channel' => IntakeChannel::Manual,
         'status' => QueueAcquisitionStatus::Acquired,

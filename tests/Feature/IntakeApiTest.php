@@ -4,6 +4,9 @@ use App\Enums\IntakeChannel;
 use App\Enums\QueueAcquisitionStatus;
 use App\Enums\QueueTicketStatus;
 use App\Enums\VisitStatus;
+use App\Models\QueueAcquisition;
+use App\Models\Visit;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Tests\SetupKiyuHospital;
@@ -201,4 +204,20 @@ test('online lookup only resolves the booking key, not a visit id', function () 
 
     $this->getJson("/api/intake/online-lookup/{$booking['visit']['visit_number']}")
         ->assertStatus(422);
+});
+
+test('the database rejects a duplicate idempotency key for a tenant', function () {
+    $this->postJson('/api/intake/kiosk', [
+        'department_id' => $this->generalDepartment->id,
+        'idempotency_key' => 'db-unique-1',
+    ])->assertCreated();
+
+    expect(fn() => QueueAcquisition::create([
+        'visit_id' => Visit::query()->latest('id')->value('id'),
+        'tenant_id' => $this->tenant->id,
+        'department_id' => $this->generalDepartment->id,
+        'channel' => IntakeChannel::Kiosk,
+        'status' => QueueAcquisitionStatus::Acquired,
+        'idempotency_key' => 'db-unique-1',
+    ]))->toThrow(UniqueConstraintViolationException::class);
 });

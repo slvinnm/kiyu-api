@@ -159,6 +159,8 @@ return new class extends Migration
 
             $table->unique(['tenant_id', 'mrn']);
             $table->unique(['tenant_id', 'nik']);
+            // Medical records are retained: deletion is a soft delete.
+            $table->softDeletes();
         });
 
         Schema::create('visit_counters', function (Blueprint $table) {
@@ -186,8 +188,10 @@ return new class extends Migration
             $table->foreignId('tenant_id')->constrained('tenants')->restrictOnDelete();
             $table->foreignId('facility_id')->constrained('facilities')->restrictOnDelete();
             $table->foreignId('client_id')->nullable()->constrained('clients')->nullOnDelete();
-            $table->foreignId('department_id')->constrained('departments')->cascadeOnDelete();
-            $table->foreignId('workflow_id')->constrained('workflows')->cascadeOnDelete();
+            // Restrict, not cascade: deleting a department or workflow must
+            // never silently erase visit history.
+            $table->foreignId('department_id')->constrained('departments')->restrictOnDelete();
+            $table->foreignId('workflow_id')->constrained('workflows')->restrictOnDelete();
             $table->string('visit_number');
             $table->string('visit_token')->unique();
             $table->tinyInteger('priority')->default(1); // 1 = NORMAL, 2 = PRIORITY, 3 = EMERGENCY
@@ -201,21 +205,28 @@ return new class extends Migration
             $table->timestamps();
 
             $table->unique(['facility_id', 'visit_number']);
-            $table->index(['tenant_id', 'facility_id']);
+            $table->index(['tenant_id', 'facility_id', 'created_at']);
             $table->index(['department_id', 'status']);
+            // Medical records are retained: deletion is a soft delete.
+            $table->softDeletes();
         });
 
         Schema::create('queue_acquisitions', function (Blueprint $table) {
             $table->id();
             $table->foreignId('visit_id')->constrained('visits')->cascadeOnDelete();
+            $table->foreignId('tenant_id')->constrained('tenants')->restrictOnDelete();
             $table->foreignId('department_id')->constrained('departments')->cascadeOnDelete();
             $table->string('channel'); // ONLINE, KIOSK, MANUAL
             $table->string('status')->default('ACQUIRED'); // ACQUIRED, REGISTERED, CANCELLED
-            $table->string('idempotency_key')->nullable()->index();
+            $table->string('idempotency_key')->nullable();
             $table->string('registered_by')->nullable();
             $table->timestamps();
 
             $table->index(['department_id', 'status']);
+            // Database-enforced idempotency: two concurrent identical requests
+            // cannot both insert the same key. NULL keys stay allowed because
+            // MySQL permits repeated NULLs in a unique index.
+            $table->unique(['tenant_id', 'idempotency_key']);
         });
 
         Schema::create('queue_tickets', function (Blueprint $table) {
@@ -256,7 +267,7 @@ return new class extends Migration
         Schema::create('referrals', function (Blueprint $table) {
             $table->id();
             $table->foreignId('source_visit_id')->constrained('visits')->cascadeOnDelete();
-            $table->foreignId('target_department_id')->constrained('departments')->cascadeOnDelete();
+            $table->foreignId('target_department_id')->constrained('departments')->restrictOnDelete();
             $table->foreignId('target_visit_id')->nullable()->constrained('visits')->nullOnDelete();
             $table->string('referred_by_user_id')->nullable();
             $table->string('status')->default('PENDING'); // PENDING, ACCEPTED, COMPLETED, CANCELLED

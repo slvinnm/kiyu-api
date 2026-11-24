@@ -16,8 +16,12 @@ use App\Models\Facility;
 use App\Models\QueueAcquisition;
 use App\Models\QueueEvent;
 use App\Models\QueueTicket;
+use App\Models\Station;
 use App\Models\Tenant;
 use App\Models\Visit;
+use App\Models\Workflow;
+use App\Models\WorkflowStep;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -108,6 +112,42 @@ class IntakeService
             }
         }
 
+        try {
+            return $this->createOnlineBookingWithinTransaction($tenant, $facility, $client, $department, $workflow, $priority, $idempotencyKey);
+        } catch (UniqueConstraintViolationException) {
+            // The pre-check raced another identical request; the unique
+            // (tenant_id, idempotency_key) index rejected the duplicate, so a
+            // replay can return the winner's booking.
+            $existingAcq = $idempotencyKey === null
+                ? null
+                : $this->findAcquisitionForTenant($tenant, $idempotencyKey);
+
+            if ($existingAcq === null) {
+                throw new BusinessConflictException('The booking could not be created because an identical one already exists.');
+            }
+
+            return [
+                'visit' => $existingAcq->visit->load(['client', 'department', 'workflow']),
+                'acquisition' => $existingAcq,
+                'ticket' => null,
+            ];
+        }
+    }
+
+    /**
+     * The write half of {@see createOnlineBooking()}, inside one transaction.
+     *
+     * @return array{visit: Visit, acquisition: QueueAcquisition, ticket: null}
+     */
+    private function createOnlineBookingWithinTransaction(
+        Tenant $tenant,
+        Facility $facility,
+        Client $client,
+        Department $department,
+        Workflow $workflow,
+        int $priority,
+        ?string $idempotencyKey,
+    ): array {
         return DB::transaction(function () use ($tenant, $facility, $client, $department, $workflow, $priority, $idempotencyKey): array {
             $visitNumber = $this->sequenceService->generateVisitNumber($facility);
             $visitToken = (string) Str::uuid();
@@ -131,6 +171,7 @@ class IntakeService
             /** @var QueueAcquisition $acquisition */
             $acquisition = QueueAcquisition::query()->create([
                 'visit_id' => $visit->id,
+                'tenant_id' => $tenant->id,
                 'department_id' => $department->id,
                 'channel' => IntakeChannel::Online,
                 'status' => QueueAcquisitionStatus::Acquired,
@@ -318,6 +359,50 @@ class IntakeService
         $registrationStep = $this->workflowService->resolveRegistrationStep($workflow);
         $registrationStation = $registrationStep->station;
 
+        try {
+            return $this->processPhysicalIntakeWithinTransaction(
+                $tenant, $facility, $department, $channel, $priority,
+                $idempotencyKey, $registeredBy, $workflow, $registrationStep, $registrationStation,
+            );
+        } catch (UniqueConstraintViolationException) {
+            // Same race as the online path: the unique (tenant_id,
+            // idempotency_key) index caught a duplicate the pre-check missed.
+            $existingAcq = $idempotencyKey === null
+                ? null
+                : $this->findAcquisitionForTenant($tenant, $idempotencyKey);
+
+            if ($existingAcq === null) {
+                throw new BusinessConflictException('The intake could not be created because an identical one already exists.');
+            }
+
+            $visit = $existingAcq->visit->load(['client', 'department', 'workflow']);
+            $ticket = $visit->activeQueueTicket ?? $visit->queueTickets()->latest('id')->first();
+
+            return [
+                'visit' => $visit,
+                'acquisition' => $existingAcq,
+                'ticket' => $ticket,
+            ];
+        }
+    }
+
+    /**
+     * The write half of {@see processPhysicalIntake()}, inside one transaction.
+     *
+     * @return array{visit: Visit, acquisition: QueueAcquisition, ticket: QueueTicket}
+     */
+    private function processPhysicalIntakeWithinTransaction(
+        Tenant $tenant,
+        Facility $facility,
+        Department $department,
+        IntakeChannel $channel,
+        Priority $priority,
+        ?string $idempotencyKey,
+        ?string $registeredBy,
+        Workflow $workflow,
+        WorkflowStep $registrationStep,
+        Station $registrationStation,
+    ): array {
         return DB::transaction(function () use (
             $tenant,
             $facility,
@@ -353,6 +438,7 @@ class IntakeService
             /** @var QueueAcquisition $acquisition */
             $acquisition = QueueAcquisition::query()->create([
                 'visit_id' => $visit->id,
+                'tenant_id' => $tenant->id,
                 'department_id' => $department->id,
                 'channel' => $channel,
                 'status' => QueueAcquisitionStatus::Acquired,

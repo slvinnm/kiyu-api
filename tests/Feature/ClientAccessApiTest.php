@@ -181,3 +181,12 @@ test('staff cannot link a client to a user from another tenant', function () {
 
     $this->assertDatabaseMissing('clients', ['user_id' => $foreignUser->id]);
 });
+
+test('deleting a client keeps the row as a soft delete', function () {
+    $this->ownClient->delete();
+
+    expect(Client::query()->whereKey($this->ownClient->id)->exists())->toBeFalse()
+        ->and(Client::withTrashed()->find($this->ownClient->id))->not->toBeNull();
+
+    $this->assertSoftDeleted('clients', ['id' => $this->ownClient->id]);
+});

@@ -19,6 +19,7 @@ class QueueAcquisition extends Model
      */
     protected $fillable = [
         'visit_id',
+        'tenant_id',
         'department_id',
         'channel',
         'status',
