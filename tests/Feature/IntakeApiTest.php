@@ -17,7 +17,6 @@ beforeEach(function () {
 test('kiosk walk-in creates client-less visit, acquisition and registration queue ticket', function () {
     $response = $this->postJson('/api/intake/kiosk', [
         'department_id' => $this->generalDepartment->id,
-        'priority' => 1,
     ]);
 
     $response->assertStatus(201)
@@ -169,4 +168,37 @@ test('public visit tracking is rate limited', function () {
     }
 
     $this->getJson("/api/visits/{$token}/track")->assertStatus(429);
+});
+
+test('kiosk intake ignores a client-supplied priority', function () {
+    $response = $this->postJson('/api/intake/kiosk', [
+        'department_id' => $this->generalDepartment->id,
+        'priority' => 3,
+    ]);
+
+    $response->assertCreated()
+        ->assertJsonPath('data.visit.priority', 1)
+        ->assertJsonPath('data.ticket.priority', 1);
+});
+
+test('online lookup only resolves the booking key, not a visit id', function () {
+    $booking = $this->postJson('/api/intake/online', [
+        'client_id' => $this->sampleClient->id,
+        'department_id' => $this->generalDepartment->id,
+    ])->json('data');
+
+    $activeKey = $booking['visit']['online_active_key'];
+
+    $this->getJson("/api/intake/online-lookup/{$activeKey}")
+        ->assertOk()
+        ->assertJsonMissingPath('data.booking_identifier')
+        ->assertJsonMissingPath('data.client_preview.mrn')
+        ->assertJsonMissingPath('data.priority');
+
+    // A sequential visit id or the visit number must not resolve.
+    $this->getJson("/api/intake/online-lookup/{$booking['visit']['id']}")
+        ->assertStatus(422);
+
+    $this->getJson("/api/intake/online-lookup/{$booking['visit']['visit_number']}")
+        ->assertStatus(422);
 });

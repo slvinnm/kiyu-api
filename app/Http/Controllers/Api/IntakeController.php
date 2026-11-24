@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\Priority;
 use App\Http\Controllers\Controller;
 use App\Services\IntakeService;
 use Illuminate\Http\JsonResponse;
@@ -15,19 +16,22 @@ class IntakeController extends Controller
 
     /**
      * Create a Kiosk walk-in intake.
+     *
+     * Priority is never taken from the kiosk request: a patient at a
+     * self-service screen must not be able to put themselves at the front of
+     * the queue. Triage priority is set by staff.
      */
     public function kiosk(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'department_id' => ['required', 'integer', 'exists:departments,id'],
-            'priority' => ['nullable', 'integer', 'in:1,2,3'],
             'idempotency_key' => ['nullable', 'string', 'max:100'],
         ]);
 
         $result = $this->intakeService->createKioskIntake(
             tenant: $this->tenant(),
             departmentId: (int) $validated['department_id'],
-            priority: (int) ($validated['priority'] ?? 1),
+            priority: Priority::Normal->value,
             idempotencyKey: $validated['idempotency_key'] ?? null
         );
 

@@ -186,15 +186,16 @@ class IntakeService
         }, $words);
         $maskedName = implode(' ', $maskedWords);
 
+        // A bare identifier is enough to preview a booking, so the preview exposes
+        // only what the patient needs to recognise it. The check-in credential
+        // (online_active_key) is deliberately not echoed: echoing it would let a
+        // holder of one identifier perform the check-in without seeing the screen.
         return [
             'visit_number' => $visit->visit_number,
-            'booking_identifier' => $visit->online_active_key,
             'client_preview' => [
                 'masked_name' => $maskedName,
-                'mrn' => $visit->client?->mrn ?? '-',
             ],
             'department_name' => $visit->department?->name ?? '-',
-            'priority' => $visit->priority->value,
             'status' => $visit->status->value,
             'is_eligible_checkin' => $visit->status === VisitStatus::AwaitingCheckin,
         ];
@@ -561,15 +562,15 @@ class IntakeService
 
     /**
      * Build a tenant-scoped lookup for an online booking identifier.
+     *
+     * Only the booking's own key is a valid identifier. Falling back to the
+     * sequential visit id or the formatted visit number would let a kiosk
+     * enumerate every visit in the tenant.
      */
     private function bookingQuery(Tenant $tenant, string $bookingIdentifier)
     {
-        $query = Visit::query()->where('tenant_id', $tenant->id);
-
-        return $query->where(function ($inner) use ($bookingIdentifier): void {
-            $inner->where('online_active_key', $bookingIdentifier)
-                ->orWhere('visit_number', $bookingIdentifier)
-                ->orWhere('id', is_numeric($bookingIdentifier) ? (int) $bookingIdentifier : 0);
-        });
+        return Visit::query()
+            ->where('tenant_id', $tenant->id)
+            ->where('online_active_key', $bookingIdentifier);
     }
 }

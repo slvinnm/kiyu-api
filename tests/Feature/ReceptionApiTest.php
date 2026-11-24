@@ -15,13 +15,14 @@ beforeEach(function () {
 
 test('reception call-next automatically resolves registration station and calls highest priority first', function () {
     // 1. Create NORMAL intake (seq 1)
-    $this->postJson('/api/intake/kiosk', [
+    $this->postJson('/api/intake/manual', [
         'department_id' => $this->generalDepartment->id,
         'priority' => Priority::Normal->value,
     ])->assertStatus(201);
 
-    // 2. Create EMERGENCY intake (seq 2)
-    $emergencyRes = $this->postJson('/api/intake/kiosk', [
+    // 2. Create EMERGENCY intake (seq 2). Priority is staff-set: the kiosk
+    // endpoint always creates NORMAL tickets.
+    $emergencyRes = $this->postJson('/api/intake/manual', [
         'department_id' => $this->generalDepartment->id,
         'priority' => Priority::Emergency->value,
     ])->assertStatus(201);
@@ -154,13 +155,13 @@ test('reception double-completion is prevented and returns conflict 409', functi
 
 test('reception queue view displays current calling and waiting tickets for the department', function () {
     // 1. Create walk-in 1
-    $res1 = $this->postJson('/api/intake/kiosk', [
+    $res1 = $this->postJson('/api/intake/manual', [
         'department_id' => $this->generalDepartment->id,
         'priority' => Priority::Normal->value,
     ])->json('data');
 
     // 2. Create walk-in 2
-    $res2 = $this->postJson('/api/intake/kiosk', [
+    $res2 = $this->postJson('/api/intake/manual', [
         'department_id' => $this->generalDepartment->id,
         'priority' => Priority::Priority->value,
     ])->json('data');
