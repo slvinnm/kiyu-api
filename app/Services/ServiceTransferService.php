@@ -5,20 +5,28 @@ namespace App\Services;
 use App\Enums\IntakeChannel;
 use App\Enums\Priority;
 use App\Enums\QueueEventType;
+use App\Enums\QueueSessionStatus;
 use App\Enums\QueueTicketStatus;
-use App\Enums\ReferralStatus;
-use App\Enums\VisitStatus;
+use App\Enums\ServiceTransferStatus;
 use App\Exceptions\InvalidStateException;
 use App\Models\Department;
 use App\Models\QueueEvent;
+use App\Models\QueueSession;
 use App\Models\QueueTicket;
-use App\Models\Referral;
+use App\Models\ServiceTransfer;
 use App\Models\Tenant;
-use App\Models\Visit;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
-class ReferralService
+/**
+ * Hands a queue session off to another department.
+ *
+ * A transfer starts a brand-new queue session (and its first ticket) in the
+ * target department, copying the customer and priority. It is distinct from a
+ * ticket-level transfer, which keeps the session and moves one ticket to
+ * another station.
+ */
+class ServiceTransferService
 {
     public function __construct(
         public SequenceService $sequenceService,
@@ -27,24 +35,24 @@ class ReferralService
     ) {}
 
     /**
-     * Create a referral from a source visit to a target department.
+     * Create a transfer from a source session to a target department.
      *
-     * @return array{referral: Referral, target_visit: Visit, target_ticket: QueueTicket}
+     * @return array{transfer: ServiceTransfer, target_session: QueueSession, target_ticket: QueueTicket}
      */
-    public function createReferral(
+    public function createTransfer(
         Tenant $tenant,
-        int $sourceVisitId,
+        int $sourceSessionId,
         int $targetDepartmentId,
         ?int $priority = null,
         ?string $reason = null,
-        ?string $referredBy = null
+        ?int $userId = null
     ): array {
-        $sourceVisit = Visit::query()
+        $sourceSession = QueueSession::query()
             ->where('tenant_id', $tenant->id)
-            ->findOrFail($sourceVisitId);
+            ->findOrFail($sourceSessionId);
 
-        if ($sourceVisit->department_id === $targetDepartmentId) {
-            throw new InvalidStateException('Target department for referral cannot be the same as source visit department. Use transfer instead.');
+        if ($sourceSession->department_id === $targetDepartmentId) {
+            throw new InvalidStateException('Target department for a service transfer cannot be the source session department. Use a ticket transfer instead.');
         }
 
         // The target department must belong to the same tenant. It may live in
@@ -72,41 +80,42 @@ class ReferralService
 
         return DB::transaction(function () use (
             $tenant,
-            $sourceVisit,
+            $sourceSession,
             $targetDepartmentId,
             $targetFacility,
             $targetWorkflow,
             $firstStep,
             $priority,
             $reason,
-            $referredBy
+            $userId
         ): array {
-            $effectivePriority = $priority ? (Priority::tryFrom($priority) ?? Priority::Normal) : $sourceVisit->priority;
-            $targetVisitNumber = $this->sequenceService->generateVisitNumber($targetFacility);
-            $visitToken = (string) Str::uuid();
+            $effectivePriority = $priority ? (Priority::tryFrom($priority) ?? Priority::Normal) : $sourceSession->priority;
+            $targetSessionNumber = $this->sequenceService->generateSessionNumber($targetFacility);
+            $trackingToken = (string) Str::uuid();
 
-            /** @var Visit $targetVisit */
-            $targetVisit = Visit::query()->create([
+            /** @var QueueSession $targetSession */
+            $targetSession = QueueSession::query()->create([
                 'tenant_id' => $tenant->id,
                 'facility_id' => $targetFacility->id,
-                'client_id' => $sourceVisit->client_id,
+                'customer_id' => $sourceSession->customer_id,
                 'department_id' => $targetDepartmentId,
                 'workflow_id' => $targetWorkflow->id,
-                'visit_number' => $targetVisitNumber,
-                'visit_token' => $visitToken,
+                'session_number' => $targetSessionNumber,
+                'tracking_token' => $trackingToken,
                 'priority' => $effectivePriority,
                 'intake_channel' => IntakeChannel::Manual,
-                'status' => VisitStatus::Waiting,
-                'registered_by' => $referredBy,
+                'status' => QueueSessionStatus::Waiting,
+                'registered_by_user_id' => $userId,
             ]);
 
-            /** @var Referral $referral */
-            $referral = Referral::query()->create([
-                'source_visit_id' => $sourceVisit->id,
+            /** @var ServiceTransfer $transfer */
+            $transfer = ServiceTransfer::query()->create([
+                'tenant_id' => $tenant->id,
+                'source_queue_session_id' => $sourceSession->id,
                 'target_department_id' => $targetDepartmentId,
-                'target_visit_id' => $targetVisit->id,
-                'referred_by_user_id' => $referredBy,
-                'status' => ReferralStatus::Accepted,
+                'target_queue_session_id' => $targetSession->id,
+                'referred_by_user_id' => $userId,
+                'status' => ServiceTransferStatus::Accepted,
                 'priority' => $effectivePriority,
                 'reason' => $reason,
             ]);
@@ -116,7 +125,7 @@ class ReferralService
 
             /** @var QueueTicket $targetTicket */
             $targetTicket = QueueTicket::query()->create([
-                'visit_id' => $targetVisit->id,
+                'queue_session_id' => $targetSession->id,
                 'workflow_step_id' => $firstStep->id,
                 'station_id' => $targetStation->id,
                 'queue_number' => $numbering['queue_number'],
@@ -130,29 +139,29 @@ class ReferralService
                 'event_type' => QueueEventType::Created,
                 'from_status' => null,
                 'to_status' => QueueTicketStatus::Created->value,
-                'user_id' => $referredBy,
+                'user_id' => $userId,
                 'payload' => [
-                    'reason' => 'Referral created from visit #' . $sourceVisit->visit_number,
-                    'referral_id' => $referral->id,
+                    'reason' => 'Service transfer from session #' . $sourceSession->session_number,
+                    'service_transfer_id' => $transfer->id,
                 ],
             ]);
 
             $this->auditService->log(
-                action: 'REFERRAL_CREATED',
-                entityType: 'Referral',
-                entityId: $referral->id,
+                action: 'SERVICE_TRANSFER_CREATED',
+                entityType: 'ServiceTransfer',
+                entityId: $transfer->id,
                 metadata: [
-                    'source_visit_id' => $sourceVisit->id,
+                    'source_queue_session_id' => $sourceSession->id,
                     'target_department_id' => $targetDepartmentId,
-                    'target_visit_id' => $targetVisit->id,
+                    'target_queue_session_id' => $targetSession->id,
                 ],
-                userId: $referredBy,
+                userId: $userId,
                 tenant: $tenant,
             );
 
             return [
-                'referral' => $referral->load(['sourceVisit', 'targetDepartment', 'targetVisit']),
-                'target_visit' => $targetVisit->load(['client', 'department', 'workflow']),
+                'transfer' => $transfer->load(['sourceQueueSession', 'targetDepartment', 'targetQueueSession']),
+                'target_session' => $targetSession->load(['customer', 'department', 'workflow']),
                 'target_ticket' => $targetTicket->load(['station', 'workflowStep']),
             ];
         });

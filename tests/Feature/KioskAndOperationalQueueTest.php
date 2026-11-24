@@ -3,8 +3,8 @@
 namespace Tests\Feature;
 
 use App\Enums\Priority;
+use App\Enums\QueueSessionStatus;
 use App\Enums\QueueTicketStatus;
-use App\Enums\VisitStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\SetupKiyuHospital;
 use Tests\TestCase;
@@ -33,22 +33,22 @@ class KioskAndOperationalQueueTest extends TestCase
     public function test_can_lookup_online_booking_preview_at_kiosk(): void
     {
         $onlineBooking = $this->postJson('/api/intake/online', [
-            'client_id' => $this->sampleClient->id,
+            'customer_id' => $this->sampleCustomer->id,
             'department_id' => $this->generalDepartment->id,
             'priority' => Priority::Normal->value,
         ])->json('data');
 
-        $activeKey = $onlineBooking['visit']['online_active_key'];
+        $activeKey = $onlineBooking['queue_session']['online_active_key'];
 
         $response = $this->getJson("/api/intake/online-lookup/{$activeKey}");
 
         $response->assertStatus(200)
             ->assertJsonPath('data.is_eligible_checkin', true)
-            ->assertJsonPath('data.status', VisitStatus::AwaitingCheckin->value)
-            ->assertJsonPath('data.department_name', 'Poli Umum');
+            ->assertJsonPath('data.status', QueueSessionStatus::AwaitingCheckin->value)
+            ->assertJsonPath('data.department_name', 'General Service');
 
         // Verify client name is masked for privacy
-        $this->assertStringContainsString('*', $response->json('data.client_preview.masked_name'));
+        $this->assertStringContainsString('*', $response->json('data.customer_preview.masked_name'));
     }
 
     public function test_can_recall_reception_ticket(): void
@@ -59,13 +59,13 @@ class KioskAndOperationalQueueTest extends TestCase
 
         $callNext = $this->postJson('/api/reception/call-next', [
             'department_id' => $this->generalDepartment->id,
-            'assigned_to' => 'receptionist_1',
+            'assigned_to_user_id' => 'receptionist_1',
         ])->json('data');
 
         $ticketId = $callNext['id'];
 
         $response = $this->postJson("/api/reception/{$ticketId}/recall", [
-            'assigned_to' => 'receptionist_1',
+            'assigned_to_user_id' => 'receptionist_1',
         ]);
 
         $response->assertStatus(200)
@@ -85,7 +85,7 @@ class KioskAndOperationalQueueTest extends TestCase
 
         $callNext = $this->postJson('/api/reception/call-next', [
             'department_id' => $this->generalDepartment->id,
-            'assigned_to' => 'receptionist_1',
+            'assigned_to_user_id' => 'receptionist_1',
         ])->json('data');
 
         $ticketId = $callNext['id'];
@@ -105,9 +105,9 @@ class KioskAndOperationalQueueTest extends TestCase
         ]);
     }
 
-    public function test_can_recall_clinical_ticket(): void
+    public function test_can_recall_queue_ticket(): void
     {
-        // Setup a full walkin until clinical station
+        // Setup a full walkin until queue station
         $intake = $this->postJson('/api/intake/kiosk', [
             'department_id' => $this->generalDepartment->id,
         ])->json('data');
@@ -118,14 +118,14 @@ class KioskAndOperationalQueueTest extends TestCase
 
         $reg = $this->postJson('/api/reception/complete-registration', [
             'acquisition_id' => $intake['acquisition']['id'],
-            'client_id' => $this->sampleClient->id,
+            'customer_id' => $this->sampleCustomer->id,
         ])->json('data');
 
-        $clinicalTicket = $reg['next_ticket'];
+        $queueTicket = $reg['next_ticket'];
 
-        $called = $this->postJson('/api/clinical/call-next', [
-            'station_id' => $clinicalTicket['station_id'],
-            'assigned_to' => 'nurse_1',
+        $called = $this->postJson('/api/queue/call-next', [
+            'station_id' => $queueTicket['station_id'],
+            'assigned_to_user_id' => 'nurse_1',
         ])->json('data');
 
         $response = $this->postJson("/api/tickets/{$called['id']}/recall", [
@@ -141,22 +141,21 @@ class KioskAndOperationalQueueTest extends TestCase
         ]);
     }
 
-    public function test_duplicate_nik_returns_business_conflict_exception(): void
+    public function test_registration_creates_a_customer_without_identity_documents(): void
     {
         $intake = $this->postJson('/api/intake/kiosk', [
             'department_id' => $this->generalDepartment->id,
         ])->json('data');
 
-        // Complete registration with duplicate NIK
         $response = $this->postJson('/api/reception/complete-registration', [
             'acquisition_id' => $intake['acquisition']['id'],
-            'client_data' => [
+            'customer_data' => [
                 'name' => 'Budi Duplikat',
-                'nik' => $this->sampleClient->nik, // Duplicate NIK!
+                'phone' => '081200000000',
             ],
         ]);
 
-        $response->assertStatus(409)
-            ->assertSee('NIK');
+        $response->assertStatus(200)
+            ->assertJsonPath('data.queue_session.customer.name', 'Budi Duplikat');
     }
 }

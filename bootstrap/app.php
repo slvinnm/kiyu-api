@@ -3,6 +3,7 @@
 use App\Http\Middleware\EnsurePlanFeature;
 use App\Http\Middleware\EnsurePlatformAccount;
 use App\Http\Middleware\EnsureUserRole;
+use App\Http\Middleware\ResolveFacility;
 use App\Http\Middleware\ResolveKioskDevice;
 use App\Http\Middleware\ResolvePlatformTenant;
 use App\Http\Middleware\ResolvePublicTenant;
@@ -24,6 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'role' => EnsureUserRole::class,
             'tenant' => ResolveTenant::class,
+            'facility' => ResolveFacility::class,
             'kiosk' => ResolveKioskDevice::class,
             'public-tenant' => ResolvePublicTenant::class,
             'platform' => EnsurePlatformAccount::class,

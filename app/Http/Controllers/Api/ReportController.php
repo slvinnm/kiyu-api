@@ -25,7 +25,7 @@ class ReportController extends Controller
     ) {}
 
     /**
-     * A JSON summary of visits and queue performance for the range.
+     * A JSON summary of queue sessions and queue performance for the range.
      */
     public function summary(Request $request): JsonResponse
     {
@@ -36,37 +36,37 @@ class ReportController extends Controller
 
         return response()->json([
             'data' => [
-                'visits' => $this->reports->visitSummary($tenantId, $facilityId, $range['start'], $range['end'], $period),
+                'queue_sessions' => $this->reports->sessionSummary($tenantId, $facilityId, $range['start'], $range['end'], $period),
                 'queue' => $this->reports->queueSummary($tenantId, $facilityId, $range['start'], $range['end'], $period),
             ],
         ]);
     }
 
     /**
-     * Stream the visit rows for the range as CSV.
+     * Stream the queue-session rows for the range as CSV.
      */
-    public function exportVisits(Request $request): StreamedResponse
+    public function exportQueueSessions(Request $request): StreamedResponse
     {
         $range = $this->range($request);
         $tenantId = $this->tenantId();
         $facilityId = $this->facilityId();
 
-        $filename = sprintf('visits-%s-%s.csv', $range['from'], $range['to']);
+        $filename = sprintf('queue_sessions-%s-%s.csv', $range['from'], $range['to']);
 
         return response()->streamDownload(function () use ($tenantId, $facilityId, $range): void {
             $handle = fopen('php://output', 'wb');
 
-            fputcsv($handle, ['visit_number', 'status', 'intake_channel', 'client_mrn', 'client_name', 'department', 'created_at']);
+            fputcsv($handle, ['session_number', 'status', 'intake_channel', 'customer_name', 'customer_phone', 'department', 'created_at']);
 
-            foreach ($this->reports->visitRows($tenantId, $facilityId, $range['start'], $range['end']) as $visit) {
+            foreach ($this->reports->sessionRows($tenantId, $facilityId, $range['start'], $range['end']) as $session) {
                 fputcsv($handle, [
-                    $visit->visit_number,
-                    $visit->status?->value,
-                    $visit->intake_channel?->value,
-                    $visit->client?->mrn,
-                    $visit->client?->name,
-                    $visit->department?->name,
-                    $visit->created_at?->toIso8601String(),
+                    $session->session_number,
+                    $session->status?->value,
+                    $session->intake_channel?->value,
+                    $session->customer?->name,
+                    $session->customer?->phone,
+                    $session->department?->name,
+                    $session->created_at?->toIso8601String(),
                 ]);
             }
 
@@ -118,9 +118,9 @@ class ReportController extends Controller
     }
 
     /**
-     * Resolve the requested date range, defaulting to the clinic's today.
+     * Resolve the requested date range, defaulting to the tenant's today.
      *
-     * `from`/`to` are the clinic-local calendar dates the caller asked for;
+     * `from`/`to` are the tenant-local calendar dates the caller asked for;
      * `start`/`end` are the UTC instants the queries compare against.
      *
      * @return array{start: Carbon, end: Carbon, from: string, to: string}

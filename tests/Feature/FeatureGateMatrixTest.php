@@ -17,7 +17,7 @@ uses(RefreshDatabase::class);
  * @param  list<Feature>  $toggles
  * @return array{tenant: Tenant, facility: Facility, admin: User, manager: User}
  */
-function gateClinic(array $toggles, string $role = 'admin'): array
+function gateClinic(array $toggles, string $role = 'tenant_admin'): array
 {
     $tenant = Tenant::query()->create([
         'name' => 'Gate Clinic',
@@ -60,12 +60,12 @@ test('reports summary requires the basic_reports toggle, present or absent', fun
 test('csv export requires advanced_reports, which basic_reports alone does not grant', function () {
     $basic = gateClinic([Feature::BasicReports]);
     $this->actingAs($basic['admin'], 'sanctum')
-        ->get('/api/reports/visits/export')
+        ->get('/api/reports/queue-sessions/export')
         ->assertForbidden();
 
     $advanced = gateClinic([Feature::BasicReports, Feature::AdvancedReports]);
     $this->actingAs($advanced['admin'], 'sanctum')
-        ->get('/api/reports/visits/export')
+        ->get('/api/reports/queue-sessions/export')
         ->assertOk();
 });
 
@@ -94,21 +94,21 @@ test('a role not permitted for an endpoint is refused even with the feature', fu
 });
 
 test('a suspended tenant is refused before any feature check', function () {
-    $clinic = gateClinic([Feature::BasicReports]);
-    $clinic['tenant']->update(['status' => TenantStatus::Suspended]);
+    $tenant = gateClinic([Feature::BasicReports]);
+    $tenant['tenant']->update(['status' => TenantStatus::Suspended]);
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->getJson('/api/reports/summary')
         ->assertForbidden();
 });
 
 test('an expired trial grants no features', function () {
-    $clinic = gateClinic([Feature::BasicReports]);
+    $tenant = gateClinic([Feature::BasicReports]);
 
-    $subscription = $clinic['tenant']->subscriptions()->latest('id')->firstOrFail();
+    $subscription = $tenant['tenant']->subscriptions()->latest('id')->firstOrFail();
     $subscription->update(['trial_ends_at' => now()->subDay()]);
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->getJson('/api/reports/summary')
         ->assertForbidden();
 });

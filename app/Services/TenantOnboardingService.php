@@ -18,11 +18,11 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 /**
- * Provisions a new clinic tenant.
+ * Provisions a new tenant.
  *
  * A tenant is never usable until it has a facility, an admin who can operate
  * it, and at least one department/station/workflow so the queue can run. All
- * of that is created in one transaction so a partial clinic cannot exist.
+ * of that is created in one transaction so a partial tenant cannot exist.
  */
 class TenantOnboardingService
 {
@@ -55,7 +55,7 @@ class TenantOnboardingService
         $slug = $data['slug'] ?? Str::slug($data['name']);
 
         if ($slug === '') {
-            throw new BusinessConflictException('A tenant slug could not be derived from the clinic name.');
+            throw new BusinessConflictException('A tenant slug could not be derived from the organization name.');
         }
 
         if (Tenant::query()->where('slug', $slug)->exists()) {
@@ -71,7 +71,9 @@ class TenantOnboardingService
                 'name' => $data['name'],
                 'slug' => $slug,
                 'status' => TenantStatus::Active,
-                'timezone' => $data['timezone'] ?? 'Asia/Jakarta',
+                // IANA identifier; the caller supplies it. UTC is the neutral
+                // fallback, never a country-specific zone.
+                'timezone' => $data['timezone'] ?? 'UTC',
                 'billing_email' => $data['billing_email'] ?? null,
                 'contact_name' => $data['contact_name'] ?? null,
                 'contact_email' => $data['contact_email'] ?? null,
@@ -86,17 +88,21 @@ class TenantOnboardingService
                 'name' => $data['admin_name'],
                 'email' => $data['admin_email'],
                 'password' => Hash::make($data['admin_password']),
-                'role' => UserRole::Admin,
+                'role' => UserRole::TenantAdmin,
             ]);
             $admin->tenant_id = $tenant->id;
             $admin->save();
+
+            // Cycle the owner reference now that the user exists, inside this
+            // same transaction, so no active tenant is left ownerless.
+            $tenant->forceFill(['owner_user_id' => $admin->id])->save();
 
             $this->createDefaultTemplate($facility, $data);
 
             return [
                 'tenant' => $tenant,
                 'facility' => $facility,
-                'admin' => $admin,
+                'tenant_admin' => $admin,
             ];
         });
     }
@@ -142,7 +148,7 @@ class TenantOnboardingService
             'department_id' => $department->id,
             'name' => 'Registration',
             'code' => 'REG-01',
-            'type' => StationType::Registration,
+            'type' => StationType::Intake,
             'queue_prefix' => 'R',
             'is_active' => true,
         ]);

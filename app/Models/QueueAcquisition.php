@@ -18,13 +18,13 @@ class QueueAcquisition extends Model
      * @var list<string>
      */
     protected $fillable = [
-        'visit_id',
+        'queue_session_id',
         'tenant_id',
         'department_id',
         'channel',
         'status',
         'idempotency_key',
-        'registered_by',
+        'registered_by_user_id',
     ];
 
     /**
@@ -38,18 +38,26 @@ class QueueAcquisition extends Model
     ];
 
     /**
-     * Get the visit associated with this acquisition.
+     * Get the queue session this acquisition belongs to.
      */
-    public function visit(): BelongsTo
+    public function queueSession(): BelongsTo
     {
-        return $this->belongsTo(Visit::class);
+        return $this->belongsTo(QueueSession::class);
     }
 
     /**
-     * Get the department for this acquisition.
+     * Get the department this acquisition was taken for.
      */
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
+    }
+
+    /**
+     * Get the user who registered the acquisition, if any.
+     */
+    public function registeredBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'registered_by_user_id');
     }
 }

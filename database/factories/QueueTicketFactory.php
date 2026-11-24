@@ -4,8 +4,8 @@ namespace Database\Factories;
 
 use App\Enums\Priority;
 use App\Enums\QueueTicketStatus;
+use App\Models\QueueSession;
 use App\Models\QueueTicket;
-use App\Models\Visit;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -21,7 +21,7 @@ class QueueTicketFactory extends Factory
         // their own. A default of 1 would fail the foreign keys on any database
         // that is not the demo seed.
         return [
-            'visit_id' => Visit::factory(),
+            'queue_session_id' => QueueSession::factory(),
             'queue_number' => 'A' . str_pad((string) fake()->numberBetween(1, 999), 3, '0', STR_PAD_LEFT),
             'priority' => Priority::Normal,
             'internal_sequence' => fake()->numberBetween(1, 999),

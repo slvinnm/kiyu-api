@@ -55,9 +55,6 @@ class DepartmentController extends Controller
 
     /**
      * Lightweight department choices for select inputs.
-     *
-     * Kept separate from `index` so dropdowns never depend on the paginated
-     * table contract (and vice versa).
      */
     public function options(): JsonResponse
     {

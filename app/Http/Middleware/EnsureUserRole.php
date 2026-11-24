@@ -9,8 +9,8 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * Restrict a route to one or more roles.
  *
- * Usage: `->middleware('role:admin,receptionist')`. The authenticated user's
- * stored role is authoritative; a platform role never satisfies a clinic-role
+ * Usage: `->middleware('role:tenant_admin,operator')`. The authenticated user's
+ * stored role is authoritative; a platform role never satisfies a tenant-role
  * requirement unless it is named explicitly.
  */
 class EnsureUserRole

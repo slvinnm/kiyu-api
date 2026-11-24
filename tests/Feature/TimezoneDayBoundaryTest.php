@@ -42,7 +42,7 @@ function jakartaClinic(): array
         'department_id' => $department->id,
         'name' => 'Registration',
         'code' => 'REG-01',
-        'type' => StationType::Registration,
+        'type' => StationType::Intake,
         'queue_prefix' => 'R',
         'is_active' => true,
     ]);
@@ -55,12 +55,12 @@ beforeEach(function () {
 });
 
 test('visit numbers use the clinic local date, not the UTC date', function () {
-    $clinic = jakartaClinic();
+    $tenant = jakartaClinic();
 
     // 02:00 on 24 Nov in Jakarta is still 19:00 on 23 Nov in UTC.
     Carbon::setTestNow(Carbon::parse('2026-11-23 19:00:00', 'UTC'));
 
-    $number = app(SequenceService::class)->generateVisitNumber($clinic['facility']);
+    $number = app(SequenceService::class)->generateSessionNumber($tenant['facility']);
 
     expect($number)->toStartWith('V-20261124-');
 
@@ -68,17 +68,17 @@ test('visit numbers use the clinic local date, not the UTC date', function () {
 });
 
 test('the visit counter rolls over at local midnight', function () {
-    $clinic = jakartaClinic();
+    $tenant = jakartaClinic();
     $service = app(SequenceService::class);
 
     // 23:59 Jakarta on 24 Nov.
     Carbon::setTestNow(Carbon::parse('2026-11-24 16:59:00', 'UTC'));
-    expect($service->generateVisitNumber($clinic['facility']))->toEndWith('0001');
+    expect($service->generateSessionNumber($tenant['facility']))->toEndWith('0001');
 
     // 00:01 Jakarta on 25 Nov -> new day, sequence restarts.
     Carbon::setTestNow(Carbon::parse('2026-11-24 17:01:00', 'UTC'));
-    expect($service->generateVisitNumber($clinic['facility']))->toEndWith('0001')
-        ->and($service->generateVisitNumber($clinic['facility']))->toStartWith('V-20261125-');
+    expect($service->generateSessionNumber($tenant['facility']))->toEndWith('0001')
+        ->and($service->generateSessionNumber($tenant['facility']))->toStartWith('V-20261125-');
 
     Carbon::setTestNow();
 });

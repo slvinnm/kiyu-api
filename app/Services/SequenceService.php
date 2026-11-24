@@ -5,8 +5,8 @@ namespace App\Services;
 use App\Exceptions\InvalidStateException;
 use App\Models\Facility;
 use App\Models\QueueCounter;
+use App\Models\QueueSessionCounter;
 use App\Models\Station;
-use App\Models\VisitCounter;
 use App\Support\LocalDay;
 use Illuminate\Support\Facades\DB;
 
@@ -20,13 +20,13 @@ class SequenceService
      * `last_sequence` continues from whatever already exists. "Today" is the
      * facility's local day, not the app timezone's.
      */
-    public function generateVisitNumber(Facility $facility): string
+    public function generateSessionNumber(Facility $facility): string
     {
         $timezone = $facility->timezone ?: $facility->tenant?->timezone;
         $today = LocalDay::date($timezone);
 
         return DB::transaction(function () use ($facility, $today, $timezone): string {
-            $counter = $this->lockCounter(VisitCounter::class, [
+            $counter = $this->lockCounter(QueueSessionCounter::class, [
                 'facility_id' => $facility->id,
                 'counter_date' => $today,
             ]);
@@ -80,10 +80,10 @@ class SequenceService
      * index. `insertOrIgnore` makes the create idempotent, and the follow-up
      * `lockForUpdate` serialises both requests on the row that now exists.
      *
-     * @param  class-string<QueueCounter|VisitCounter>  $model
+     * @param  class-string<QueueCounter|QueueSessionCounter>  $model
      * @param  array<string, mixed>  $keys
      */
-    private function lockCounter(string $model, array $keys): QueueCounter|VisitCounter
+    private function lockCounter(string $model, array $keys): QueueCounter|QueueSessionCounter
     {
         if (! array_key_exists('counter_date', $keys)) {
             throw new InvalidStateException('A counter key must include counter_date.');
@@ -91,7 +91,7 @@ class SequenceService
 
         $model::query()->insertOrIgnore($keys + ['last_sequence' => 0]);
 
-        /** @var QueueCounter|VisitCounter */
+        /** @var QueueCounter|QueueSessionCounter */
         return $model::query()
             ->where($keys)
             ->lockForUpdate()

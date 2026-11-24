@@ -4,16 +4,21 @@ namespace Tests;
 
 use App\Enums\StationType;
 use App\Enums\TenantStatus;
-use App\Models\Client;
+use App\Models\Customer;
 use App\Models\Department;
 use App\Models\Facility;
 use App\Models\KioskDevice;
 use App\Models\Station;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Models\UserFacilityAssignment;
 use App\Models\Workflow;
 use App\Models\WorkflowStep;
 
+/**
+ * A minimal but realistic tenant: one facility, two departments, a workflow
+ * with several steps, a kiosk device, and a tenant admin.
+ */
 trait SetupKiyuHospital
 {
     protected Tenant $tenant;
@@ -26,199 +31,181 @@ trait SetupKiyuHospital
 
     protected Station $registrationStation;
 
-    protected Station $nurseStation;
+    protected Station $serviceStation1;
 
-    protected Station $doctorStation1;
+    protected Station $serviceStation2;
 
-    protected Station $doctorStation2;
-
-    protected Station $pharmacyStation;
+    protected Station $cashierStation;
 
     protected Workflow $generalWorkflow;
 
     protected WorkflowStep $regStep;
 
-    protected WorkflowStep $nurseStep;
+    protected WorkflowStep $serviceStep1;
 
-    protected WorkflowStep $docStep;
+    protected WorkflowStep $serviceStep2;
 
-    protected WorkflowStep $pharmStep;
+    protected WorkflowStep $cashierStep;
 
-    protected Department $dentalDepartment;
+    protected Department $supportDepartment;
 
-    protected Station $dentalDoctorStation;
+    protected Station $supportStation;
 
-    protected Workflow $dentalWorkflow;
+    protected Workflow $supportWorkflow;
 
-    protected WorkflowStep $dentalStep;
+    protected WorkflowStep $supportStep;
 
-    protected Client $sampleClient;
+    protected Customer $sampleCustomer;
 
     protected User $adminUser;
 
     protected function setupHospital(): void
     {
-        // Legacy single-clinic tenant and its primary facility.
         $this->tenant = Tenant::query()->create([
-            'name' => 'Kiyu Demo Clinic',
+            'name' => 'KIYU Demo Organization',
             'slug' => 'kiyu-demo',
             'status' => TenantStatus::Active,
         ]);
 
         $this->facility = Facility::query()->create([
             'tenant_id' => $this->tenant->id,
-            'name' => 'Kiyu Demo Facility',
+            'name' => 'KIYU Demo Facility',
             'code' => 'MAIN',
             'is_active' => true,
         ]);
 
-        // General Department
         $this->generalDepartment = Department::create([
             'facility_id' => $this->facility->id,
-            'code' => 'POLI_UMUM',
-            'name' => 'Poli Umum',
+            'code' => 'GEN',
+            'name' => 'General Service',
             'is_active' => true,
         ]);
 
         $this->registrationStation = Station::create([
             'department_id' => $this->generalDepartment->id,
-            'name' => 'Meja Registrasi 1',
+            'name' => 'Intake Counter 1',
             'code' => 'REG-01',
-            'type' => StationType::Registration,
+            'type' => StationType::Intake,
             'queue_prefix' => 'R',
             'is_active' => true,
         ]);
 
-        $this->nurseStation = Station::create([
+        $this->serviceStation1 = Station::create([
             'department_id' => $this->generalDepartment->id,
-            'name' => 'Stasiun Perawat',
-            'code' => 'NUR-01',
-            'type' => StationType::Nurse,
+            'name' => 'Service Counter 1',
+            'code' => 'SVC-01',
+            'type' => StationType::Service,
             'queue_prefix' => 'N',
             'is_active' => true,
         ]);
 
-        $this->doctorStation1 = Station::create([
+        $this->serviceStation2 = Station::create([
             'department_id' => $this->generalDepartment->id,
-            'name' => 'Ruang Dokter 1',
-            'code' => 'DOC-01',
-            'type' => StationType::Doctor,
+            'name' => 'Service Counter 2',
+            'code' => 'SVC-02',
+            'type' => StationType::Service,
             'queue_prefix' => 'D',
             'is_active' => true,
         ]);
 
-        $this->doctorStation2 = Station::create([
+        $this->cashierStation = Station::create([
             'department_id' => $this->generalDepartment->id,
-            'name' => 'Ruang Dokter 2',
-            'code' => 'DOC-02',
-            'type' => StationType::Doctor,
-            'queue_prefix' => 'D2',
-            'is_active' => true,
-        ]);
-
-        $this->pharmacyStation = Station::create([
-            'department_id' => $this->generalDepartment->id,
-            'name' => 'Apotek',
-            'code' => 'PHARM-01',
-            'type' => StationType::Pharmacy,
-            'queue_prefix' => 'P',
+            'name' => 'Cashier',
+            'code' => 'CSH-01',
+            'type' => StationType::Cashier,
+            'queue_prefix' => 'K',
             'is_active' => true,
         ]);
 
         $this->generalWorkflow = Workflow::create([
             'department_id' => $this->generalDepartment->id,
-            'name' => 'Alur Rawat Jalan Umum',
+            'name' => 'General Flow',
             'is_active' => true,
         ]);
 
         $this->regStep = WorkflowStep::create([
             'workflow_id' => $this->generalWorkflow->id,
             'station_id' => $this->registrationStation->id,
-            'name' => 'Registrasi Pasien',
+            'name' => 'Intake',
             'sequence' => 1,
             'is_active' => true,
         ]);
 
-        $this->nurseStep = WorkflowStep::create([
+        $this->serviceStep1 = WorkflowStep::create([
             'workflow_id' => $this->generalWorkflow->id,
-            'station_id' => $this->nurseStation->id,
-            'name' => 'Pemeriksaan Awal Perawat',
+            'station_id' => $this->serviceStation1->id,
+            'name' => 'Service',
             'sequence' => 2,
             'is_active' => true,
         ]);
 
-        $this->docStep = WorkflowStep::create([
+        $this->serviceStep2 = WorkflowStep::create([
             'workflow_id' => $this->generalWorkflow->id,
-            'station_id' => $this->doctorStation1->id,
-            'name' => 'Konsultasi Dokter',
+            'station_id' => $this->serviceStation2->id,
+            'name' => 'Follow-up',
             'sequence' => 3,
             'is_active' => true,
         ]);
 
-        $this->pharmStep = WorkflowStep::create([
+        $this->cashierStep = WorkflowStep::create([
             'workflow_id' => $this->generalWorkflow->id,
-            'station_id' => $this->pharmacyStation->id,
-            'name' => 'Pengambilan Obat',
+            'station_id' => $this->cashierStation->id,
+            'name' => 'Payment',
             'sequence' => 4,
             'is_active' => true,
         ]);
 
-        // Dental Department for Referrals
-        $this->dentalDepartment = Department::create([
+        // A second department, used by the service-transfer tests.
+        $this->supportDepartment = Department::create([
             'facility_id' => $this->facility->id,
-            'code' => 'POLI_GIGI',
-            'name' => 'Poli Gigi',
+            'code' => 'SUP',
+            'name' => 'Support Service',
             'is_active' => true,
         ]);
 
-        $dentalRegStation = Station::create([
-            'department_id' => $this->dentalDepartment->id,
-            'name' => 'Registrasi Gigi',
-            'code' => 'REG-GIGI',
-            'type' => StationType::Registration,
-            'queue_prefix' => 'RG',
+        $supportIntakeStation = Station::create([
+            'department_id' => $this->supportDepartment->id,
+            'name' => 'Support Intake',
+            'code' => 'REG-SUP',
+            'type' => StationType::Intake,
+            'queue_prefix' => 'S',
             'is_active' => true,
         ]);
 
-        $this->dentalDoctorStation = Station::create([
-            'department_id' => $this->dentalDepartment->id,
-            'name' => 'Ruang Dokter Gigi',
-            'code' => 'DENT-01',
-            'type' => StationType::Doctor,
+        $this->supportStation = Station::create([
+            'department_id' => $this->supportDepartment->id,
+            'name' => 'Support Counter',
+            'code' => 'SUP-01',
+            'type' => StationType::Service,
             'queue_prefix' => 'G',
             'is_active' => true,
         ]);
 
-        $this->dentalWorkflow = Workflow::create([
-            'department_id' => $this->dentalDepartment->id,
-            'name' => 'Alur Rawat Gigi',
+        $this->supportWorkflow = Workflow::create([
+            'department_id' => $this->supportDepartment->id,
+            'name' => 'Support Flow',
             'is_active' => true,
         ]);
 
         WorkflowStep::create([
-            'workflow_id' => $this->dentalWorkflow->id,
-            'station_id' => $dentalRegStation->id,
-            'name' => 'Registrasi Gigi',
+            'workflow_id' => $this->supportWorkflow->id,
+            'station_id' => $supportIntakeStation->id,
+            'name' => 'Support Intake',
             'sequence' => 1,
             'is_active' => true,
         ]);
 
-        $this->dentalStep = WorkflowStep::create([
-            'workflow_id' => $this->dentalWorkflow->id,
-            'station_id' => $this->dentalDoctorStation->id,
-            'name' => 'Pemeriksaan Gigi',
+        $this->supportStep = WorkflowStep::create([
+            'workflow_id' => $this->supportWorkflow->id,
+            'station_id' => $this->supportStation->id,
+            'name' => 'Support Service',
             'sequence' => 2,
             'is_active' => true,
         ]);
 
-        // Sample Client
-        $this->sampleClient = Client::create([
+        $this->sampleCustomer = Customer::create([
             'tenant_id' => $this->tenant->id,
-            'mrn' => 'MRN-10001',
-            'nik' => '3201010101900001',
             'name' => 'Budi Santoso',
-            'date_of_birth' => '1990-01-01',
-            'gender' => 'male',
             'phone' => '081234567890',
             'email' => 'budi@example.com',
             'address' => 'Jl. Merdeka No. 10',
@@ -236,18 +223,24 @@ trait SetupKiyuHospital
             'is_active' => true,
         ]);
 
-        // Every request in these tests presents the device credential and the
-        // public tenant locator, mirroring the deployed kiosk client.
+        // Every request presents the device credential and the public tenant
+        // locator, mirroring the deployed kiosk client.
         $this->withHeaders([
             'X-Kiosk-Token' => $this->kioskToken,
             'X-Tenant-Slug' => $this->tenant->slug,
         ]);
 
-        // Authenticate a privileged staff user for protected API routes.
-        // Exposed so tests can assert the actor recorded on queue operations.
+        // Authenticate a tenant admin for protected API routes. Exposed so
+        // tests can assert the actor recorded on queue operations.
         $this->adminUser = User::factory()->create([
-            'role' => 'admin',
+            'role' => 'tenant_admin',
             'tenant_id' => $this->tenant->id,
+        ]);
+
+        UserFacilityAssignment::query()->create([
+            'tenant_id' => $this->tenant->id,
+            'user_id' => $this->adminUser->id,
+            'facility_id' => $this->facility->id,
         ]);
 
         $this->actingAs($this->adminUser, 'sanctum');

@@ -17,10 +17,10 @@ uses(RefreshDatabase::class);
 /**
  * @return array{tenant: Tenant, facility: Facility, admin: User, plan: Plan}
  */
-function billingClinic(string $slug = 'billing-clinic'): array
+function billingTenant(string $slug = 'billing-tenant'): array
 {
     $tenant = Tenant::query()->create([
-        'name' => 'Billing Clinic',
+        'name' => 'Billing Organization',
         'slug' => $slug,
         'status' => TenantStatus::Active,
     ]);
@@ -33,7 +33,7 @@ function billingClinic(string $slug = 'billing-clinic'): array
     ]);
 
     $admin = User::factory()->create([
-        'role' => 'admin',
+        'role' => 'tenant_admin',
         'tenant_id' => $tenant->id,
     ]);
 
@@ -64,11 +64,11 @@ function billingClinic(string $slug = 'billing-clinic'): array
 }
 
 test('starting a trial creates a trialing subscription', function () {
-    $clinic = billingClinic();
+    $tenant = billingTenant();
 
     $subscription = app(SubscriptionService::class)->start(
-        tenant: $clinic['tenant'],
-        plan: $clinic['plan'],
+        tenant: $tenant['tenant'],
+        plan: $tenant['plan'],
         interval: BillingInterval::Monthly,
         trialDays: 14,
     );
@@ -80,14 +80,14 @@ test('starting a trial creates a trialing subscription', function () {
 });
 
 test('only one subscription is ever effective per tenant', function () {
-    $clinic = billingClinic();
+    $tenant = billingTenant();
     $service = app(SubscriptionService::class);
 
-    $first = $service->start($clinic['tenant'], $clinic['plan'], BillingInterval::Monthly, 7);
-    $second = $service->start($clinic['tenant'], $clinic['plan'], BillingInterval::Monthly);
+    $first = $service->start($tenant['tenant'], $tenant['plan'], BillingInterval::Monthly, 7);
+    $second = $service->start($tenant['tenant'], $tenant['plan'], BillingInterval::Monthly);
 
     $effective = Subscription::query()
-        ->where('tenant_id', $clinic['tenant']->id)
+        ->where('tenant_id', $tenant['tenant']->id)
         ->whereIn('status', SubscriptionStatus::effectiveValues())
         ->count();
 
@@ -97,11 +97,11 @@ test('only one subscription is ever effective per tenant', function () {
 });
 
 test('a subscription without a trial is not effective until it is paid', function () {
-    $clinic = billingClinic();
+    $tenant = billingTenant();
 
     $subscription = app(SubscriptionService::class)->start(
-        $clinic['tenant'],
-        $clinic['plan'],
+        $tenant['tenant'],
+        $tenant['plan'],
         BillingInterval::Monthly,
     );
 
@@ -111,10 +111,10 @@ test('a subscription without a trial is not effective until it is paid', functio
 });
 
 test('an expired trial is not effective', function () {
-    $clinic = billingClinic();
+    $tenant = billingTenant();
     $service = app(SubscriptionService::class);
 
-    $subscription = $service->start($clinic['tenant'], $clinic['plan'], BillingInterval::Monthly, 1);
+    $subscription = $service->start($tenant['tenant'], $tenant['plan'], BillingInterval::Monthly, 1);
 
     $subscription->update(['trial_ends_at' => now()->subDay()]);
 
@@ -122,38 +122,38 @@ test('an expired trial is not effective', function () {
 });
 
 test('hasFeature reflects the plan entitlements', function () {
-    $clinic = billingClinic();
+    $tenant = billingTenant();
     $service = app(SubscriptionService::class);
 
-    $service->start($clinic['tenant'], $clinic['plan'], BillingInterval::Monthly, 30);
+    $service->start($tenant['tenant'], $tenant['plan'], BillingInterval::Monthly, 30);
 
-    expect($service->hasFeature($clinic['tenant'], Feature::QueueManagement))->toBeTrue()
-        ->and($service->hasFeature($clinic['tenant'], Feature::AdvancedReports))->toBeFalse();
+    expect($service->hasFeature($tenant['tenant'], Feature::QueueManagement))->toBeTrue()
+        ->and($service->hasFeature($tenant['tenant'], Feature::AdvancedReports))->toBeFalse();
 });
 
 test('a limit entitlement reports its cap and usage', function () {
-    $clinic = billingClinic();
+    $tenant = billingTenant();
     $service = app(SubscriptionService::class);
 
     // The fixture plan grants max_kiosk_devices: 2.
-    $service->start($clinic['tenant'], $clinic['plan'], BillingInterval::Monthly, 30);
+    $service->start($tenant['tenant'], $tenant['plan'], BillingInterval::Monthly, 30);
 
-    $limit = $service->limit($clinic['tenant'], Feature::MaxKioskDevices);
+    $limit = $service->limit($tenant['tenant'], Feature::MaxKioskDevices);
 
     expect($limit)->toBe(2)
-        ->and($service->usage($clinic['tenant'], Feature::MaxKioskDevices))->toBe(0)
-        ->and($service->hasCapacityFor($clinic['tenant'], Feature::MaxKioskDevices))->toBeTrue();
+        ->and($service->usage($tenant['tenant'], Feature::MaxKioskDevices))->toBe(0)
+        ->and($service->hasCapacityFor($tenant['tenant'], Feature::MaxKioskDevices))->toBeTrue();
 });
 
 test('a tenant admin can view and start a subscription over the API', function () {
-    $clinic = billingClinic();
+    $tenant = billingTenant();
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->getJson('/api/billing/subscription')
         ->assertOk()
         ->assertJsonPath('data.subscription', null);
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/billing/subscription', [
             'plan_code' => 'STANDARD',
             'billing_interval' => 'MONTHLY',
@@ -163,16 +163,16 @@ test('a tenant admin can view and start a subscription over the API', function (
         ->assertJsonPath('data.status', SubscriptionStatus::Trialing->value)
         ->assertJsonPath('data.plan.code', 'STANDARD');
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->getJson('/api/billing/subscription')
         ->assertOk()
         ->assertJsonPath('data.is_effective', true);
 });
 
 test('starting a paid plan over the API does not activate it without payment', function () {
-    $clinic = billingClinic();
+    $tenant = billingTenant();
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/billing/subscription', [
             'plan_code' => 'STANDARD',
             'billing_interval' => 'MONTHLY',
@@ -182,16 +182,16 @@ test('starting a paid plan over the API does not activate it without payment', f
         ->assertJsonPath('data.is_effective', false)
         ->assertJsonPath('data.payment_required', true);
 
-    expect(app(SubscriptionService::class)->hasFeature($clinic['tenant'], Feature::QueueManagement))
+    expect(app(SubscriptionService::class)->hasFeature($tenant['tenant'], Feature::QueueManagement))
         ->toBeFalse();
 });
 
 test('a non-admin tenant user cannot start a subscription', function () {
-    $clinic = billingClinic();
+    $tenant = billingTenant();
 
     $staff = User::factory()->create([
         'role' => 'staff',
-        'tenant_id' => $clinic['tenant']->id,
+        'tenant_id' => $tenant['tenant']->id,
     ]);
 
     $this->actingAs($staff, 'sanctum')
@@ -237,10 +237,10 @@ test('the platform can list and create plans', function () {
 });
 
 test('the expiry command ends lapsed trials and paid periods', function () {
-    $clinic = billingClinic();
+    $tenant = billingTenant();
     $service = app(SubscriptionService::class);
 
-    $trial = $service->start($clinic['tenant'], $clinic['plan'], BillingInterval::Monthly, 7);
+    $trial = $service->start($tenant['tenant'], $tenant['plan'], BillingInterval::Monthly, 7);
     $trial->update(['trial_ends_at' => now()->subMinute()]);
 
     $this->artisan('subscriptions:expire')->assertSuccessful();
@@ -250,11 +250,11 @@ test('the expiry command ends lapsed trials and paid periods', function () {
 });
 
 test('the expiry command cancels a subscription at its period end', function () {
-    $clinic = billingClinic();
+    $tenant = billingTenant();
     $service = app(SubscriptionService::class);
 
-    $trial = $service->start($clinic['tenant'], $clinic['plan'], BillingInterval::Monthly, 7);
-    $service->cancelAtPeriodEnd($clinic['tenant']);
+    $trial = $service->start($tenant['tenant'], $tenant['plan'], BillingInterval::Monthly, 7);
+    $service->cancelAtPeriodEnd($tenant['tenant']);
 
     // Still inside the period: nothing happens yet.
     $this->artisan('subscriptions:expire')->assertSuccessful();

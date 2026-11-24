@@ -59,11 +59,11 @@ class Department extends Model
     }
 
     /**
-     * Get the visits to this department.
+     * Get the queue_sessions to this department.
      */
-    public function visits(): HasMany
+    public function queueSessions(): HasMany
     {
-        return $this->hasMany(Visit::class);
+        return $this->hasMany(QueueSession::class);
     }
 
     /**

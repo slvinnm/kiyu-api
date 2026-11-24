@@ -6,7 +6,6 @@ use App\Enums\BillingInterval;
 use App\Enums\SubscriptionStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Plan;
-use App\Models\Subscription;
 use App\Services\SubscriptionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;

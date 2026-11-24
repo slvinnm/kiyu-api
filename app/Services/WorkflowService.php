@@ -48,7 +48,7 @@ class WorkflowService
             ->where('workflow_id', $workflow->id)
             ->where('is_active', true)
             ->whereHas('station', function ($query) {
-                $query->where('type', StationType::Registration->value)
+                $query->where('type', StationType::Intake->value)
                     ->where('is_active', true);
             })
             ->get();

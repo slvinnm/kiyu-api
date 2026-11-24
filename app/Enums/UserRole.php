@@ -11,24 +11,31 @@ enum UserRole: string
     case PlatformAdmin = 'platform_admin';
 
     /**
-     * Tenant administrator: configuration, staff and audit.
+     * Tenant administrator and canonical owner: configuration, staff, audit,
+     * billing and every facility in the tenant.
      */
-    case Admin = 'admin';
+    case TenantAdmin = 'tenant_admin';
+
+    /**
+     * Administrator of the facilities assigned to them. No billing, no
+     * organisation ownership, no global-role escalation.
+     */
+    case FacilityAdmin = 'facility_admin';
 
     /**
      * Front-desk operator: intake and registration queue.
      */
-    case Receptionist = 'receptionist';
+    case Operator = 'operator';
 
     /**
-     * Any other internal worker (clinician, pharmacist, lab tech, cashier...).
-     * Their exact duty is carried by their station assignment, not the role,
-     * so the application stays usable outside a clinical setting.
+     * Any other internal worker (agent, teller, technician, cashier...). Their
+     * exact duty is carried by their station assignment, not the role, so the
+     * application stays usable outside any single industry.
      */
     case Staff = 'staff';
 
     /**
-     * Self-service end user. May only read their own record and visits.
+     * Self-service end user. May only read their own record and queue data.
      */
     case Client = 'client';
 
@@ -40,10 +47,25 @@ enum UserRole: string
     public static function tenantRoles(): array
     {
         return [
-            self::Admin,
-            self::Receptionist,
+            self::TenantAdmin,
+            self::FacilityAdmin,
+            self::Operator,
             self::Staff,
             self::Client,
+        ];
+    }
+
+    /**
+     * Roles that must be granted at least one facility assignment to act.
+     *
+     * @return list<self>
+     */
+    public static function facilityScopedRoles(): array
+    {
+        return [
+            self::FacilityAdmin,
+            self::Operator,
+            self::Staff,
         ];
     }
 
@@ -71,5 +93,22 @@ enum UserRole: string
     public function isPlatform(): bool
     {
         return $this === self::PlatformAdmin;
+    }
+
+    /**
+     * Whether the role must hold explicit facility assignments.
+     */
+    public function isFacilityScoped(): bool
+    {
+        return in_array($this, self::facilityScopedRoles(), true);
+    }
+
+    /**
+     * Whether the role can administer every facility in its tenant without an
+     * explicit assignment.
+     */
+    public function hasTenantWideAccess(): bool
+    {
+        return $this === self::TenantAdmin;
     }
 }

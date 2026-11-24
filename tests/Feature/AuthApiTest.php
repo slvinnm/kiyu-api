@@ -14,23 +14,26 @@ beforeEach(function () {
     Cache::flush();
 
     $this->tenant = Tenant::query()->create([
-        'name' => 'Kiyu Demo Clinic',
+        'name' => 'KIYU Demo Organization',
         'slug' => 'kiyu-demo',
         'status' => TenantStatus::Active,
     ]);
 
     $this->facility = Facility::query()->create([
         'tenant_id' => $this->tenant->id,
-        'name' => 'Kiyu Demo Facility',
+        'name' => 'KIYU Demo Facility',
         'code' => 'MAIN',
         'is_active' => true,
     ]);
 
+    // Self-registration is opt-in per tenant.
+    $this->tenant->update(['allow_public_registration' => true]);
+
     $this->staffUser = User::factory()->create([
-        'name' => 'Alice Resepsionis',
+        'name' => 'Alice Operator',
         'email' => 'staff@kiyu.test',
         'password' => Hash::make('password'),
-        'role' => 'receptionist',
+        'role' => 'operator',
         'tenant_id' => $this->tenant->id,
     ]);
 });
@@ -44,12 +47,12 @@ test('login returns a sanctum token and the user payload', function () {
     $response->assertOk()
         ->assertJsonPath('message', 'Login successful.')
         ->assertJsonPath('data.user.email', 'staff@kiyu.test')
-        ->assertJsonPath('data.user.name', 'Alice Resepsionis')
-        ->assertJsonPath('data.user.role', 'receptionist')
+        ->assertJsonPath('data.user.name', 'Alice Operator')
+        ->assertJsonPath('data.user.role', 'operator')
         ->assertJsonStructure([
             'data' => [
                 'token',
-                'user' => ['id', 'name', 'email', 'role', 'department_id', 'station_id', 'profile'],
+                'user' => ['id', 'name', 'email', 'role', 'facility_ids', 'station_id', 'profile'],
             ],
         ]);
 
@@ -107,13 +110,24 @@ test('logout revokes the token so it can no longer authenticate', function () {
         ->assertUnauthorized();
 });
 
+test('register refuses when the tenant has not enabled public registration', function () {
+    $this->tenant->update(['allow_public_registration' => false]);
+
+    $this->withHeader('X-Tenant-Slug', 'kiyu-demo')->postJson('/api/auth/register', [
+        'name' => 'Blocked Client',
+        'email' => 'blocked@kiyu.test',
+        'password' => 'password',
+        'password_confirmation' => 'password',
+    ])->assertForbidden();
+});
+
 test('register creates a tenant-scoped client account and ignores injected privileged roles', function () {
     $response = $this->withHeader('X-Tenant-Slug', 'kiyu-demo')->postJson('/api/auth/register', [
         'name' => 'Public Client',
         'email' => 'client@kiyu.test',
         'password' => 'password',
         'password_confirmation' => 'password',
-        'role' => 'admin',
+        'role' => 'tenant_admin',
     ]);
 
     $response->assertCreated()
@@ -140,7 +154,7 @@ test('register rejects a duplicate email', function () {
 });
 
 test('staff endpoints require authentication', function () {
-    $this->getJson('/api/clients')->assertUnauthorized();
+    $this->getJson('/api/customers')->assertUnauthorized();
 
     $this->postJson('/api/intake/manual', [
         'department_id' => 1,
@@ -161,8 +175,8 @@ test('public kiosk endpoints require a tenant locator but no user token', functi
 
 test('login failures are indistinguishable across unknown email bad password and inactive tenant', function () {
     $suspended = Tenant::query()->create([
-        'name' => 'Suspended Clinic',
-        'slug' => 'suspended-clinic',
+        'name' => 'Suspended Organization',
+        'slug' => 'suspended-org',
         'status' => TenantStatus::Suspended,
     ]);
 
@@ -176,7 +190,7 @@ test('login failures are indistinguishable across unknown email bad password and
     User::factory()->create([
         'email' => 'suspended@kiyu.test',
         'password' => Hash::make('password'),
-        'role' => 'receptionist',
+        'role' => 'operator',
         'tenant_id' => $suspended->id,
     ]);
 

@@ -8,7 +8,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-class Client extends Model
+/**
+ * A person who requests a service. Distinct from the `Client` user role: a
+ * customer may exist without any login account.
+ */
+class Customer extends Model
 {
     use HasFactory, SoftDeletes;
 
@@ -20,27 +24,14 @@ class Client extends Model
     protected $fillable = [
         'tenant_id',
         'user_id',
-        'mrn',
-        'nik',
         'name',
-        'date_of_birth',
-        'gender',
         'phone',
         'email',
         'address',
     ];
 
     /**
-     * The attributes that should be cast.
-     *
-     * @var array<string, string>
-     */
-    protected $casts = [
-        'date_of_birth' => 'date',
-    ];
-
-    /**
-     * Get the tenant that owns the client.
+     * Get the tenant that owns the customer.
      */
     public function tenant(): BelongsTo
     {
@@ -48,7 +39,7 @@ class Client extends Model
     }
 
     /**
-     * Get the user account associated with the client, if any.
+     * Get the optional user account linked to this customer.
      */
     public function user(): BelongsTo
     {
@@ -56,10 +47,10 @@ class Client extends Model
     }
 
     /**
-     * Get the visits made by this client.
+     * Get the queue sessions requested by this customer.
      */
-    public function visits(): HasMany
+    public function queueSessions(): HasMany
     {
-        return $this->hasMany(Visit::class);
+        return $this->hasMany(QueueSession::class);
     }
 }

@@ -26,7 +26,7 @@ class TenantController extends Controller
     public function index(): JsonResponse
     {
         $tenants = Tenant::query()
-            ->withCount(['facilities', 'users', 'clients'])
+            ->withCount(['facilities', 'users', 'customers'])
             ->orderBy('name')
             ->get();
 
@@ -40,7 +40,7 @@ class TenantController extends Controller
     {
         $tenant = Tenant::query()
             ->with(['facilities'])
-            ->withCount(['users', 'clients', 'visits'])
+            ->withCount(['users', 'customers', 'visits'])
             ->findOrFail($id);
 
         return response()->json(['data' => $tenant]);
@@ -78,10 +78,10 @@ class TenantController extends Controller
             'data' => [
                 'tenant' => $result['tenant'],
                 'facility' => $result['facility'],
-                'admin' => [
-                    'id' => $result['admin']->id,
-                    'name' => $result['admin']->name,
-                    'email' => $result['admin']->email,
+                'tenant_admin' => [
+                    'id' => $result['tenant_admin']->id,
+                    'name' => $result['tenant_admin']->name,
+                    'email' => $result['tenant_admin']->email,
                 ],
             ],
         ], 201);

@@ -4,19 +4,8 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-/**
- * Consolidated KIYU clinic schema.
- *
- * This is a single create-table migration describing the final multi-tenant
- * shape: tenants and facilities own the clinic, users carry a single role
- * (including the platform operator), and every business key is scoped to its
- * tenant, facility or department.
- */
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         Schema::create('tenants', function (Blueprint $table) {
@@ -28,7 +17,9 @@ return new class extends Migration
             $table->string('contact_name')->nullable();
             $table->string('contact_email')->nullable();
             $table->string('contact_phone', 30)->nullable();
-            $table->string('timezone')->default('Asia/Jakarta');
+            $table->string('timezone', 64)->default('UTC');
+            $table->boolean('allow_public_registration')->default(false);
+            $table->foreignId('owner_user_id')->nullable();
             $table->timestamps();
         });
 
@@ -39,43 +30,12 @@ return new class extends Migration
             $table->string('code');
             $table->string('address')->nullable();
             $table->string('phone', 30)->nullable();
-            $table->string('timezone')->nullable();
+            $table->string('timezone', 64)->nullable();
             $table->boolean('is_active')->default(true);
             $table->timestamps();
 
             $table->unique(['tenant_id', 'code']);
-        });
-
-        Schema::create('kiosk_devices', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('tenant_id')->constrained('tenants')->restrictOnDelete();
-            $table->foreignId('facility_id')->constrained('facilities')->restrictOnDelete();
-            $table->string('name');
-            $table->string('credential_hash', 64)->unique();
-            $table->boolean('is_active')->default(true);
-            $table->timestamp('last_seen_at')->nullable();
-            $table->timestamp('expires_at')->nullable();
-            $table->timestamps();
-
-            $table->index(['tenant_id', 'facility_id']);
-        });
-
-        Schema::create('display_devices', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('tenant_id')->constrained('tenants')->restrictOnDelete();
-            $table->foreignId('facility_id')->constrained('facilities')->restrictOnDelete();
-            $table->string('name');
-            $table->string('credential_hash', 64)->unique();
-            // Nullable = not yet paired; set when the device redeems its code.
-            $table->string('pairing_code_hash', 64)->nullable()->unique();
-            $table->timestamp('pairing_expires_at')->nullable();
-            $table->timestamp('paired_at')->nullable();
-            $table->boolean('is_active')->default(true);
-            $table->timestamp('last_seen_at')->nullable();
-            $table->timestamp('expires_at')->nullable();
-            $table->timestamps();
-
-            $table->index(['tenant_id', 'facility_id']);
+            $table->unique(['id', 'tenant_id']);
         });
 
         Schema::create('departments', function (Blueprint $table) {
@@ -95,7 +55,7 @@ return new class extends Migration
             $table->foreignId('department_id')->constrained('departments')->cascadeOnDelete();
             $table->string('name');
             $table->string('code');
-            $table->string('type'); // REGISTRATION, NURSE, DOCTOR, LABORATORY, PHARMACY, BILLING
+            $table->string('type'); // INTAKE, SERVICE, CASHIER, COUNTER
             $table->string('queue_prefix', 10)->default('A');
             $table->boolean('is_active')->default(true);
             $table->timestamps();
@@ -132,38 +92,97 @@ return new class extends Migration
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
             $table->rememberToken();
-
-            // Ownership and access. tenant_id is null only for the platform
-            // role; role is the single access dimension (no account_type).
             $table->foreignId('tenant_id')->nullable()->constrained('tenants')->restrictOnDelete();
-            $table->string('role')->nullable();
-
-            $table->foreignId('department_id')->nullable()->constrained('departments')->nullOnDelete();
+            $table->string('role');
             $table->foreignId('station_id')->nullable()->constrained('stations')->nullOnDelete();
             $table->timestamps();
+
+            $table->index(['tenant_id', 'role']);
+            $table->unique(['id', 'tenant_id']);
         });
 
-        Schema::create('clients', function (Blueprint $table) {
+        Schema::table('tenants', function (Blueprint $table) {
+            $table->foreign('owner_user_id')->references('id')->on('users')->nullOnDelete();
+        });
+
+        Schema::create('tenant_invitations', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('tenant_id')->constrained('tenants')->cascadeOnDelete();
+            $table->string('email');
+            $table->string('role');
+            $table->string('token_hash', 64)->unique();
+            $table->json('facility_ids')->nullable();
+            $table->foreignId('invited_by_user_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->timestamp('expires_at');
+            $table->timestamp('accepted_at')->nullable();
+            $table->timestamp('revoked_at')->nullable();
+            $table->timestamps();
+            $table->unique(['tenant_id', 'email', 'role']);
+            $table->index(['tenant_id', 'email']);
+        });
+
+        Schema::create('user_facility_assignments', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('tenant_id')->constrained('tenants')->restrictOnDelete();
+            $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
+            $table->foreignId('facility_id')->constrained('facilities')->cascadeOnDelete();
+            $table->foreignId('assigned_by_user_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->timestamps();
+
+            $table->unique(['tenant_id', 'user_id', 'facility_id']);
+            $table->index(['tenant_id', 'facility_id']);
+        });
+
+        Schema::create('kiosk_devices', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('tenant_id')->constrained('tenants')->restrictOnDelete();
+            $table->foreignId('facility_id')->constrained('facilities')->restrictOnDelete();
+            $table->string('name');
+            $table->string('credential_hash', 64)->unique();
+            $table->string('pairing_code_hash', 64)->nullable()->unique();
+            $table->timestamp('pairing_expires_at')->nullable();
+            $table->timestamp('paired_at')->nullable();
+            $table->boolean('is_active')->default(true);
+            $table->timestamp('last_seen_at')->nullable();
+            $table->timestamp('expires_at')->nullable();
+            $table->timestamps();
+
+            $table->index(['tenant_id', 'facility_id']);
+        });
+
+        Schema::create('display_devices', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('tenant_id')->constrained('tenants')->restrictOnDelete();
+            $table->foreignId('facility_id')->constrained('facilities')->restrictOnDelete();
+            $table->foreignId('department_id')->nullable()->constrained('departments')->nullOnDelete();
+            $table->string('name');
+            $table->string('credential_hash', 64)->unique();
+            $table->string('pairing_code_hash', 64)->nullable()->unique();
+            $table->timestamp('pairing_expires_at')->nullable();
+            $table->timestamp('paired_at')->nullable();
+            $table->boolean('is_active')->default(true);
+            $table->timestamp('last_seen_at')->nullable();
+            $table->timestamp('expires_at')->nullable();
+            $table->timestamps();
+
+            $table->index(['tenant_id', 'facility_id']);
+        });
+
+        Schema::create('customers', function (Blueprint $table) {
             $table->id();
             $table->foreignId('tenant_id')->constrained('tenants')->restrictOnDelete();
             $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();
-            $table->string('mrn');
-            $table->string('nik')->nullable();
             $table->string('name');
-            $table->date('date_of_birth')->nullable();
-            $table->string('gender')->nullable();
             $table->string('phone')->nullable();
             $table->string('email')->nullable();
             $table->text('address')->nullable();
             $table->timestamps();
 
-            $table->unique(['tenant_id', 'mrn']);
-            $table->unique(['tenant_id', 'nik']);
-            // Medical records are retained: deletion is a soft delete.
+            $table->index(['tenant_id', 'user_id']);
             $table->softDeletes();
         });
 
-        Schema::create('visit_counters', function (Blueprint $table) {
+        Schema::create('queue_session_counters', function (Blueprint $table) {
             $table->id();
             $table->foreignId('facility_id')->constrained('facilities')->restrictOnDelete();
             $table->date('counter_date');
@@ -183,62 +202,56 @@ return new class extends Migration
             $table->unique(['station_id', 'counter_date']);
         });
 
-        Schema::create('visits', function (Blueprint $table) {
+        Schema::create('queue_sessions', function (Blueprint $table) {
             $table->id();
             $table->foreignId('tenant_id')->constrained('tenants')->restrictOnDelete();
             $table->foreignId('facility_id')->constrained('facilities')->restrictOnDelete();
-            $table->foreignId('client_id')->nullable()->constrained('clients')->nullOnDelete();
-            // Restrict, not cascade: deleting a department or workflow must
-            // never silently erase visit history.
+            $table->foreignId('customer_id')->nullable()->constrained('customers')->nullOnDelete();
             $table->foreignId('department_id')->constrained('departments')->restrictOnDelete();
             $table->foreignId('workflow_id')->constrained('workflows')->restrictOnDelete();
-            $table->string('visit_number');
-            $table->string('visit_token')->unique();
-            $table->tinyInteger('priority')->default(1); // 1 = NORMAL, 2 = PRIORITY, 3 = EMERGENCY
+            $table->string('session_number');
+            $table->string('tracking_token')->unique();
+            $table->tinyInteger('priority')->default(1); // 1 NORMAL, 2 PRIORITY, 3 EMERGENCY
             $table->string('intake_channel'); // ONLINE, KIOSK, MANUAL
             $table->string('status')->default('WAITING'); // AWAITING_CHECKIN, WAITING, IN_PROGRESS, COMPLETED, CANCELLED
             $table->string('online_active_key')->nullable()->index();
-            $table->string('registered_by')->nullable();
+            $table->foreignId('registered_by_user_id')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('checked_in_at')->nullable();
             $table->timestamp('registered_at')->nullable();
             $table->timestamp('completed_at')->nullable();
             $table->timestamps();
 
-            $table->unique(['facility_id', 'visit_number']);
+            $table->unique(['facility_id', 'session_number']);
             $table->index(['tenant_id', 'facility_id', 'created_at']);
             $table->index(['department_id', 'status']);
-            // Medical records are retained: deletion is a soft delete.
             $table->softDeletes();
         });
 
         Schema::create('queue_acquisitions', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('visit_id')->constrained('visits')->cascadeOnDelete();
+            $table->foreignId('queue_session_id')->constrained('queue_sessions')->cascadeOnDelete();
             $table->foreignId('tenant_id')->constrained('tenants')->restrictOnDelete();
             $table->foreignId('department_id')->constrained('departments')->cascadeOnDelete();
             $table->string('channel'); // ONLINE, KIOSK, MANUAL
             $table->string('status')->default('ACQUIRED'); // ACQUIRED, REGISTERED, CANCELLED
             $table->string('idempotency_key')->nullable();
-            $table->string('registered_by')->nullable();
+            $table->foreignId('registered_by_user_id')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
 
             $table->index(['department_id', 'status']);
-            // Database-enforced idempotency: two concurrent identical requests
-            // cannot both insert the same key. NULL keys stay allowed because
-            // MySQL permits repeated NULLs in a unique index.
             $table->unique(['tenant_id', 'idempotency_key']);
         });
 
         Schema::create('queue_tickets', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('visit_id')->constrained('visits')->cascadeOnDelete();
+            $table->foreignId('queue_session_id')->constrained('queue_sessions')->cascadeOnDelete();
             $table->foreignId('workflow_step_id')->constrained('workflow_steps')->cascadeOnDelete();
             $table->foreignId('station_id')->constrained('stations')->cascadeOnDelete();
             $table->string('queue_number');
             $table->tinyInteger('priority')->default(1);
             $table->integer('internal_sequence');
-            $table->string('status')->default('CREATED'); // CREATED, CALLED, IN_PROGRESS, ON_HOLD, COMPLETED, SKIPPED, CANCELLED, NO_SHOW, TRANSFERRED
-            $table->string('assigned_to')->nullable();
+            $table->string('status')->default('CREATED');
+            $table->foreignId('assigned_to_user_id')->nullable()->constrained('users')->nullOnDelete();
             $table->foreignId('transferred_from_ticket_id')->nullable()->constrained('queue_tickets')->nullOnDelete();
             $table->foreignId('transferred_to_station_id')->nullable()->constrained('stations')->nullOnDelete();
             $table->text('notes')->nullable();
@@ -248,29 +261,30 @@ return new class extends Migration
             $table->timestamps();
 
             $table->index(['station_id', 'status', 'priority', 'internal_sequence'], 'idx_station_queue_selection');
-            $table->index(['visit_id', 'status']);
+            $table->index(['queue_session_id', 'status']);
         });
 
         Schema::create('queue_events', function (Blueprint $table) {
             $table->id();
             $table->foreignId('queue_ticket_id')->constrained('queue_tickets')->cascadeOnDelete();
-            $table->string('event_type'); // CREATED, CALLED, STARTED, COMPLETED, HELD, RESUMED, SKIPPED, CANCELLED, NO_SHOW, TRANSFERRED
+            $table->string('event_type');
             $table->string('from_status')->nullable();
             $table->string('to_status');
-            $table->string('user_id')->nullable();
+            $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();
             $table->json('payload')->nullable();
             $table->timestamps();
 
             $table->index(['queue_ticket_id', 'created_at']);
         });
 
-        Schema::create('referrals', function (Blueprint $table) {
+        Schema::create('service_transfers', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('source_visit_id')->constrained('visits')->cascadeOnDelete();
+            $table->foreignId('tenant_id')->constrained('tenants')->restrictOnDelete();
+            $table->foreignId('source_queue_session_id')->constrained('queue_sessions')->cascadeOnDelete();
             $table->foreignId('target_department_id')->constrained('departments')->restrictOnDelete();
-            $table->foreignId('target_visit_id')->nullable()->constrained('visits')->nullOnDelete();
-            $table->string('referred_by_user_id')->nullable();
-            $table->string('status')->default('PENDING'); // PENDING, ACCEPTED, COMPLETED, CANCELLED
+            $table->foreignId('target_queue_session_id')->nullable()->constrained('queue_sessions')->nullOnDelete();
+            $table->foreignId('referred_by_user_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->string('status')->default('PENDING');
             $table->tinyInteger('priority')->default(1);
             $table->text('reason')->nullable();
             $table->timestamps();
@@ -279,7 +293,8 @@ return new class extends Migration
         Schema::create('audit_logs', function (Blueprint $table) {
             $table->id();
             $table->foreignId('tenant_id')->nullable()->constrained('tenants')->nullOnDelete();
-            $table->string('user_id')->nullable();
+            $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignId('platform_user_id')->nullable()->constrained('users')->nullOnDelete();
             $table->string('action');
             $table->string('entity_type');
             $table->string('entity_id');
@@ -298,10 +313,6 @@ return new class extends Migration
         |--------------------------------------------------------------------------
         | Billing
         |--------------------------------------------------------------------------
-        |
-        | Structure only for payments and webhooks. The initial release runs on
-        | trial / manual activation; the payment gateway is integrated later.
-        |
         */
 
         Schema::create('plans', function (Blueprint $table) {
@@ -317,10 +328,8 @@ return new class extends Migration
             $table->id();
             $table->foreignId('plan_id')->constrained('plans')->cascadeOnDelete();
             $table->string('billing_interval'); // MONTHLY, YEARLY
-            // Amount in the smallest currency unit (integer, never a float).
-            $table->integer('amount');
+            $table->integer('amount'); // minor currency units
             $table->string('currency', 3);
-            // Empty string rather than null so the unique index is meaningful.
             $table->string('provider')->default('');
             $table->string('provider_price_id')->nullable();
             $table->boolean('is_active')->default(true);
@@ -333,7 +342,6 @@ return new class extends Migration
             $table->id();
             $table->foreignId('plan_id')->constrained('plans')->cascadeOnDelete();
             $table->string('feature_code');
-            // Null for a toggle; {"limit": n} for a limit feature.
             $table->json('value')->nullable();
             $table->timestamps();
 
@@ -346,7 +354,7 @@ return new class extends Migration
             $table->foreignId('plan_id')->constrained('plans')->restrictOnDelete();
             $table->foreignId('plan_price_id')->nullable()->constrained('plan_prices')->nullOnDelete();
             $table->string('status'); // TRIALING, ACTIVE, PAST_DUE, CANCELLED, EXPIRED
-            $table->string('billing_interval'); // MONTHLY, YEARLY
+            $table->string('billing_interval');
             $table->string('provider')->default('');
             $table->string('provider_customer_id')->nullable();
             $table->string('provider_subscription_id')->nullable();
@@ -362,7 +370,7 @@ return new class extends Migration
 
         Schema::create('payments', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('subscription_id')->constrained('subscriptions')->cascadeOnDelete();
+            $table->foreignId('subscription_id')->constrained('subscriptions')->restrictOnDelete();
             $table->string('provider');
             $table->string('provider_transaction_id')->nullable();
             $table->integer('amount');
@@ -391,9 +399,6 @@ return new class extends Migration
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('billing_webhook_events');
@@ -403,22 +408,24 @@ return new class extends Migration
         Schema::dropIfExists('plan_prices');
         Schema::dropIfExists('plans');
         Schema::dropIfExists('audit_logs');
-        Schema::dropIfExists('referrals');
+        Schema::dropIfExists('service_transfers');
         Schema::dropIfExists('queue_events');
         Schema::dropIfExists('queue_tickets');
         Schema::dropIfExists('queue_acquisitions');
-        Schema::dropIfExists('visits');
+        Schema::dropIfExists('queue_sessions');
         Schema::dropIfExists('queue_counters');
-        Schema::dropIfExists('visit_counters');
-        Schema::dropIfExists('clients');
+        Schema::dropIfExists('queue_session_counters');
+        Schema::dropIfExists('customers');
+        Schema::dropIfExists('display_devices');
+        Schema::dropIfExists('kiosk_devices');
         Schema::dropIfExists('workflow_steps');
         Schema::dropIfExists('workflows');
+        Schema::dropIfExists('user_facility_assignments');
+        Schema::dropIfExists('tenant_invitations');
+        Schema::dropIfExists('tenants');
         Schema::dropIfExists('users');
         Schema::dropIfExists('stations');
         Schema::dropIfExists('departments');
-        Schema::dropIfExists('display_devices');
-        Schema::dropIfExists('kiosk_devices');
         Schema::dropIfExists('facilities');
-        Schema::dropIfExists('tenants');
     }
 };

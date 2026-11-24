@@ -5,30 +5,30 @@ namespace App\Services;
 use App\Enums\Priority;
 use App\Enums\QueueAcquisitionStatus;
 use App\Enums\QueueEventType;
+use App\Enums\QueueSessionStatus;
 use App\Enums\QueueTicketStatus;
-use App\Enums\VisitStatus;
 use App\Exceptions\InvalidStateException;
 use App\Models\QueueEvent;
+use App\Models\QueueSession;
 use App\Models\QueueTicket;
-use App\Models\Visit;
 use BackedEnum;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
-class VisitService
+class QueueSessionService
 {
     public function __construct(
         public AuditService $auditService
     ) {}
 
     /**
-     * Get the client-facing tracking information for a visit.
+     * Get the public tracking information for a queue session.
      */
     public function getTrackingData(string $token): array
     {
-        $visit = Visit::query()
+        $session = QueueSession::query()
             ->with([
-                'client:id,name',
+                'customer:id,name',
                 'department:id,code,name',
                 'workflow.steps.station:id,name,code',
                 'queueAcquisitions.department:id,code,name',
@@ -37,25 +37,25 @@ class VisitService
                 'queueTickets.workflowStep:id,name,sequence',
                 'queueTickets.transferredToStation:id,name,code',
                 'queueTickets.events',
-                'outgoingReferrals.targetDepartment:id,code,name',
-                'outgoingReferrals.targetVisit:id,visit_number,status',
+                'outgoingTransfers.targetDepartment:id,code,name',
+                'outgoingTransfers.targetQueueSession:id,session_number,status',
             ])
-            ->where('visit_token', $token)
+            ->where('tracking_token', $token)
             ->first();
 
-        if (! $visit) {
-            throw new InvalidStateException("Visit not found for token '{$token}'.");
+        if (! $session) {
+            throw new InvalidStateException("QueueSession not found for token '{$token}'.");
         }
 
-        $currentTicket = $visit->queueTickets
+        $currentTicket = $session->queueTickets
             ->filter(fn($ticket) => $ticket->status->isActive())
             ->sortByDesc('id')
             ->first();
 
-        $journey = $this->buildTrackingJourney($visit, $currentTicket);
-        $timeline = $this->buildTrackingTimeline($visit);
-        $acquisitions = $this->buildTrackingAcquisitions($visit);
-        $referrals = $this->buildTrackingReferrals($visit);
+        $journey = $this->buildTrackingJourney($session, $currentTicket);
+        $timeline = $this->buildTrackingTimeline($session);
+        $acquisitions = $this->buildTrackingAcquisitions($session);
+        $service_transfers = $this->buildTrackingTransfers($session);
 
         $totalSteps = $journey->count();
 
@@ -67,30 +67,30 @@ class VisitService
             ? (int) round(($completedSteps / $totalSteps) * 100)
             : 0;
 
-        $visitStatus = $this->enumValue($visit->status);
+        $visitStatus = $this->enumValue($session->status);
 
         return [
-            'visit' => [
-                'visit_number' => $visit->visit_number,
+            'queue_session' => [
+                'session_number' => $session->session_number,
                 'status' => $visitStatus,
-                'priority' => $this->enumValue($visit->priority),
-                'intake_channel' => $this->enumValue($visit->intake_channel),
+                'priority' => $this->enumValue($session->priority),
+                'intake_channel' => $this->enumValue($session->intake_channel),
 
                 'timestamps' => [
-                    'created_at' => $this->formatTrackingDate($visit->created_at),
-                    'checked_in_at' => $this->formatTrackingDate($visit->checked_in_at),
-                    'registered_at' => $this->formatTrackingDate($visit->registered_at),
-                    'completed_at' => $this->formatTrackingDate($visit->completed_at),
+                    'created_at' => $this->formatTrackingDate($session->created_at),
+                    'checked_in_at' => $this->formatTrackingDate($session->checked_in_at),
+                    'registered_at' => $this->formatTrackingDate($session->registered_at),
+                    'completed_at' => $this->formatTrackingDate($session->completed_at),
                 ],
             ],
 
-            'client' => [
-                'name' => $visit->client?->name,
+            'customer' => [
+                'name' => $session->customer?->name,
             ],
 
             'department' => [
-                'name' => $visit->department?->name,
-                'code' => $visit->department?->code,
+                'name' => $session->department?->name,
+                'code' => $session->department?->code,
             ],
 
             'current_queue' => $currentTicket ? [
@@ -109,7 +109,7 @@ class VisitService
             'journey' => $journey,
             'timeline' => $timeline,
             'acquisitions' => $acquisitions,
-            'referrals' => $referrals,
+            'service_transfers' => $service_transfers,
 
             'summary' => [
                 'status' => $visitStatus,
@@ -124,11 +124,11 @@ class VisitService
     /**
      * Build the workflow journey in its configured sequence.
      */
-    private function buildTrackingJourney(Visit $visit, ?QueueTicket $currentTicket): Collection
+    private function buildTrackingJourney(QueueSession $session, ?QueueTicket $currentTicket): Collection
     {
-        return $visit->workflow?->steps
-            ->map(function ($step) use ($visit, $currentTicket) {
-                $tickets = $visit->queueTickets
+        return $session->workflow?->steps
+            ->map(function ($step) use ($session, $currentTicket) {
+                $tickets = $session->queueTickets
                     ->where('workflow_step_id', $step->id)
                     ->sortBy('id')
                     ->values();
@@ -219,7 +219,7 @@ class VisitService
     /**
      * Build a chronological timeline from queue ticket events.
      */
-    private function buildTrackingTimeline(Visit $visit): Collection
+    private function buildTrackingTimeline(QueueSession $session): Collection
     {
         $eventMessages = [
             'CREATED' => 'Queue ticket created.',
@@ -235,7 +235,7 @@ class VisitService
             'TRANSFERRED' => 'Your queue has been transferred to another station.',
         ];
 
-        return $visit->queueTickets
+        return $session->queueTickets
             ->flatMap(function ($ticket) use ($eventMessages) {
                 return $ticket->events->map(function ($event) use ($ticket, $eventMessages) {
                     $eventType = $this->enumValue($event->event_type);
@@ -265,9 +265,9 @@ class VisitService
     /**
      * Build queue acquisition history.
      */
-    private function buildTrackingAcquisitions(Visit $visit): Collection
+    private function buildTrackingAcquisitions(QueueSession $session): Collection
     {
-        return $visit->queueAcquisitions
+        return $session->queueAcquisitions
             ->map(fn($acquisition) => [
                 'channel' => $this->enumValue($acquisition->channel),
                 'status' => $this->enumValue($acquisition->status),
@@ -284,25 +284,25 @@ class VisitService
     }
 
     /**
-     * Build outgoing referral information.
+     * Build outgoing service-transfer information.
      */
-    private function buildTrackingReferrals(Visit $visit): Collection
+    private function buildTrackingTransfers(QueueSession $session): Collection
     {
-        return $visit->outgoingReferrals
-            ->map(fn($referral) => [
-                'status' => $this->enumValue($referral->status),
+        return $session->outgoingTransfers
+            ->map(fn($transfer) => [
+                'status' => $this->enumValue($transfer->status),
 
-                'target_department' => $referral->targetDepartment ? [
-                    'name' => $referral->targetDepartment->name,
-                    'code' => $referral->targetDepartment->code,
+                'target_department' => $transfer->targetDepartment ? [
+                    'name' => $transfer->targetDepartment->name,
+                    'code' => $transfer->targetDepartment->code,
                 ] : null,
 
-                'target_visit' => $referral->targetVisit ? [
-                    'visit_number' => $referral->targetVisit->visit_number,
-                    'status' => $this->enumValue($referral->targetVisit->status),
+                'target_session' => $transfer->targetQueueSession ? [
+                    'session_number' => $transfer->targetQueueSession->session_number,
+                    'status' => $this->enumValue($transfer->targetQueueSession->status),
                 ] : null,
 
-                'created_at' => $this->formatTrackingDate($referral->created_at),
+                'created_at' => $this->formatTrackingDate($transfer->created_at),
             ])
             ->values();
     }
@@ -343,23 +343,23 @@ class VisitService
     /**
      * Update visit priority and propagate to active tickets only.
      */
-    public function updatePriority(Visit $visit, int $priority, ?string $userId = null): Visit
+    public function updatePriority(QueueSession $session, int $priority, ?int $userId = null): QueueSession
     {
         $newPriority = Priority::tryFrom($priority);
         if (! $newPriority) {
             throw new InvalidStateException("Invalid priority value: {$priority}. Must be 1 (Normal), 2 (Priority), or 3 (Emergency).");
         }
 
-        return DB::transaction(function () use ($visit, $newPriority, $userId): Visit {
-            $prevPriority = $visit->priority;
-            $visit->update(['priority' => $newPriority]);
+        return DB::transaction(function () use ($session, $newPriority, $userId): QueueSession {
+            $prevPriority = $session->priority;
+            $session->update(['priority' => $newPriority]);
 
             // Propagate only to tickets that have not started service. An
             // IN_PROGRESS ticket keeps the priority it was called with: the
             // client is already in the room, so re-ranking it has no effect on
             // the queue and would only rewrite the record of how it was served.
             $activeTickets = QueueTicket::query()
-                ->where('visit_id', $visit->id)
+                ->where('queue_session_id', $session->id)
                 ->whereIn('status', [QueueTicketStatus::Created, QueueTicketStatus::Called, QueueTicketStatus::OnHold])
                 ->lockForUpdate()
                 ->get();
@@ -369,41 +369,41 @@ class VisitService
             }
 
             $this->auditService->log(
-                action: 'VISIT_PRIORITY_CHANGED',
-                entityType: 'Visit',
-                entityId: $visit->id,
+                action: 'QUEUE_SESSION_PRIORITY_CHANGED',
+                entityType: 'QueueSession',
+                entityId: $session->id,
                 metadata: [
                     'from_priority' => $prevPriority->value,
                     'to_priority' => $newPriority->value,
                     'updated_ticket_count' => $activeTickets->count(),
                 ],
                 userId: $userId,
-                tenant: $visit->tenant_id,
+                tenant: $session->tenant_id,
             );
 
-            return $visit->fresh(['client', 'department', 'workflow', 'queueTickets']);
+            return $session->fresh(['customer', 'department', 'workflow', 'queueTickets']);
         });
     }
 
     /**
      * Cancel a visit and all its active tickets.
      */
-    public function cancelVisit(Visit $visit, ?string $reason = null, ?string $userId = null): Visit
+    public function cancelSession(QueueSession $session, ?string $reason = null, ?int $userId = null): QueueSession
     {
-        return DB::transaction(function () use ($visit, $reason, $userId): Visit {
-            if ($visit->status === VisitStatus::Cancelled) {
-                throw new InvalidStateException("Visit #{$visit->visit_number} is already cancelled.");
+        return DB::transaction(function () use ($session, $reason, $userId): QueueSession {
+            if ($session->status === QueueSessionStatus::Cancelled) {
+                throw new InvalidStateException("QueueSession #{$session->session_number} is already cancelled.");
             }
 
-            if ($visit->status === VisitStatus::Completed) {
-                throw new InvalidStateException("Completed visit #{$visit->visit_number} cannot be cancelled.");
+            if ($session->status === QueueSessionStatus::Completed) {
+                throw new InvalidStateException("Completed visit #{$session->session_number} cannot be cancelled.");
             }
 
-            $visit->update(['status' => VisitStatus::Cancelled]);
+            $session->update(['status' => QueueSessionStatus::Cancelled]);
 
             // Cancel any active tickets
             $activeTickets = QueueTicket::query()
-                ->where('visit_id', $visit->id)
+                ->where('queue_session_id', $session->id)
                 ->whereIn('status', [QueueTicketStatus::Created, QueueTicketStatus::Called, QueueTicketStatus::InProgress, QueueTicketStatus::OnHold])
                 ->lockForUpdate()
                 ->get();
@@ -426,20 +426,20 @@ class VisitService
             }
 
             // Cancel acquisition if still ACQUIRED
-            if ($visit->queueAcquisition && $visit->queueAcquisition->status === QueueAcquisitionStatus::Acquired) {
-                $visit->queueAcquisition->update(['status' => QueueAcquisitionStatus::Cancelled]);
+            if ($session->queueAcquisition && $session->queueAcquisition->status === QueueAcquisitionStatus::Acquired) {
+                $session->queueAcquisition->update(['status' => QueueAcquisitionStatus::Cancelled]);
             }
 
             $this->auditService->log(
                 action: 'VISIT_CANCELLED',
-                entityType: 'Visit',
-                entityId: $visit->id,
+                entityType: 'QueueSession',
+                entityId: $session->id,
                 metadata: ['reason' => $reason],
                 userId: $userId,
-                tenant: $visit->tenant_id,
+                tenant: $session->tenant_id,
             );
 
-            return $visit->fresh(['client', 'department', 'workflow', 'queueTickets']);
+            return $session->fresh(['customer', 'department', 'workflow', 'queueTickets']);
         });
     }
 }

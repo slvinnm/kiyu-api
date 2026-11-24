@@ -5,13 +5,13 @@ use App\Enums\Feature;
 use App\Enums\IntakeChannel;
 use App\Enums\Priority;
 use App\Enums\TenantStatus;
-use App\Models\Client;
+use App\Models\Customer;
 use App\Models\Department;
 use App\Models\Facility;
 use App\Models\Plan;
+use App\Models\QueueSession;
 use App\Models\Tenant;
 use App\Models\User;
-use App\Models\Visit;
 use App\Models\Workflow;
 use App\Services\SubscriptionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -37,7 +37,7 @@ function reportClinic(bool $advanced = false): array
         'is_active' => true,
     ]);
 
-    $admin = User::factory()->create(['role' => 'admin', 'tenant_id' => $tenant->id]);
+    $admin = User::factory()->create(['role' => 'tenant_admin', 'tenant_id' => $tenant->id]);
 
     $department = Department::create([
         'facility_id' => $facility->id,
@@ -65,24 +65,24 @@ function reportClinic(bool $advanced = false): array
 }
 
 /**
- * @param  array<string, mixed>  $clinic
+ * @param  array<string, mixed>  $tenant
  */
-function reportVisit(array $clinic, string $status = 'COMPLETED'): Visit
+function reportVisit(array $tenant, string $status = 'COMPLETED'): QueueSession
 {
-    $client = Client::query()->create([
-        'tenant_id' => $clinic['tenant']->id,
-        'mrn' => 'MRN-' . Str::random(6),
+    $client = Customer::query()->create([
+        'tenant_id' => $tenant['tenant']->id,
+        'phone' => '0812' . Str::random(6),
         'name' => 'Client',
     ]);
 
-    return Visit::query()->create([
-        'tenant_id' => $clinic['tenant']->id,
-        'facility_id' => $clinic['facility']->id,
-        'client_id' => $client->id,
-        'department_id' => $clinic['department']->id,
-        'workflow_id' => $clinic['workflow']->id,
-        'visit_number' => 'V-' . Str::random(8),
-        'visit_token' => (string) Str::uuid(),
+    return QueueSession::query()->create([
+        'tenant_id' => $tenant['tenant']->id,
+        'facility_id' => $tenant['facility']->id,
+        'customer_id' => $client->id,
+        'department_id' => $tenant['department']->id,
+        'workflow_id' => $tenant['workflow']->id,
+        'session_number' => 'V-' . Str::random(8),
+        'tracking_token' => (string) Str::uuid(),
         'priority' => Priority::Normal,
         'intake_channel' => IntakeChannel::Manual,
         'status' => $status,
@@ -90,23 +90,23 @@ function reportVisit(array $clinic, string $status = 'COMPLETED'): Visit
     ]);
 }
 
-test('report summary returns visit and queue totals', function () {
-    $clinic = reportClinic();
-    reportVisit($clinic, 'COMPLETED');
-    reportVisit($clinic, 'WAITING');
+test('report summary returns session and queue totals', function () {
+    $tenant = reportClinic();
+    reportVisit($tenant, 'COMPLETED');
+    reportVisit($tenant, 'WAITING');
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->getJson('/api/reports/summary')
         ->assertOk()
-        ->assertJsonPath('data.visits.total_visits', 2)
-        ->assertJsonPath('data.visits.completed_visits', 1)
-        ->assertJsonStructure(['data' => ['visits', 'queue']]);
+        ->assertJsonPath('data.queue_sessions.total_sessions', 2)
+        ->assertJsonPath('data.queue_sessions.completed_sessions', 1)
+        ->assertJsonStructure(['data' => ['queue_sessions', 'queue']]);
 });
 
 test('report summary requires the basic_reports feature', function () {
     $tenant = Tenant::query()->create(['name' => 'No Plan', 'slug' => 'no-plan', 'status' => TenantStatus::Active]);
     $facility = Facility::query()->create(['tenant_id' => $tenant->id, 'name' => 'F', 'code' => 'MAIN', 'is_active' => true]);
-    $admin = User::factory()->create(['role' => 'admin', 'tenant_id' => $tenant->id]);
+    $admin = User::factory()->create(['role' => 'tenant_admin', 'tenant_id' => $tenant->id]);
 
     $this->actingAs($admin, 'sanctum')
         ->getJson('/api/reports/summary')
@@ -117,14 +117,14 @@ test('csv export is gated by the advanced_reports feature', function () {
     $basic = reportClinic(advanced: false);
 
     $this->actingAs($basic['admin'], 'sanctum')
-        ->getJson('/api/reports/visits/export')
+        ->getJson('/api/reports/queue-sessions/export')
         ->assertForbidden();
 
     $advanced = reportClinic(advanced: true);
     reportVisit($advanced);
 
     $response = $this->actingAs($advanced['admin'], 'sanctum')
-        ->get('/api/reports/visits/export');
+        ->get('/api/reports/queue-sessions/export');
 
     $response->assertOk();
     expect($response->headers->get('content-type'))->toContain('text/csv');

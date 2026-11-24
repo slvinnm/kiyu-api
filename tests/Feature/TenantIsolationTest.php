@@ -3,13 +3,14 @@
 use App\Enums\StationType;
 use App\Enums\TenantStatus;
 use App\Enums\UserRole;
-use App\Models\Client;
+use App\Models\Customer;
 use App\Models\Department;
 use App\Models\Facility;
 use App\Models\KioskDevice;
 use App\Models\Station;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Models\UserFacilityAssignment;
 use App\Models\Workflow;
 use App\Models\WorkflowStep;
 use App\Services\SequenceService;
@@ -40,7 +41,7 @@ function provisionClinic(string $slug, string $departmentCode): array
     ]);
 
     $admin = User::factory()->create([
-        'role' => 'admin',
+        'role' => 'tenant_admin',
         'tenant_id' => $tenant->id,
     ]);
 
@@ -56,7 +57,7 @@ function provisionClinic(string $slug, string $departmentCode): array
         'department_id' => $department->id,
         'name' => 'Registration',
         'code' => 'REG-01',
-        'type' => StationType::Registration,
+        'type' => StationType::Intake,
         'queue_prefix' => 'R',
         'is_active' => true,
     ]);
@@ -84,18 +85,16 @@ beforeEach(function () {
 
     // Overlapping business values are intentional: both facilities use the
     // same department and station codes, which must be allowed across scopes.
-    $this->clientA = Client::query()->create([
+    $this->clientA = Customer::query()->create([
         'tenant_id' => $this->a['tenant']->id,
-        'mrn' => 'MRN-0001',
-        'nik' => '3201010101900001',
-        'name' => 'Client A',
+        'phone' => '3201010101900001',
+        'name' => 'Customer A',
     ]);
 
-    $this->clientB = Client::query()->create([
+    $this->clientB = Customer::query()->create([
         'tenant_id' => $this->b['tenant']->id,
-        'mrn' => 'MRN-0001',
-        'nik' => '3201010101900001',
-        'name' => 'Client B',
+        'phone' => '3201010101900001',
+        'name' => 'Customer B',
     ]);
 });
 
@@ -107,20 +106,20 @@ test('two facilities may use the same department and station code', function () 
 
 test('an authenticated user cannot read another tenant\'s client', function () {
     $this->actingAs($this->a['admin'], 'sanctum')
-        ->getJson("/api/clients/{$this->clientB->id}")
+        ->getJson("/api/customers/{$this->clientB->id}")
         ->assertNotFound();
 });
 
 test('an authenticated user can read their own tenant\'s client', function () {
     $this->actingAs($this->a['admin'], 'sanctum')
-        ->getJson("/api/clients/{$this->clientA->id}")
+        ->getJson("/api/customers/{$this->clientA->id}")
         ->assertOk()
         ->assertJsonPath('data.id', $this->clientA->id);
 });
 
 test('a request body tenant_id cannot switch the authenticated tenant', function () {
     $this->actingAs($this->a['admin'], 'sanctum')
-        ->getJson("/api/clients/{$this->clientB->id}?tenant_id={$this->b['tenant']->id}")
+        ->getJson("/api/customers/{$this->clientB->id}?tenant_id={$this->b['tenant']->id}")
         ->assertNotFound();
 });
 
@@ -128,7 +127,7 @@ test('a suspended tenant blocks operational access', function () {
     $this->a['tenant']->update(['status' => TenantStatus::Suspended]);
 
     $this->actingAs($this->a['admin'], 'sanctum')
-        ->getJson('/api/clients')
+        ->getJson('/api/customers')
         ->assertForbidden();
 });
 
@@ -139,7 +138,7 @@ test('a platform account is rejected from clinic endpoints', function () {
     ]);
 
     $this->actingAs($platform, 'sanctum')
-        ->getJson('/api/clients')
+        ->getJson('/api/customers')
         ->assertForbidden();
 });
 
@@ -159,17 +158,17 @@ test('visit numbering is independent per facility', function () {
 
     // Facility A's first number and facility B's first number are generated
     // from separate counters, so they share the same formatted value.
-    $aFirst = $service->generateVisitNumber($this->a['facility']);
-    $bFirst = $service->generateVisitNumber($this->b['facility']);
+    $aFirst = $service->generateSessionNumber($this->a['facility']);
+    $bFirst = $service->generateSessionNumber($this->b['facility']);
 
     expect($aFirst)->toBe($bFirst)
         ->and($aFirst)->toEndWith('0001');
 
     // Advancing A twice must not affect B's next number, which continues from
     // its own counter rather than A's.
-    $service->generateVisitNumber($this->a['facility']);
-    $aThird = $service->generateVisitNumber($this->a['facility']);
-    $bSecond = $service->generateVisitNumber($this->b['facility']);
+    $service->generateSessionNumber($this->a['facility']);
+    $aThird = $service->generateSessionNumber($this->a['facility']);
+    $bSecond = $service->generateSessionNumber($this->b['facility']);
 
     expect($aThird)->toEndWith('0003')
         ->and($bSecond)->toEndWith('0002');
@@ -191,7 +190,7 @@ test('a manual intake accepts a department from the current tenant', function ()
             'department_id' => $this->a['department']->id,
         ])
         ->assertCreated()
-        ->assertJsonPath('data.visit.department_id', $this->a['department']->id);
+        ->assertJsonPath('data.queue_session.department_id', $this->a['department']->id);
 });
 
 test('a kiosk device credential resolves its own facility', function () {
@@ -299,6 +298,13 @@ test('staff can still read organisational master data', function () {
     $staff = User::factory()->create([
         'role' => 'staff',
         'tenant_id' => $this->a['tenant']->id,
+    ]);
+
+    // A facility-scoped role acts through an assignment.
+    UserFacilityAssignment::query()->create([
+        'tenant_id' => $this->a['tenant']->id,
+        'user_id' => $staff->id,
+        'facility_id' => $this->a['facility']->id,
     ]);
 
     $this->actingAs($staff, 'sanctum')

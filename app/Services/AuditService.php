@@ -11,7 +11,7 @@ class AuditService
      * Record an audit log entry for significant business operations.
      *
      * Tenant-originated operations pass their tenant so the row is scoped to
-     * the clinic; platform and system operations leave it null. A bare tenant
+     * the tenant; platform and system operations leave it null. A bare tenant
      * id is accepted too, so callers holding a ticket or visit do not have to
      * load the tenant model just to log.
      *
@@ -22,13 +22,15 @@ class AuditService
         string $entityType,
         string|int $entityId,
         ?array $metadata = null,
-        ?string $userId = null,
+        ?int $userId = null,
         ?string $ipAddress = null,
+        ?int $platformUserId = null,
         Tenant|int|null $tenant = null,
     ): AuditLog {
         return AuditLog::query()->create([
             'tenant_id' => $tenant instanceof Tenant ? $tenant->id : $tenant,
             'user_id' => $userId,
+            'platform_user_id' => $platformUserId,
             'action' => $action,
             'entity_type' => $entityType,
             'entity_id' => (string) $entityId,

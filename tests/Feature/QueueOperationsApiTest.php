@@ -1,7 +1,7 @@
 <?php
 
+use App\Enums\QueueSessionStatus;
 use App\Enums\QueueTicketStatus;
-use App\Enums\VisitStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\SetupKiyuHospital;
 
@@ -11,7 +11,7 @@ beforeEach(function () {
     $this->setupHospital();
 });
 
-test('clinical call-next claims ticket for clinical station', function () {
+test('queue call-next claims ticket for queue station', function () {
     // 1. Create walk-in and complete registration to create nurse ticket
     $intake = $this->postJson('/api/intake/kiosk', [
         'department_id' => $this->generalDepartment->id,
@@ -23,19 +23,19 @@ test('clinical call-next claims ticket for clinical station', function () {
 
     $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $intake['acquisition']['id'],
-        'client_id' => $this->sampleClient->id,
+        'customer_id' => $this->sampleCustomer->id,
     ]);
 
     // 2. Nurse calls next at nurse station
-    $callRes = $this->postJson('/api/clinical/call-next', [
-        'station_id' => $this->nurseStation->id,
+    $callRes = $this->postJson('/api/queue/call-next', [
+        'station_id' => $this->serviceStation1->id,
     ]);
 
     // The actor is the authenticated user, not a body value.
     $callRes->assertStatus(200)
         ->assertJsonPath('data.status', QueueTicketStatus::Called->value)
-        ->assertJsonPath('data.station_id', $this->nurseStation->id)
-        ->assertJsonPath('data.assigned_to', $this->adminUser->email);
+        ->assertJsonPath('data.station_id', $this->serviceStation1->id)
+        ->assertJsonPath('data.assigned_to_user_id', $this->adminUser->id);
 
     // Verify QueueEvent CALLED
     $this->assertDatabaseHas('queue_events', [
@@ -45,28 +45,28 @@ test('clinical call-next claims ticket for clinical station', function () {
     ]);
 });
 
-test('starting clinical service transitions ticket to IN_PROGRESS and transitions Visit from WAITING to IN_PROGRESS', function () {
+test('starting queue service transitions ticket to IN_PROGRESS and transitions Visit from WAITING to IN_PROGRESS', function () {
     $intake = $this->postJson('/api/intake/kiosk', [
         'department_id' => $this->generalDepartment->id,
     ])->json('data');
 
-    $visitId = $intake['visit']['id'];
+    $sessionId = $intake['queue_session']['id'];
 
     $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
     $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $intake['acquisition']['id'],
-        'client_id' => $this->sampleClient->id,
+        'customer_id' => $this->sampleCustomer->id,
     ]);
 
     // Nurse calls next
-    $nurseTicket = $this->postJson('/api/clinical/call-next', [
-        'station_id' => $this->nurseStation->id,
+    $nurseTicket = $this->postJson('/api/queue/call-next', [
+        'station_id' => $this->serviceStation1->id,
     ])->json('data');
 
-    // Confirm visit is still WAITING before clinical start
-    $this->assertDatabaseHas('visits', [
-        'id' => $visitId,
-        'status' => VisitStatus::Waiting->value,
+    // Confirm visit is still WAITING before queue start
+    $this->assertDatabaseHas('queue_sessions', [
+        'id' => $sessionId,
+        'status' => QueueSessionStatus::Waiting->value,
     ]);
 
     // Nurse starts service
@@ -76,9 +76,9 @@ test('starting clinical service transitions ticket to IN_PROGRESS and transition
         ->assertJsonPath('data.status', QueueTicketStatus::InProgress->value);
 
     // CRITICAL INVARIANT: Visit status must now be IN_PROGRESS!
-    $this->assertDatabaseHas('visits', [
-        'id' => $visitId,
-        'status' => VisitStatus::InProgress->value,
+    $this->assertDatabaseHas('queue_sessions', [
+        'id' => $sessionId,
+        'status' => QueueSessionStatus::InProgress->value,
     ]);
 
     $this->assertDatabaseHas('queue_events', [
@@ -96,11 +96,11 @@ test('holding a ticket sets status ON_HOLD and excludes it from call-next, then 
     $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
     $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $intake['acquisition']['id'],
-        'client_id' => $this->sampleClient->id,
+        'customer_id' => $this->sampleCustomer->id,
     ]);
 
-    $nurseTicket = $this->postJson('/api/clinical/call-next', [
-        'station_id' => $this->nurseStation->id,
+    $nurseTicket = $this->postJson('/api/queue/call-next', [
+        'station_id' => $this->serviceStation1->id,
     ])->json('data');
 
     // Hold the ticket
@@ -112,8 +112,8 @@ test('holding a ticket sets status ON_HOLD and excludes it from call-next, then 
         ->assertJsonPath('data.status', QueueTicketStatus::OnHold->value);
 
     // Call-next should NOT find the ON_HOLD ticket
-    $secondCall = $this->postJson('/api/clinical/call-next', [
-        'station_id' => $this->nurseStation->id,
+    $secondCall = $this->postJson('/api/queue/call-next', [
+        'station_id' => $this->serviceStation1->id,
     ]);
 
     $secondCall->assertStatus(200)
@@ -126,49 +126,49 @@ test('holding a ticket sets status ON_HOLD and excludes it from call-next, then 
         ->assertJsonPath('data.status', QueueTicketStatus::Called->value);
 });
 
-test('clinical completion advances workflow to next step and finally completes visit', function () {
+test('queue completion advances workflow to next step and finally completes visit', function () {
     $intake = $this->postJson('/api/intake/kiosk', [
         'department_id' => $this->generalDepartment->id,
     ])->json('data');
 
-    $visitId = $intake['visit']['id'];
+    $sessionId = $intake['queue_session']['id'];
 
     $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
     $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $intake['acquisition']['id'],
-        'client_id' => $this->sampleClient->id,
+        'customer_id' => $this->sampleCustomer->id,
     ]);
 
     // 1. Nurse step (step 2)
-    $nurseTicket = $this->postJson('/api/clinical/call-next', ['station_id' => $this->nurseStation->id])->json('data');
+    $nurseTicket = $this->postJson('/api/queue/call-next', ['station_id' => $this->serviceStation1->id])->json('data');
     $this->postJson("/api/tickets/{$nurseTicket['id']}/start")->assertStatus(200);
     $completeNurse = $this->postJson("/api/tickets/{$nurseTicket['id']}/complete")->assertStatus(200);
 
-    // Next step is Doctor (step 3)
+    // Next step is the follow-up counter (step 3).
     $docTicketId = $completeNurse->json('data.next_ticket.id');
-    expect($completeNurse->json('data.next_ticket.station_id'))->toBe($this->doctorStation1->id);
+    expect($completeNurse->json('data.next_ticket.station_id'))->toBe($this->serviceStation2->id);
 
-    // 2. Doctor step (step 3)
-    $this->postJson('/api/clinical/call-next', ['station_id' => $this->doctorStation1->id])->assertStatus(200);
+    // 2. Follow-up step (step 3)
+    $this->postJson('/api/queue/call-next', ['station_id' => $this->serviceStation2->id])->assertStatus(200);
     $this->postJson("/api/tickets/{$docTicketId}/start")->assertStatus(200);
     $completeDoc = $this->postJson("/api/tickets/{$docTicketId}/complete")->assertStatus(200);
 
-    // Next step is Pharmacy (step 4)
+    // Next step is the cashier (step 4).
     $pharmTicketId = $completeDoc->json('data.next_ticket.id');
-    expect($completeDoc->json('data.next_ticket.station_id'))->toBe($this->pharmacyStation->id);
+    expect($completeDoc->json('data.next_ticket.station_id'))->toBe($this->cashierStation->id);
 
-    // 3. Pharmacy step (step 4 - final step)
-    $this->postJson('/api/clinical/call-next', ['station_id' => $this->pharmacyStation->id])->assertStatus(200);
+    // 3. Cashier step (step 4 - final step)
+    $this->postJson('/api/queue/call-next', ['station_id' => $this->cashierStation->id])->assertStatus(200);
     $this->postJson("/api/tickets/{$pharmTicketId}/start")->assertStatus(200);
     $completePharm = $this->postJson("/api/tickets/{$pharmTicketId}/complete")->assertStatus(200);
 
     // No next step -> Visit COMPLETED
     expect($completePharm->json('data.next_ticket'))->toBeNull();
-    expect($completePharm->json('data.visit.status'))->toBe(VisitStatus::Completed->value);
+    expect($completePharm->json('data.queue_session.status'))->toBe(QueueSessionStatus::Completed->value);
 
-    $this->assertDatabaseHas('visits', [
-        'id' => $visitId,
-        'status' => VisitStatus::Completed->value,
+    $this->assertDatabaseHas('queue_sessions', [
+        'id' => $sessionId,
+        'status' => QueueSessionStatus::Completed->value,
     ]);
 });
 
@@ -180,33 +180,33 @@ test('ticket transfer moves client to another compatible station in the same dep
     $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
     $reg = $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $intake['acquisition']['id'],
-        'client_id' => $this->sampleClient->id,
+        'customer_id' => $this->sampleCustomer->id,
     ])->json('data');
 
     // Complete Nurse step to reach Doctor step
-    $nurseTicket = $this->postJson('/api/clinical/call-next', ['station_id' => $this->nurseStation->id])->json('data');
+    $nurseTicket = $this->postJson('/api/queue/call-next', ['station_id' => $this->serviceStation1->id])->json('data');
     $this->postJson("/api/tickets/{$nurseTicket['id']}/start");
     $docTicket = $this->postJson("/api/tickets/{$nurseTicket['id']}/complete")->json('data.next_ticket');
 
-    // Call doc ticket at Doctor Station 1
-    $this->postJson('/api/clinical/call-next', ['station_id' => $this->doctorStation1->id]);
+    // Call the follow-up ticket at the second service counter.
+    $this->postJson('/api/queue/call-next', ['station_id' => $this->serviceStation2->id]);
 
-    // Transfer from Doctor Station 1 to Doctor Station 2
+    // Transfer between two stations of the same department and type.
     $transferRes = $this->postJson("/api/tickets/{$docTicket['id']}/transfer", [
-        'target_station_id' => $this->doctorStation2->id,
-        'notes' => 'Transferring to Doctor Station 2 for specialist consultation',
+        'target_station_id' => $this->serviceStation1->id,
+        'notes' => 'Transferring to the other service counter',
     ]);
 
     $transferRes->assertStatus(200)
         ->assertJsonPath('data.old_ticket.status', QueueTicketStatus::Transferred->value)
-        ->assertJsonPath('data.old_ticket.transferred_to_station_id', $this->doctorStation2->id)
+        ->assertJsonPath('data.old_ticket.transferred_to_station_id', $this->serviceStation1->id)
         ->assertJsonPath('data.new_ticket.status', QueueTicketStatus::Created->value)
-        ->assertJsonPath('data.new_ticket.station_id', $this->doctorStation2->id)
+        ->assertJsonPath('data.new_ticket.station_id', $this->serviceStation1->id)
         ->assertJsonPath('data.new_ticket.transferred_from_ticket_id', $docTicket['id']);
 
     // Attempting to transfer to an incompatible station (e.g. Pharmacy) must be rejected
     $incompatibleRes = $this->postJson("/api/tickets/{$transferRes->json('data.new_ticket.id')}/transfer", [
-        'target_station_id' => $this->pharmacyStation->id,
+        'target_station_id' => $this->cashierStation->id,
     ]);
 
     // Needs to be CALLED or IN_PROGRESS before transferring
@@ -221,10 +221,10 @@ test('queue audit entries are scoped to the acting tenant', function () {
     $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
     $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $intake['acquisition']['id'],
-        'client_id' => $this->sampleClient->id,
+        'customer_id' => $this->sampleCustomer->id,
     ]);
 
-    $this->postJson('/api/clinical/call-next', ['station_id' => $this->nurseStation->id]);
+    $this->postJson('/api/queue/call-next', ['station_id' => $this->serviceStation1->id]);
 
     // Every queue-side audit row must carry the tenant, otherwise the tenant
     // audit log endpoint can never show them.
@@ -239,7 +239,7 @@ test('queue audit entries are scoped to the acting tenant', function () {
     $actions = collect($response->json('data.data'))->pluck('action');
 
     expect($actions)->toContain('RECEPTION_CALL_NEXT')
-        ->and($actions)->toContain('CLINICAL_CALL_NEXT');
+        ->and($actions)->toContain('QUEUE_CALL_NEXT');
 });
 
 test('a step cannot be skipped unless its step is skippable', function () {
@@ -250,11 +250,11 @@ test('a step cannot be skipped unless its step is skippable', function () {
     $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
     $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $intake['acquisition']['id'],
-        'client_id' => $this->sampleClient->id,
+        'customer_id' => $this->sampleCustomer->id,
     ]);
 
-    $nurseTicket = $this->postJson('/api/clinical/call-next', [
-        'station_id' => $this->nurseStation->id,
+    $nurseTicket = $this->postJson('/api/queue/call-next', [
+        'station_id' => $this->serviceStation1->id,
     ])->json('data');
 
     // The seeded nurse step is mandatory.
@@ -262,7 +262,7 @@ test('a step cannot be skipped unless its step is skippable', function () {
         ->assertStatus(422)
         ->assertJsonPath('error_type', 'INVALID_STATE');
 
-    $this->nurseStep->update(['can_skip' => true]);
+    $this->serviceStep1->update(['can_skip' => true]);
 
     $this->postJson("/api/tickets/{$nurseTicket['id']}/skip")->assertOk();
 });
@@ -275,21 +275,21 @@ test('skipping a ticket advances the visit to the next step', function () {
     $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
     $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $intake['acquisition']['id'],
-        'client_id' => $this->sampleClient->id,
+        'customer_id' => $this->sampleCustomer->id,
     ]);
 
-    $nurseTicket = $this->postJson('/api/clinical/call-next', [
-        'station_id' => $this->nurseStation->id,
+    $nurseTicket = $this->postJson('/api/queue/call-next', [
+        'station_id' => $this->serviceStation1->id,
     ])->json('data');
 
-    $this->nurseStep->update(['can_skip' => true]);
+    $this->serviceStep1->update(['can_skip' => true]);
 
     $this->postJson("/api/tickets/{$nurseTicket['id']}/skip")->assertOk();
 
-    // A doctor-station ticket now exists for the visit.
+    // The next workflow step's station now has a ticket for the session.
     $this->assertDatabaseHas('queue_tickets', [
-        'visit_id' => $intake['visit']['id'],
-        'station_id' => $this->doctorStation1->id,
+        'queue_session_id' => $intake['queue_session']['id'],
+        'station_id' => $this->serviceStation2->id,
         'status' => QueueTicketStatus::Created->value,
     ]);
 });
@@ -302,11 +302,11 @@ test('marking a called ticket no-show records the event', function () {
     $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
     $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $intake['acquisition']['id'],
-        'client_id' => $this->sampleClient->id,
+        'customer_id' => $this->sampleCustomer->id,
     ]);
 
-    $ticket = $this->postJson('/api/clinical/call-next', [
-        'station_id' => $this->nurseStation->id,
+    $ticket = $this->postJson('/api/queue/call-next', [
+        'station_id' => $this->serviceStation1->id,
     ])->json('data');
 
     $this->postJson("/api/tickets/{$ticket['id']}/no-show")
@@ -327,11 +327,11 @@ test('cancelling an active ticket records the event', function () {
     $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
     $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $intake['acquisition']['id'],
-        'client_id' => $this->sampleClient->id,
+        'customer_id' => $this->sampleCustomer->id,
     ]);
 
-    $ticket = $this->postJson('/api/clinical/call-next', [
-        'station_id' => $this->nurseStation->id,
+    $ticket = $this->postJson('/api/queue/call-next', [
+        'station_id' => $this->serviceStation1->id,
     ])->json('data');
 
     $this->postJson("/api/tickets/{$ticket['id']}/cancel", ['notes' => 'Client left'])
@@ -352,11 +352,11 @@ test('a historical ticket cannot be cancelled again', function () {
     $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
     $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $intake['acquisition']['id'],
-        'client_id' => $this->sampleClient->id,
+        'customer_id' => $this->sampleCustomer->id,
     ]);
 
-    $ticket = $this->postJson('/api/clinical/call-next', [
-        'station_id' => $this->nurseStation->id,
+    $ticket = $this->postJson('/api/queue/call-next', [
+        'station_id' => $this->serviceStation1->id,
     ])->json('data');
 
     $this->postJson("/api/tickets/{$ticket['id']}/cancel")->assertOk();

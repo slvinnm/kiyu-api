@@ -6,13 +6,13 @@ use App\Models\Tenant;
 use Illuminate\Support\Carbon;
 
 /**
- * The clinic's calendar day.
+ * A tenant's calendar day.
  *
- * Timestamps are stored in the app timezone (UTC), but a clinic operates in
+ * Timestamps are stored in the app timezone (UTC), but a tenant operates in
  * its own timezone. Counting a "day" in UTC would roll the visit and queue
  * counters over at 07:00 in Jakarta, putting the first seven hours of every
  * morning into the previous day's sequence. Everything that asks "today"
- * goes through this class so the answer is the clinic's day, converted to a
+ * goes through this class so the answer is the tenant's day, converted to a
  * UTC range for the stored timestamps.
  */
 final class LocalDay
@@ -26,7 +26,7 @@ final class LocalDay
     }
 
     /**
-     * The UTC instant range covering the clinic's current calendar day.
+     * The UTC instant range covering the tenant's current calendar day.
      *
      * @return array{0: Carbon, 1: Carbon}
      */
@@ -39,7 +39,7 @@ final class LocalDay
     }
 
     /**
-     * The clinic-local date as Y-m-d (used as the counter key).
+     * The tenant-local date as Y-m-d (used as the counter key).
      */
     public static function date(?string $timezone): string
     {
@@ -47,7 +47,7 @@ final class LocalDay
     }
 
     /**
-     * The clinic-local date as Ymd (used inside generated identifiers).
+     * The tenant-local date as Ymd (used inside generated identifiers).
      */
     public static function compactDate(?string $timezone): string
     {
@@ -63,7 +63,7 @@ final class LocalDay
     }
 
     /**
-     * Convert a clinic-local calendar date to the UTC start/end instant pair.
+     * Convert a tenant-local calendar date to the UTC start/end instant pair.
      *
      * @return array{0: Carbon, 1: Carbon}
      */

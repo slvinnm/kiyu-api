@@ -43,7 +43,7 @@ test('queue monitor lists active stations with the public read model', function 
 
     $stationIds = collect($response->json('data'))->pluck('station_id');
 
-    expect($stationIds)->toContain($this->nurseStation->id);
+    expect($stationIds)->toContain($this->serviceStation1->id);
 });
 
 test('queue monitor reports the called ticket and waiting count', function () {
@@ -57,16 +57,16 @@ test('queue monitor reports the called ticket and waiting count', function () {
 
     $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $intake['acquisition']['id'],
-        'client_id' => $this->sampleClient->id,
+        'customer_id' => $this->sampleCustomer->id,
     ]);
 
-    $this->postJson('/api/clinical/call-next', [
-        'station_id' => $this->nurseStation->id,
-        'assigned_to' => 'nurse-bob',
+    $this->postJson('/api/queue/call-next', [
+        'station_id' => $this->serviceStation1->id,
+        'assigned_to_user_id' => $this->adminUser->id,
     ])->assertOk();
 
     $station = collect($this->getJson('/api/queue/monitor')->json('data'))
-        ->firstWhere('station_id', $this->nurseStation->id);
+        ->firstWhere('station_id', $this->serviceStation1->id);
 
     expect($station)->not->toBeNull()
         ->and($station['current_calling']['status'])->toBe(QueueTicketStatus::Called->value)
@@ -82,11 +82,11 @@ test('queue monitor filters by department and station', function () {
     expect(collect($byDepartment)->pluck('department_id')->unique()->all())
         ->toBe([$this->generalDepartment->id]);
 
-    $byStation = $this->getJson('/api/queue/monitor?station_id=' . $this->nurseStation->id)
+    $byStation = $this->getJson('/api/queue/monitor?station_id=' . $this->serviceStation1->id)
         ->assertOk()
         ->json('data');
 
-    expect(collect($byStation)->pluck('station_id')->all())->toBe([$this->nurseStation->id]);
+    expect(collect($byStation)->pluck('station_id')->all())->toBe([$this->serviceStation1->id]);
 });
 
 test('queue monitor does not leak another tenant stations', function () {
@@ -105,7 +105,7 @@ test('queue monitor does not leak another tenant stations', function () {
         'department_id' => $otherDepartment->id,
         'code' => 'OTH-1',
         'name' => 'Other Station',
-        'type' => StationType::Registration,
+        'type' => StationType::Intake,
         'is_active' => true,
     ]);
 

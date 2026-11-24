@@ -11,10 +11,6 @@ class DatabaseSeeder extends Seeder
 
     /**
      * Seed the application's database with master data only.
-     *
-     * No operational flow is seeded: no visits, tickets, queues or referrals.
-     * Use the application or the tenant onboarding flow to exercise runtime
-     * behaviour.
      */
     public function run(): void
     {

@@ -2,39 +2,39 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Enums\ReferralStatus;
+use App\Enums\ServiceTransferStatus;
 use App\Http\Controllers\Api\Concerns\HandlesTableQuery;
 use App\Http\Controllers\Controller;
-use App\Models\Referral;
-use App\Services\ReferralService;
+use App\Models\ServiceTransfer;
+use App\Services\ServiceTransferService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
-class ReferralController extends Controller
+class ServiceTransferController extends Controller
 {
     use HandlesTableQuery;
 
     public function __construct(
-        public ReferralService $referralService
+        public ServiceTransferService $serviceTransferService
     ) {}
 
     /**
-     * List referrals.
+     * List service_transfers.
      */
     public function index(Request $request): JsonResponse
     {
         $validated = $this->validateTableQuery($request, [
-            'source_visit_id' => ['nullable', 'integer', 'exists:visits,id'],
+            'source_queue_session_id' => ['nullable', 'integer', 'exists:queue_sessions,id'],
             'target_department_id' => ['nullable', 'integer', 'exists:departments,id'],
-            'status' => ['nullable', 'string', Rule::in(array_column(ReferralStatus::cases(), 'value'))],
+            'status' => ['nullable', 'string', Rule::in(array_column(ServiceTransferStatus::cases(), 'value'))],
         ]);
 
-        $query = Referral::query()
-            ->whereHas('sourceVisit', fn($q) => $q->where('tenant_id', $this->tenantId()))
-            ->with(['sourceVisit.client', 'targetDepartment', 'targetVisit']);
+        $query = ServiceTransfer::query()
+            ->whereHas('sourceQueueSession', fn($q) => $q->where('tenant_id', $this->tenantId()))
+            ->with(['sourceQueueSession.customer', 'targetDepartment', 'targetQueueSession']);
 
-        foreach (['source_visit_id', 'target_department_id', 'status'] as $filter) {
+        foreach (['source_queue_session_id', 'target_department_id', 'status'] as $filter) {
             if (! empty($validated[$filter])) {
                 $query->where($filter, $validated[$filter]);
             }
@@ -44,9 +44,9 @@ class ReferralController extends Controller
             $search = $validated['search'];
             $query->where(function ($q) use ($search): void {
                 $q->where('reason', 'like', "%{$search}%")
-                    ->orWhereHas('sourceVisit.client', fn($q) => $q
+                    ->orWhereHas('sourceQueueSession.customer', fn($q) => $q
                         ->where('name', 'like', "%{$search}%")
-                        ->orWhere('mrn', 'like', "%{$search}%"));
+                        ->orWhere('phone', 'like', "%{$search}%"));
             });
         }
 
@@ -58,42 +58,42 @@ class ReferralController extends Controller
     }
 
     /**
-     * Create a new referral to another department.
+     * Create a new service transfer to another department.
      */
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'source_visit_id' => ['required', 'integer', $this->visitRule()],
+            'source_queue_session_id' => ['required', 'integer', $this->queueSessionRule()],
             'target_department_id' => ['required', 'integer', 'exists:departments,id'],
             'priority' => ['nullable', 'integer', 'in:1,2,3'],
             'reason' => ['nullable', 'string'],
         ]);
 
-        $result = $this->referralService->createReferral(
+        $result = $this->serviceTransferService->createTransfer(
             tenant: $this->tenant(),
-            sourceVisitId: (int) $validated['source_visit_id'],
+            sourceSessionId: (int) $validated['source_queue_session_id'],
             targetDepartmentId: (int) $validated['target_department_id'],
             priority: isset($validated['priority']) ? (int) $validated['priority'] : null,
             reason: $validated['reason'] ?? null,
-            referredBy: $this->actor($request),
+            userId: $this->actor($request),
         );
 
         return response()->json([
-            'message' => 'Referral created and target queue ticket generated.',
+            'message' => 'ServiceTransfer created and target queue ticket generated.',
             'data' => $result,
         ], 201);
     }
 
     /**
-     * Show a referral.
+     * Show a service transfer.
      */
     public function show(int $id): JsonResponse
     {
-        $referral = Referral::query()
-            ->whereHas('sourceVisit', fn($q) => $q->where('tenant_id', $this->tenantId()))
-            ->with(['sourceVisit.client', 'targetDepartment', 'targetVisit.queueTickets'])
+        $transfer = ServiceTransfer::query()
+            ->whereHas('sourceQueueSession', fn($q) => $q->where('tenant_id', $this->tenantId()))
+            ->with(['sourceQueueSession.customer', 'targetDepartment', 'targetQueueSession.queueTickets'])
             ->findOrFail($id);
 
-        return response()->json(['data' => $referral]);
+        return response()->json(['data' => $transfer]);
     }
 }

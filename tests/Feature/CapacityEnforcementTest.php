@@ -35,7 +35,7 @@ function capacityClinic(array $limits, ?string $slug = null): array
         'is_active' => true,
     ]);
 
-    $admin = User::factory()->create(['role' => 'admin', 'tenant_id' => $tenant->id]);
+    $admin = User::factory()->create(['role' => 'tenant_admin', 'tenant_id' => $tenant->id]);
 
     $department = Department::create([
         'facility_id' => $facility->id,
@@ -60,15 +60,15 @@ function capacityClinic(array $limits, ?string $slug = null): array
 }
 
 test('a tenant cannot create a kiosk device beyond its limit', function () {
-    $clinic = capacityClinic([Feature::MaxKioskDevices->value => 1]);
+    $tenant = capacityClinic([Feature::MaxKioskDevices->value => 1]);
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/kiosk-devices', ['name' => 'Kiosk 1'])
         ->assertCreated()
         ->assertJsonPath('data.device.name', 'Kiosk 1')
         ->assertJsonStructure(['data' => ['device', 'pairing_code']]);
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/kiosk-devices', ['name' => 'Kiosk 2'])
         ->assertStatus(409);
 
@@ -76,9 +76,9 @@ test('a tenant cannot create a kiosk device beyond its limit', function () {
 });
 
 test('the pairing code is returned once and never persisted in plain text', function () {
-    $clinic = capacityClinic([Feature::MaxKioskDevices->value => 2]);
+    $tenant = capacityClinic([Feature::MaxKioskDevices->value => 2]);
 
-    $pairingCode = $this->actingAs($clinic['admin'], 'sanctum')
+    $pairingCode = $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/kiosk-devices', ['name' => 'Kiosk'])
         ->json('data.pairing_code');
 
@@ -89,7 +89,7 @@ test('the pairing code is returned once and never persisted in plain text', func
         ->and($stored->getAttribute('pairing_code_hash'))->not->toBe($pairingCode);
 
     // The list endpoint never exposes the hashes or the code.
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->getJson('/api/kiosk-devices')
         ->assertOk()
         ->assertJsonMissingPath('data.0.credential_hash')
@@ -97,15 +97,15 @@ test('the pairing code is returned once and never persisted in plain text', func
 });
 
 test('a device redeems its pairing code for a credential exactly once', function () {
-    $clinic = capacityClinic([Feature::MaxKioskDevices->value => 1]);
+    $tenant = capacityClinic([Feature::MaxKioskDevices->value => 1]);
 
-    $pairingCode = $this->actingAs($clinic['admin'], 'sanctum')
+    $pairingCode = $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/kiosk-devices', ['name' => 'Kiosk'])
         ->json('data.pairing_code');
 
     $credential = $this->postJson('/api/kiosk/pair', ['pairing_code' => $pairingCode])
         ->assertOk()
-        ->assertJsonPath('data.device.tenant.slug', $clinic['tenant']->slug)
+        ->assertJsonPath('data.device.tenant.slug', $tenant['tenant']->slug)
         ->json('data.credential');
 
     expect($credential)->toBeString()->not->toBeEmpty();
@@ -120,9 +120,9 @@ test('a device redeems its pairing code for a credential exactly once', function
 });
 
 test('a revoked kiosk device cannot resolve a tenant', function () {
-    $clinic = capacityClinic([Feature::MaxKioskDevices->value => 1]);
+    $tenant = capacityClinic([Feature::MaxKioskDevices->value => 1]);
 
-    $pairingCode = $this->actingAs($clinic['admin'], 'sanctum')
+    $pairingCode = $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/kiosk-devices', ['name' => 'Kiosk'])
         ->json('data.pairing_code');
 
@@ -131,21 +131,21 @@ test('a revoked kiosk device cannot resolve a tenant', function () {
 
     $deviceId = KioskDevice::query()->firstOrFail()->id;
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->deleteJson("/api/kiosk-devices/{$deviceId}")
         ->assertOk();
 
     // A revoked device is rejected on the kiosk intake route.
     $this->withHeader('X-Kiosk-Token', $credential)
-        ->postJson('/api/intake/kiosk', ['department_id' => $clinic['department']->id])
+        ->postJson('/api/intake/kiosk', ['department_id' => $tenant['department']->id])
         ->assertForbidden();
 });
 
 test('an unpaired device cannot authenticate with its placeholder credential', function () {
-    $clinic = capacityClinic([Feature::MaxKioskDevices->value => 1]);
+    $tenant = capacityClinic([Feature::MaxKioskDevices->value => 1]);
 
     // Register but never redeem the pairing code.
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/kiosk-devices', ['name' => 'Kiosk'])
         ->assertCreated();
 
@@ -155,18 +155,18 @@ test('an unpaired device cannot authenticate with its placeholder credential', f
 
     // No credential was ever issued, so the kiosk route rejects any token.
     $this->withHeader('X-Kiosk-Token', 'anything')
-        ->postJson('/api/intake/kiosk', ['department_id' => $clinic['department']->id])
+        ->postJson('/api/intake/kiosk', ['department_id' => $tenant['department']->id])
         ->assertForbidden();
 });
 
 test('the device list reports pairing state but never exposes hashes', function () {
-    $clinic = capacityClinic([Feature::MaxKioskDevices->value => 2]);
+    $tenant = capacityClinic([Feature::MaxKioskDevices->value => 2]);
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/kiosk-devices', ['name' => 'Awaiting'])
         ->assertCreated();
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->getJson('/api/kiosk-devices')
         ->assertOk()
         ->assertJsonPath('data.0.is_paired', false)
@@ -176,9 +176,9 @@ test('the device list reports pairing state but never exposes hashes', function 
 });
 
 test('a pairing code cannot be reissued for an already-paired device', function () {
-    $clinic = capacityClinic([Feature::MaxKioskDevices->value => 1]);
+    $tenant = capacityClinic([Feature::MaxKioskDevices->value => 1]);
 
-    $pairingCode = $this->actingAs($clinic['admin'], 'sanctum')
+    $pairingCode = $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/kiosk-devices', ['name' => 'Kiosk'])
         ->json('data.pairing_code');
 
@@ -186,21 +186,21 @@ test('a pairing code cannot be reissued for an already-paired device', function 
 
     $deviceId = KioskDevice::query()->firstOrFail()->id;
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson("/api/kiosk-devices/{$deviceId}/pairing-code")
         ->assertStatus(409);
 });
 
 test('a pairing code can be reissued for a device that has not paired', function () {
-    $clinic = capacityClinic([Feature::MaxKioskDevices->value => 1]);
+    $tenant = capacityClinic([Feature::MaxKioskDevices->value => 1]);
 
-    $firstCode = $this->actingAs($clinic['admin'], 'sanctum')
+    $firstCode = $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/kiosk-devices', ['name' => 'Kiosk'])
         ->json('data.pairing_code');
 
     $deviceId = KioskDevice::query()->firstOrFail()->id;
 
-    $secondCode = $this->actingAs($clinic['admin'], 'sanctum')
+    $secondCode = $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson("/api/kiosk-devices/{$deviceId}/pairing-code")
         ->assertOk()
         ->json('data.pairing_code');
@@ -214,10 +214,10 @@ test('a pairing code can be reissued for a device that has not paired', function
 });
 
 test('a tenant cannot create a facility beyond its limit', function () {
-    $clinic = capacityClinic([Feature::MaxFacilities->value => 1]);
+    $tenant = capacityClinic([Feature::MaxFacilities->value => 1]);
 
     // The onboarding facility already counts as 1.
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/facilities', ['name' => 'Second', 'code' => 'SECOND'])
         ->assertStatus(409);
 
@@ -225,9 +225,9 @@ test('a tenant cannot create a facility beyond its limit', function () {
 });
 
 test('a tenant within its facility limit can add a facility', function () {
-    $clinic = capacityClinic([Feature::MaxFacilities->value => 2]);
+    $tenant = capacityClinic([Feature::MaxFacilities->value => 2]);
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/facilities', ['name' => 'Second', 'code' => 'SECOND'])
         ->assertCreated()
         ->assertJsonPath('data.code', 'SECOND');
@@ -237,9 +237,9 @@ test('a tenant within its facility limit can add a facility', function () {
 
 test('a tenant cannot create staff beyond its seat limit', function () {
     // admin already exists = 1 seat used.
-    $clinic = capacityClinic([Feature::MaxStaff->value => 2]);
+    $tenant = capacityClinic([Feature::MaxStaff->value => 2]);
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/users', [
             'name' => 'Staff One',
             'email' => 'staff1@cap.test',
@@ -249,7 +249,7 @@ test('a tenant cannot create staff beyond its seat limit', function () {
         ->assertCreated();
 
     // Second staff would exceed 2 (admin + 1).
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/users', [
             'name' => 'Staff Two',
             'email' => 'staff2@cap.test',
@@ -260,10 +260,10 @@ test('a tenant cannot create staff beyond its seat limit', function () {
 });
 
 test('creating a client account does not consume a staff seat', function () {
-    $clinic = capacityClinic([Feature::MaxStaff->value => 1]);
+    $tenant = capacityClinic([Feature::MaxStaff->value => 1]);
 
     // At the seat limit (admin only), but a client role must still be creatable.
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/users', [
             'name' => 'Client User',
             'email' => 'clientuser@cap.test',
@@ -274,9 +274,9 @@ test('creating a client account does not consume a staff seat', function () {
 });
 
 test('a non-admin cannot create facilities or kiosk devices', function () {
-    $clinic = capacityClinic([Feature::MaxFacilities->value => 5, Feature::MaxKioskDevices->value => 5]);
+    $tenant = capacityClinic([Feature::MaxFacilities->value => 5, Feature::MaxKioskDevices->value => 5]);
 
-    $staff = User::factory()->create(['role' => 'staff', 'tenant_id' => $clinic['tenant']->id]);
+    $staff = User::factory()->create(['role' => 'staff', 'tenant_id' => $tenant['tenant']->id]);
 
     $this->actingAs($staff, 'sanctum')
         ->postJson('/api/facilities', ['name' => 'X', 'code' => 'X'])

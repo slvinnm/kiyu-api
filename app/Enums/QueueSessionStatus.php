@@ -2,7 +2,7 @@
 
 namespace App\Enums;
 
-enum VisitStatus: string
+enum QueueSessionStatus: string
 {
     case AwaitingCheckin = 'AWAITING_CHECKIN';
     case Waiting = 'WAITING';

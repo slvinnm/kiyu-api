@@ -28,7 +28,7 @@ function managedClinic(): array
         'is_active' => true,
     ]);
 
-    $admin = User::factory()->create(['role' => 'admin', 'tenant_id' => $tenant->id]);
+    $admin = User::factory()->create(['role' => 'tenant_admin', 'tenant_id' => $tenant->id]);
 
     return compact('tenant', 'facility', 'admin');
 }
@@ -42,21 +42,21 @@ function platformOperator(): User
 }
 
 test('a platform operator can list a tenant staff, clients, kiosk devices and facilities', function () {
-    $clinic = managedClinic();
+    $tenant = managedClinic();
     $operator = platformOperator();
 
     KioskDevice::query()->create([
-        'tenant_id' => $clinic['tenant']->id,
-        'facility_id' => $clinic['facility']->id,
+        'tenant_id' => $tenant['tenant']->id,
+        'facility_id' => $tenant['facility']->id,
         'name' => 'Kiosk',
         'credential_hash' => hash('sha256', 'token'),
         'is_active' => true,
     ]);
 
-    $base = "/api/platform/tenants/{$clinic['tenant']->id}/manage";
+    $base = "/api/platform/tenants/{$tenant['tenant']->id}/manage";
 
     $this->actingAs($operator, 'sanctum')->getJson("{$base}/users")->assertOk();
-    $this->actingAs($operator, 'sanctum')->getJson("{$base}/clients")->assertOk();
+    $this->actingAs($operator, 'sanctum')->getJson("{$base}/customers")->assertOk();
     $this->actingAs($operator, 'sanctum')->getJson("{$base}/facilities")
         ->assertOk()->assertJsonPath('data.0.code', 'MAIN');
     $this->actingAs($operator, 'sanctum')->getJson("{$base}/kiosk-devices")
@@ -64,34 +64,34 @@ test('a platform operator can list a tenant staff, clients, kiosk devices and fa
 });
 
 test('a platform operator can create staff in the managed tenant', function () {
-    $clinic = managedClinic();
+    $tenant = managedClinic();
     $operator = platformOperator();
 
     $this->actingAs($operator, 'sanctum')
-        ->postJson("/api/platform/tenants/{$clinic['tenant']->id}/manage/users", [
+        ->postJson("/api/platform/tenants/{$tenant['tenant']->id}/manage/users", [
             'name' => 'Support Added',
             'email' => 'support-added@managed.test',
             'password' => 'password123',
             'role' => 'staff',
         ])
         ->assertCreated()
-        ->assertJsonPath('data.tenant_id', $clinic['tenant']->id);
+        ->assertJsonPath('data.tenant_id', $tenant['tenant']->id);
 });
 
 test('a platform operator can delete a kiosk device and a staff user', function () {
-    $clinic = managedClinic();
+    $tenant = managedClinic();
     $operator = platformOperator();
 
     $device = KioskDevice::query()->create([
-        'tenant_id' => $clinic['tenant']->id,
-        'facility_id' => $clinic['facility']->id,
+        'tenant_id' => $tenant['tenant']->id,
+        'facility_id' => $tenant['facility']->id,
         'name' => 'Kiosk',
         'credential_hash' => hash('sha256', 'token'),
         'is_active' => true,
     ]);
-    $staff = User::factory()->create(['role' => 'staff', 'tenant_id' => $clinic['tenant']->id]);
+    $staff = User::factory()->create(['role' => 'staff', 'tenant_id' => $tenant['tenant']->id]);
 
-    $base = "/api/platform/tenants/{$clinic['tenant']->id}/manage";
+    $base = "/api/platform/tenants/{$tenant['tenant']->id}/manage";
 
     $this->actingAs($operator, 'sanctum')
         ->deleteJson("{$base}/kiosk-devices/{$device->id}")
@@ -132,10 +132,10 @@ test('an unknown tenant id is a 404', function () {
 });
 
 test('a tenant admin cannot use the platform manage routes', function () {
-    $clinic = managedClinic();
+    $tenant = managedClinic();
 
-    $this->actingAs($clinic['admin'], 'sanctum')
-        ->getJson("/api/platform/tenants/{$clinic['tenant']->id}/manage/users")
+    $this->actingAs($tenant['admin'], 'sanctum')
+        ->getJson("/api/platform/tenants/{$tenant['tenant']->id}/manage/users")
         ->assertForbidden();
 });
 
@@ -148,11 +148,11 @@ test('a platform operator cannot use normal tenant routes', function () {
 });
 
 test('managing a suspended tenant is still allowed for support', function () {
-    $clinic = managedClinic();
-    $clinic['tenant']->update(['status' => TenantStatus::Suspended]);
+    $tenant = managedClinic();
+    $tenant['tenant']->update(['status' => TenantStatus::Suspended]);
     $operator = platformOperator();
 
     $this->actingAs($operator, 'sanctum')
-        ->getJson("/api/platform/tenants/{$clinic['tenant']->id}/manage/users")
+        ->getJson("/api/platform/tenants/{$tenant['tenant']->id}/manage/users")
         ->assertOk();
 });

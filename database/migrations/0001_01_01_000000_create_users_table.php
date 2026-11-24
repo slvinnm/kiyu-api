@@ -9,7 +9,7 @@ return new class extends Migration
     /**
      * Framework session and password-reset tables.
      *
-     * The `users` table and all clinic domain tables are created in the
+     * The `users` table and all KIYU domain tables are created in the
      * consolidated domain migration, where the tenant, facility and role
      * columns live alongside the rest of the schema.
      */

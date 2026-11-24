@@ -25,10 +25,10 @@ class QueueTicket extends Model
     {
         $emit = function (QueueTicket $ticket, string $reason): void {
             $stationId = $ticket->station_id;
-            $visit = $ticket->visit;
-            $departmentId = $visit?->department_id;
-            $tenantId = $visit?->tenant_id;
-            $facilityId = $visit?->facility_id;
+            $session = $ticket->queueSession;
+            $departmentId = $session?->department_id;
+            $tenantId = $session?->tenant_id;
+            $facilityId = $session?->facility_id;
 
             if ($departmentId === null && $stationId !== null) {
                 $departmentId = Station::query()
@@ -48,7 +48,7 @@ class QueueTicket extends Model
         static::updated(function (QueueTicket $ticket) use ($emit): void {
             if ($ticket->wasChanged('status')) {
                 $emit($ticket, strtolower($ticket->status->value));
-            } elseif ($ticket->wasChanged('assigned_to')) {
+            } elseif ($ticket->wasChanged('assigned_to_user_id')) {
                 $emit($ticket, 'assigned');
             }
         });
@@ -60,14 +60,14 @@ class QueueTicket extends Model
      * @var list<string>
      */
     protected $fillable = [
-        'visit_id',
+        'queue_session_id',
         'workflow_step_id',
         'station_id',
         'queue_number',
         'priority',
         'internal_sequence',
         'status',
-        'assigned_to',
+        'assigned_to_user_id',
         'transferred_from_ticket_id',
         'transferred_to_station_id',
         'notes',
@@ -91,11 +91,11 @@ class QueueTicket extends Model
     ];
 
     /**
-     * Get the visit that owns this ticket.
+     * Get the queue session that owns this ticket.
      */
-    public function visit(): BelongsTo
+    public function queueSession(): BelongsTo
     {
-        return $this->belongsTo(Visit::class);
+        return $this->belongsTo(QueueSession::class);
     }
 
     /**
@@ -104,6 +104,14 @@ class QueueTicket extends Model
     public function workflowStep(): BelongsTo
     {
         return $this->belongsTo(WorkflowStep::class);
+    }
+
+    /**
+     * Get the user currently assigned to serve this ticket.
+     */
+    public function assignedTo(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_to_user_id');
     }
 
     /**

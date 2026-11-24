@@ -4,7 +4,7 @@ namespace App\Models;
 
 use App\Enums\IntakeChannel;
 use App\Enums\Priority;
-use App\Enums\VisitStatus;
+use App\Enums\QueueSessionStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,7 +12,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-class Visit extends Model
+/**
+ * One service interaction at a facility and department, following a workflow.
+ */
+class QueueSession extends Model
 {
     use HasFactory, SoftDeletes;
 
@@ -24,16 +27,16 @@ class Visit extends Model
     protected $fillable = [
         'tenant_id',
         'facility_id',
-        'client_id',
+        'customer_id',
         'department_id',
         'workflow_id',
-        'visit_number',
-        'visit_token',
+        'session_number',
+        'tracking_token',
         'priority',
         'intake_channel',
         'status',
         'online_active_key',
-        'registered_by',
+        'registered_by_user_id',
         'checked_in_at',
         'registered_at',
         'completed_at',
@@ -42,18 +45,17 @@ class Visit extends Model
     /**
      * The attributes that should be hidden for serialization.
      *
-     * `visit_token` authorises public tracking of a visit without a session, so
-     * it must never be serialized into an API response. The tracking endpoint
-     * accepts the token as a path segment; callers that need it (the tracking
-     * link sent to a client) read it from the model explicitly.
+     * `tracking_token` authorises public tracking of a session without a
+     * login, so it must never be serialized into an API response. Callers that
+     * need it read it from the model explicitly.
      *
-     * `online_active_key` stays visible on purpose: the client booking flow
-     * needs it to perform the later check-in.
+     * `online_active_key` stays visible on purpose: the booking flow needs it
+     * to perform the later check-in.
      *
      * @var list<string>
      */
     protected $hidden = [
-        'visit_token',
+        'tracking_token',
     ];
 
     /**
@@ -64,14 +66,14 @@ class Visit extends Model
     protected $casts = [
         'priority' => Priority::class,
         'intake_channel' => IntakeChannel::class,
-        'status' => VisitStatus::class,
+        'status' => QueueSessionStatus::class,
         'checked_in_at' => 'datetime',
         'registered_at' => 'datetime',
         'completed_at' => 'datetime',
     ];
 
     /**
-     * Get the tenant that owns this visit.
+     * Get the tenant that owns this session.
      */
     public function tenant(): BelongsTo
     {
@@ -79,7 +81,7 @@ class Visit extends Model
     }
 
     /**
-     * Get the facility hosting this visit.
+     * Get the facility hosting this session.
      */
     public function facility(): BelongsTo
     {
@@ -87,15 +89,15 @@ class Visit extends Model
     }
 
     /**
-     * Get the client who owns this visit.
+     * Get the customer who requested this service.
      */
-    public function client(): BelongsTo
+    public function customer(): BelongsTo
     {
-        return $this->belongsTo(Client::class);
+        return $this->belongsTo(Customer::class);
     }
 
     /**
-     * Get the department visited.
+     * Get the department served.
      */
     public function department(): BelongsTo
     {
@@ -103,7 +105,7 @@ class Visit extends Model
     }
 
     /**
-     * Get the workflow for this visit.
+     * Get the workflow followed.
      */
     public function workflow(): BelongsTo
     {
@@ -111,7 +113,7 @@ class Visit extends Model
     }
 
     /**
-     * Get the queue acquisition for this visit.
+     * Get the latest queue acquisition for this session.
      */
     public function queueAcquisition(): HasOne
     {
@@ -119,7 +121,7 @@ class Visit extends Model
     }
 
     /**
-     * Get all queue acquisitions for this visit.
+     * Get all queue acquisitions for this session.
      */
     public function queueAcquisitions(): HasMany
     {
@@ -127,7 +129,7 @@ class Visit extends Model
     }
 
     /**
-     * Get the queue tickets generated for this visit.
+     * Get the queue tickets generated for this session.
      */
     public function queueTickets(): HasMany
     {
@@ -145,10 +147,10 @@ class Visit extends Model
     }
 
     /**
-     * Get referrals where this visit is the source.
+     * Get service transfers where this session is the source.
      */
-    public function outgoingReferrals(): HasMany
+    public function outgoingTransfers(): HasMany
     {
-        return $this->hasMany(Referral::class, 'source_visit_id');
+        return $this->hasMany(ServiceTransfer::class, 'source_queue_session_id');
     }
 }

@@ -7,9 +7,9 @@ use App\Enums\UserRole;
 use App\Exceptions\InvalidStateException;
 use App\Http\Controllers\Api\Concerns\HandlesTableQuery;
 use App\Http\Controllers\Controller;
-use App\Models\Department;
 use App\Models\Station;
 use App\Models\User;
+use App\Models\UserFacilityAssignment;
 use App\Services\SubscriptionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -33,13 +33,24 @@ class UserController extends Controller
 
         $validated = $this->validateTableQuery($request, [
             'role' => ['nullable', 'string', Rule::in(UserRole::tenantValues())],
-            'department_id' => ['nullable', 'integer', 'exists:departments,id'],
+            'facility_id' => ['nullable', 'integer', 'exists:facilities,id'],
             'station_id' => ['nullable', 'integer', 'exists:stations,id'],
         ]);
 
         $query = User::query()
             ->where('tenant_id', $this->tenantId())
-            ->with(['department', 'station']);
+            ->with(['station', 'facilities:id,tenant_id,name,code']);
+
+        // A facility admin only sees users who can act at their facilities.
+        $scope = $this->facilityScope($request);
+        if ($scope !== null) {
+            $query->whereHas('facilityAssignments', fn($q) => $q->whereIn('facility_id', $scope));
+        }
+
+        if (! empty($validated['facility_id'])) {
+            abort_unless($this->canAdministerFacility($request, (int) $validated['facility_id']), 403, 'Forbidden.');
+            $query->whereHas('facilityAssignments', fn($q) => $q->where('facility_id', (int) $validated['facility_id']));
+        }
 
         if (! empty($validated['search'])) {
             $search = $validated['search'];
@@ -50,7 +61,7 @@ class UserController extends Controller
             });
         }
 
-        foreach (['role', 'department_id', 'station_id'] as $filter) {
+        foreach (['role', 'station_id'] as $filter) {
             if (! empty($validated[$filter])) {
                 $query->where($filter, $validated[$filter]);
             }
@@ -74,14 +85,16 @@ class UserController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'string', 'min:8'],
-            'role' => ['required', 'string', Rule::in(UserRole::tenantValues())],
-            'department_id' => ['nullable', 'integer'],
+            'role' => ['required', 'string', Rule::in($this->assignableRoles($request))],
             'station_id' => ['nullable', 'integer'],
+            'facility_ids' => ['nullable', 'array'],
+            'facility_ids.*' => ['integer'],
         ]);
 
         $this->validateAssignedOrganisation($validated);
+        $this->guardFacilityGrants($request, $validated);
 
-        // Only staff roles count against the seat limit; clients do not.
+        // Only staff roles count against the seat limit; customers do not.
         if ($validated['role'] !== UserRole::Client->value) {
             $this->subscriptions->ensureCapacity($this->tenant(), Feature::MaxStaff);
         }
@@ -91,16 +104,17 @@ class UserController extends Controller
             'email' => $validated['email'],
             'password' => $validated['password'],
             'role' => $validated['role'],
-            'department_id' => $validated['department_id'] ?? null,
             'station_id' => $validated['station_id'] ?? null,
         ]);
 
         $user->tenant_id = $this->tenantId();
         $user->save();
 
+        $this->syncFacilityAssignments($request, $user, $validated['facility_ids'] ?? []);
+
         return response()->json([
             'message' => 'User created successfully.',
-            'data' => $user->load(['department', 'station']),
+            'data' => $user->load(['station', 'facilities:id,tenant_id,name,code']),
         ], 201);
     }
 
@@ -113,7 +127,7 @@ class UserController extends Controller
 
         $user = User::query()
             ->where('tenant_id', $this->tenantId())
-            ->with(['department', 'station'])
+            ->with(['station', 'facilities:id,tenant_id,name,code'])
             ->findOrFail($id);
 
         return response()->json([
@@ -142,12 +156,14 @@ class UserController extends Controller
                 Rule::unique('users', 'email')->ignore($user->id),
             ],
             'password' => ['sometimes', 'nullable', 'string', 'min:8'],
-            'role' => ['sometimes', 'required', 'string', Rule::in(UserRole::tenantValues())],
-            'department_id' => ['nullable', 'integer'],
+            'role' => ['sometimes', 'required', 'string', Rule::in($this->assignableRoles($request))],
             'station_id' => ['nullable', 'integer'],
+            'facility_ids' => ['nullable', 'array'],
+            'facility_ids.*' => ['integer'],
         ]);
 
         $this->validateAssignedOrganisation($validated, $user);
+        $this->guardFacilityGrants($request, $validated);
 
         if (array_key_exists('password', $validated) && $validated['password'] === null) {
             unset($validated['password']);
@@ -155,9 +171,13 @@ class UserController extends Controller
 
         $user->update($validated);
 
+        if (array_key_exists('facility_ids', $validated)) {
+            $this->syncFacilityAssignments($request, $user, $validated['facility_ids'] ?? []);
+        }
+
         return response()->json([
             'message' => 'User updated successfully.',
-            'data' => $user->fresh(['department', 'station']),
+            'data' => $user->fresh(['station', 'facilities:id,tenant_id,name,code']),
         ]);
     }
 
@@ -176,10 +196,10 @@ class UserController extends Controller
             throw new InvalidStateException('You cannot delete your own account.');
         }
 
-        if ($user->role === UserRole::Admin
+        if ($user->role === UserRole::TenantAdmin
             && User::query()
                 ->where('tenant_id', $this->tenantId())
-                ->where('role', UserRole::Admin->value)
+                ->where('role', UserRole::TenantAdmin->value)
                 ->count() <= 1) {
             throw new InvalidStateException('Cannot delete the last administrator.');
         }
@@ -191,42 +211,115 @@ class UserController extends Controller
         ]);
     }
 
+    /**
+     * Only a tenant admin, a facility admin, or a platform support operator may
+     * manage users. A facility admin is additionally constrained by scope.
+     */
     private function authorizeAdmin(Request $request): void
     {
         $user = $request->user();
 
         abort_unless(
-            $user !== null && ($user->role === UserRole::Admin || $user->isPlatformUser()),
+            $user !== null && ($user->isTenantAdmin() || $user->role === UserRole::FacilityAdmin || $user->isPlatformUser()),
             403,
             'Forbidden.',
         );
     }
 
     /**
-     * Ensure the assigned department and station belong to the current tenant,
-     * and that the station belongs to the selected department when both are given.
+     * The roles the caller may assign. A facility admin cannot grant tenant
+     * admin, facility admin or the platform role.
+     *
+     * @return list<string>
+     */
+    private function assignableRoles(Request $request): array
+    {
+        if ($request->user()?->isTenantAdmin()) {
+            return UserRole::tenantValues();
+        }
+
+        return [
+            UserRole::Operator->value,
+            UserRole::Staff->value,
+            UserRole::Client->value,
+        ];
+    }
+
+    /**
+     * The facilities the caller may administer, or null for tenant-wide access.
+     *
+     * @return list<int>|null
+     */
+    private function facilityScope(Request $request): ?array
+    {
+        $actor = $request->user();
+
+        if ($actor === null || $actor->hasTenantWideAccess() || $actor->isPlatformUser()) {
+            return null;
+        }
+
+        return $actor->facilityAssignments()->pluck('facility_id')->all();
+    }
+
+    /**
+     * Whether the caller may administer the given facility.
+     */
+    private function canAdministerFacility(Request $request, int $facilityId): bool
+    {
+        return $request->user()?->canAccessFacility($facilityId) ?? false;
+    }
+
+    /**
+     * Validate every requested facility grant is within the caller's authority.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function guardFacilityGrants(Request $request, array $data): void
+    {
+        foreach ((array) ($data['facility_ids'] ?? []) as $facilityId) {
+            abort_unless(
+                $this->canAdministerFacility($request, (int) $facilityId),
+                403,
+                'You cannot grant access to a facility you do not administer.',
+            );
+        }
+    }
+
+    /**
+     * Add the supplied facility assignments to a user.
+     *
+     * @param  list<int>  $facilityIds
+     */
+    private function syncFacilityAssignments(Request $request, User $user, array $facilityIds): void
+    {
+        abort_if(
+            $user->hasTenantWideAccess(),
+            422,
+            'A tenant admin already has implicit access to every facility.',
+        );
+
+        $tenantId = $this->tenantId();
+
+        foreach ($facilityIds as $facilityId) {
+            UserFacilityAssignment::query()->firstOrCreate([
+                'tenant_id' => $tenantId,
+                'user_id' => $user->id,
+                'facility_id' => (int) $facilityId,
+            ], [
+                'assigned_by_user_id' => $request->user()?->id,
+            ]);
+        }
+    }
+
+    /**
+     * Ensure the assigned station belongs to the current tenant.
      *
      * @param  array<string, mixed>  $data
      */
     private function validateAssignedOrganisation(array $data, ?User $user = null): void
     {
         $tenantId = $this->tenantId();
-
-        $departmentId = $data['department_id'] ?? $user?->department_id;
         $stationId = $data['station_id'] ?? null;
-
-        if ($departmentId !== null) {
-            $exists = Department::query()
-                ->whereKey($departmentId)
-                ->whereHas('facility', fn($query) => $query->where('tenant_id', $tenantId))
-                ->exists();
-
-            if (! $exists) {
-                throw ValidationException::withMessages([
-                    'department_id' => ['Department does not belong to your clinic.'],
-                ]);
-            }
-        }
 
         if ($stationId === null) {
             return;
@@ -239,13 +332,7 @@ class UserController extends Controller
 
         if (! $station) {
             throw ValidationException::withMessages([
-                'station_id' => ['Station does not belong to your clinic.'],
-            ]);
-        }
-
-        if ($departmentId !== null && (int) $departmentId !== (int) $station->department_id) {
-            throw ValidationException::withMessages([
-                'station_id' => ['Station does not belong to the selected department.'],
+                'station_id' => ['Station does not belong to your tenant.'],
             ]);
         }
     }

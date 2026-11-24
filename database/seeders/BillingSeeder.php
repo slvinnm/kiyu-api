@@ -11,13 +11,6 @@ use Illuminate\Database\Seeder;
 
 class BillingSeeder extends Seeder
 {
-    /**
-     * Seed the plan catalogue.
-     *
-     * Prices are stored in the smallest currency unit (integer). Toggles are
-     * granted by the presence of an entitlement row; limits carry a
-     * `{"limit": n}` value.
-     */
     public function run(): void
     {
         $this->plan(
@@ -58,8 +51,6 @@ class BillingSeeder extends Seeder
             limits: [[Feature::MaxFacilities, 5], [Feature::MaxStaff, 50], [Feature::MaxKioskDevices, 10], [Feature::MaxDisplayDevices, 10]],
         );
 
-        // Start the demo tenant on a trial so the billing endpoints and feature
-        // checks have something to show.
         $tenant = Tenant::query()->where('slug', 'kiyu-demo')->first();
         $trial = Plan::query()->where('code', 'TRIAL')->first();
 

@@ -3,13 +3,13 @@
 use App\Enums\BillingInterval;
 use App\Enums\Feature;
 use App\Enums\TenantStatus;
-use App\Models\Client;
+use App\Models\Customer;
 use App\Models\Department;
 use App\Models\Facility;
 use App\Models\Plan;
+use App\Models\QueueSession;
 use App\Models\Tenant;
 use App\Models\User;
-use App\Models\Visit;
 use App\Models\Workflow;
 use App\Services\ExportService;
 use App\Services\SubscriptionService;
@@ -38,7 +38,7 @@ function exportClinic(bool $advanced = true): array
         'is_active' => true,
     ]);
 
-    $admin = User::factory()->create(['role' => 'admin', 'tenant_id' => $tenant->id]);
+    $admin = User::factory()->create(['role' => 'tenant_admin', 'tenant_id' => $tenant->id]);
 
     $department = Department::create([
         'facility_id' => $facility->id,
@@ -66,24 +66,24 @@ function exportClinic(bool $advanced = true): array
 }
 
 /**
- * @param  array<string, mixed>  $clinic
+ * @param  array<string, mixed>  $tenant
  */
-function exportVisit(array $clinic): Visit
+function exportVisit(array $tenant): QueueSession
 {
-    $client = Client::query()->create([
-        'tenant_id' => $clinic['tenant']->id,
-        'mrn' => 'MRN-' . Str::random(6),
-        'name' => 'Export Client',
+    $client = Customer::query()->create([
+        'tenant_id' => $tenant['tenant']->id,
+        'phone' => '0812' . Str::random(6),
+        'name' => 'Export Customer',
     ]);
 
-    return Visit::query()->create([
-        'tenant_id' => $clinic['tenant']->id,
-        'facility_id' => $clinic['facility']->id,
-        'client_id' => $client->id,
-        'department_id' => $clinic['department']->id,
-        'workflow_id' => $clinic['workflow']->id,
-        'visit_number' => 'V-' . Str::random(8),
-        'visit_token' => (string) Str::uuid(),
+    return QueueSession::query()->create([
+        'tenant_id' => $tenant['tenant']->id,
+        'facility_id' => $tenant['facility']->id,
+        'customer_id' => $client->id,
+        'department_id' => $tenant['department']->id,
+        'workflow_id' => $tenant['workflow']->id,
+        'session_number' => 'V-' . Str::random(8),
+        'tracking_token' => (string) Str::uuid(),
         'priority' => 1,
         'intake_channel' => 'MANUAL',
         'status' => 'COMPLETED',
@@ -96,11 +96,11 @@ beforeEach(function () {
 });
 
 test('generating an excel export stores the file and returns a download url', function () {
-    $clinic = exportClinic();
-    exportVisit($clinic);
+    $tenant = exportClinic();
+    exportVisit($tenant);
 
-    $response = $this->actingAs($clinic['admin'], 'sanctum')
-        ->postJson('/api/reports/visits/export-file', ['format' => 'xlsx'])
+    $response = $this->actingAs($tenant['admin'], 'sanctum')
+        ->postJson('/api/reports/queue-sessions/export-file', ['format' => 'xlsx'])
         ->assertCreated()
         ->assertJsonPath('data.format', 'xlsx');
 
@@ -111,11 +111,11 @@ test('generating an excel export stores the file and returns a download url', fu
 });
 
 test('generating a pdf export stores the file', function () {
-    $clinic = exportClinic();
-    exportVisit($clinic);
+    $tenant = exportClinic();
+    exportVisit($tenant);
 
-    $path = $this->actingAs($clinic['admin'], 'sanctum')
-        ->postJson('/api/reports/visits/export-file', ['format' => 'pdf'])
+    $path = $this->actingAs($tenant['admin'], 'sanctum')
+        ->postJson('/api/reports/queue-sessions/export-file', ['format' => 'pdf'])
         ->assertCreated()
         ->json('data.path');
 
@@ -124,14 +124,14 @@ test('generating a pdf export stores the file', function () {
 });
 
 test('a stored export can be downloaded by its own tenant', function () {
-    $clinic = exportClinic();
-    exportVisit($clinic);
+    $tenant = exportClinic();
+    exportVisit($tenant);
 
-    $path = $this->actingAs($clinic['admin'], 'sanctum')
-        ->postJson('/api/reports/visits/export-file', ['format' => 'pdf'])
+    $path = $this->actingAs($tenant['admin'], 'sanctum')
+        ->postJson('/api/reports/queue-sessions/export-file', ['format' => 'pdf'])
         ->json('data.path');
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->get("/api/reports/download?path={$path}")
         ->assertOk();
 });
@@ -140,7 +140,7 @@ test('a tenant cannot download another tenant export', function () {
     $a = exportClinic();
     exportVisit($a);
     $path = $this->actingAs($a['admin'], 'sanctum')
-        ->postJson('/api/reports/visits/export-file', ['format' => 'pdf'])
+        ->postJson('/api/reports/queue-sessions/export-file', ['format' => 'pdf'])
         ->json('data.path');
 
     $b = exportClinic();
@@ -169,10 +169,10 @@ test('an export path containing traversal is refused', function () {
 });
 
 test('the export file endpoint requires advanced_reports', function () {
-    $clinic = exportClinic(advanced: false);
+    $tenant = exportClinic(advanced: false);
 
-    $this->actingAs($clinic['admin'], 'sanctum')
-        ->postJson('/api/reports/visits/export-file', ['format' => 'xlsx'])
+    $this->actingAs($tenant['admin'], 'sanctum')
+        ->postJson('/api/reports/queue-sessions/export-file', ['format' => 'xlsx'])
         ->assertForbidden();
 });
 

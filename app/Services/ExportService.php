@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Exports\VisitsExport;
+use App\Exports\QueueSessionsExport;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -38,11 +38,11 @@ class ExportService
         ?string $reportFrom = null,
         ?string $reportTo = null,
     ): string {
-        $rows = $this->visitRows($tenantId, $facilityId, $from, $to);
+        $rows = $this->sessionRows($tenantId, $facilityId, $from, $to);
         $path = $this->pathFor($tenantId, 'xlsx');
 
         Excel::store(
-            new VisitsExport($rows),
+            new QueueSessionsExport($rows),
             $path,
             self::DISK,
             \Maatwebsite\Excel\Excel::XLSX,
@@ -67,10 +67,10 @@ class ExportService
             'to' => $reportTo ?? $to->toDateString(),
         ];
 
-        $summary = $this->reports->visitSummary($tenantId, $facilityId, $from, $to, $period);
-        $rows = $this->visitRows($tenantId, $facilityId, $from->copy(), $to->copy());
+        $summary = $this->reports->sessionSummary($tenantId, $facilityId, $from, $to, $period);
+        $rows = $this->sessionRows($tenantId, $facilityId, $from->copy(), $to->copy());
 
-        $pdf = Pdf::loadView('reports.visits', [
+        $pdf = Pdf::loadView('reports.queue-sessions', [
             'summary' => $summary,
             // Blade iterates this once, so the lazy collection is fine as-is.
             'rows' => $rows,
@@ -136,17 +136,17 @@ class ExportService
      *
      * @return LazyCollection<int, array<int, string|null>>
      */
-    private function visitRows(int $tenantId, int $facilityId, Carbon $from, Carbon $to): LazyCollection
+    private function sessionRows(int $tenantId, int $facilityId, Carbon $from, Carbon $to): LazyCollection
     {
-        return $this->reports->visitRows($tenantId, $facilityId, $from, $to)
-            ->map(fn($visit): array => [
-                $visit->visit_number,
-                $visit->status?->value,
-                $visit->intake_channel?->value,
-                $visit->client?->mrn,
-                $visit->client?->name,
-                $visit->department?->name,
-                $visit->created_at?->toIso8601String(),
+        return $this->reports->sessionRows($tenantId, $facilityId, $from, $to)
+            ->map(fn($session): array => [
+                $session->session_number,
+                $session->status?->value,
+                $session->intake_channel?->value,
+                $session->customer?->phone,
+                $session->customer?->name,
+                $session->department?->name,
+                $session->created_at?->toIso8601String(),
             ]);
     }
 

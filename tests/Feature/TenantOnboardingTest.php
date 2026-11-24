@@ -20,7 +20,7 @@ uses(RefreshDatabase::class);
 function provisionPayload(array $overrides = []): array
 {
     return array_merge([
-        'name' => 'Sehat Selalu Clinic',
+        'name' => 'Sehat Selalu Organization',
         'facility_name' => 'Sehat Selalu Main',
         'admin_name' => 'Admin Sehat',
         'admin_email' => 'admin@sehat.test',
@@ -32,11 +32,11 @@ test('provisioning creates a tenant, facility, admin and default template', func
     $result = app(TenantOnboardingService::class)->provision(provisionPayload());
 
     expect($result['tenant']->status)->toBe(TenantStatus::Active)
-        ->and($result['tenant']->slug)->toBe('sehat-selalu-clinic')
+        ->and($result['tenant']->slug)->toBe('sehat-selalu-organization')
         ->and($result['facility']->tenant_id)->toBe($result['tenant']->id)
         ->and($result['facility']->code)->toBe('MAIN')
-        ->and($result['admin']->tenant_id)->toBe($result['tenant']->id)
-        ->and($result['admin']->role)->toBe(UserRole::Admin);
+        ->and($result['tenant_admin']->tenant_id)->toBe($result['tenant']->id)
+        ->and($result['tenant_admin']->role)->toBe(UserRole::TenantAdmin);
 
     $facility = $result['facility'];
     $department = Department::query()->where('facility_id', $facility->id)->firstOrFail();
@@ -44,7 +44,7 @@ test('provisioning creates a tenant, facility, admin and default template', func
     expect($department->code)->toBe('GEN');
 
     $station = Station::query()->where('department_id', $department->id)->firstOrFail();
-    expect($station->type)->toBe(StationType::Registration);
+    expect($station->type)->toBe(StationType::Intake);
 
     $workflow = Workflow::query()->where('department_id', $department->id)->firstOrFail();
     $step = WorkflowStep::query()->where('workflow_id', $workflow->id)->firstOrFail();
@@ -74,7 +74,7 @@ test('a provisioned admin can create staff scoped to their tenant', function () 
     $department = Department::query()->where('facility_id', $result['facility']->id)->firstOrFail();
     $station = Station::query()->where('department_id', $department->id)->firstOrFail();
 
-    $this->actingAs($result['admin'], 'sanctum')
+    $this->actingAs($result['tenant_admin'], 'sanctum')
         ->postJson('/api/users', [
             'name' => 'Nurse One',
             'email' => 'nurse@sehat.test',
@@ -100,7 +100,7 @@ test('provisioning rejects a duplicate admin email', function () {
     app(TenantOnboardingService::class)->provision(provisionPayload());
 
     app(TenantOnboardingService::class)->provision(provisionPayload([
-        'name' => 'Another Clinic',
+        'name' => 'Another Organization',
         'admin_email' => 'admin@sehat.test',
     ]));
 })->throws(BusinessConflictException::class);
@@ -114,23 +114,23 @@ test('the platform tenant endpoint provisions and requires a platform account', 
     $this->actingAs($platform, 'sanctum')
         ->postJson('/api/platform/tenants', provisionPayload())
         ->assertCreated()
-        ->assertJsonPath('data.tenant.slug', 'sehat-selalu-clinic')
-        ->assertJsonPath('data.admin.email', 'admin@sehat.test');
+        ->assertJsonPath('data.tenant.slug', 'sehat-selalu-organization')
+        ->assertJsonPath('data.tenant_admin.email', 'admin@sehat.test');
 });
 
 test('a tenant admin cannot reach platform routes', function () {
     $result = app(TenantOnboardingService::class)->provision(provisionPayload());
 
-    $this->actingAs($result['admin'], 'sanctum')
+    $this->actingAs($result['tenant_admin'], 'sanctum')
         ->getJson('/api/platform/tenants')
         ->assertForbidden();
 });
 
-test('an account with a null tenant but a clinic role is not granted platform access', function () {
-    // A row whose tenant_id is null but role is a clinic role must not be
+test('an account with a null tenant but a tenant role is not granted platform access', function () {
+    // A row whose tenant_id is null but role is a tenant role must not be
     // treated as platform merely because tenant_id is null.
     $user = User::factory()->create([
-        'role' => UserRole::Admin,
+        'role' => UserRole::TenantAdmin,
         'tenant_id' => null,
     ]);
 

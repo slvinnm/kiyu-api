@@ -52,19 +52,19 @@ class Facility extends Model
     }
 
     /**
-     * Get the visits hosted by this facility.
+     * Get the queue_sessions hosted by this facility.
      */
-    public function visits(): HasMany
+    public function queueSessions(): HasMany
     {
-        return $this->hasMany(Visit::class);
+        return $this->hasMany(QueueSession::class);
     }
 
     /**
      * Get the visit counters maintained for this facility.
      */
-    public function visitCounters(): HasMany
+    public function queueSessionCounters(): HasMany
     {
-        return $this->hasMany(VisitCounter::class);
+        return $this->hasMany(QueueSessionCounter::class);
     }
 
     /**

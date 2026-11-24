@@ -47,7 +47,7 @@ beforeEach(function () {
         'department_id' => $this->department->id,
         'name' => 'Ruang Perawat',
         'code' => 'GEN-NUR',
-        'type' => StationType::Nurse,
+        'type' => StationType::Service,
         'queue_prefix' => 'N',
         'is_active' => true,
     ]);
@@ -56,7 +56,7 @@ beforeEach(function () {
         'department_id' => $this->otherDepartment->id,
         'name' => 'Ruang Gigi',
         'code' => 'DNT-DOC',
-        'type' => StationType::Doctor,
+        'type' => StationType::Service,
         'queue_prefix' => 'DG',
         'is_active' => true,
     ]);
@@ -64,7 +64,7 @@ beforeEach(function () {
     $this->admin = User::factory()->create([
         'name' => 'Admin Test',
         'email' => 'admin@kiyu.test',
-        'role' => 'admin',
+        'role' => 'tenant_admin',
         'tenant_id' => $this->tenant->id,
     ]);
 
@@ -72,7 +72,6 @@ beforeEach(function () {
         'name' => 'Nurse Test',
         'email' => 'nurse@kiyu.test',
         'role' => 'staff',
-        'department_id' => $this->department->id,
         'station_id' => $this->station->id,
         'tenant_id' => $this->tenant->id,
     ]);
@@ -88,7 +87,7 @@ test('admin can list users with role and station relations', function () {
         ->assertJsonStructure([
             'data' => [
                 'data' => [
-                    '*' => ['id', 'name', 'email', 'role', 'department_id', 'station_id'],
+                    '*' => ['id', 'name', 'email', 'role', 'station_id', 'facilities'],
                 ],
             ],
         ]);
@@ -100,15 +99,14 @@ test('admin can create a staff user with a hashed password', function () {
         'email' => 'new.nurse@kiyu.test',
         'password' => 'secret123',
         'role' => 'staff',
-        'department_id' => $this->department->id,
         'station_id' => $this->station->id,
+        'facility_ids' => [$this->facility->id],
     ]);
 
     $response->assertCreated()
         ->assertJsonPath('message', 'User created successfully.')
         ->assertJsonPath('data.email', 'new.nurse@kiyu.test')
         ->assertJsonPath('data.role', 'staff')
-        ->assertJsonPath('data.department_id', $this->department->id)
         ->assertJsonPath('data.station_id', $this->station->id);
 
     $user = User::query()->where('email', 'new.nurse@kiyu.test')->firstOrFail();
@@ -136,8 +134,8 @@ test('admin can update a user and leave the password unchanged', function () {
     $response = $this->putJson("/api/users/{$this->nurse->id}", [
         'name' => 'Nurse Updated',
         'role' => 'staff',
-        'department_id' => $this->department->id,
         'station_id' => $this->station->id,
+        'facility_ids' => [$this->facility->id],
     ]);
 
     $response->assertOk()
@@ -163,16 +161,23 @@ test('admin cannot delete their own account', function () {
         ->assertJsonPath('error_type', 'INVALID_STATE');
 });
 
-test('station must belong to the selected department', function () {
-    $this->postJson('/api/users', [
-        'name' => 'Mismatch User',
-        'email' => 'mismatch@kiyu.test',
-        'password' => 'secret123',
-        'role' => 'staff',
-        'department_id' => $this->otherDepartment->id,
-        'station_id' => $this->station->id,
-    ])->assertStatus(422)
-        ->assertJsonValidationErrors('station_id');
+test('a facility admin cannot grant a facility outside their scope', function () {
+    $otherTenant = Tenant::factory()->create();
+    $otherFacility = Facility::factory()->create(['tenant_id' => $otherTenant->id]);
+
+    $facilityAdmin = User::factory()->create([
+        'role' => 'facility_admin',
+        'tenant_id' => $this->tenant->id,
+    ]);
+
+    $this->actingAs($facilityAdmin, 'sanctum')
+        ->postJson('/api/users', [
+            'name' => 'Out Of Scope',
+            'email' => 'out-of-scope@kiyu.test',
+            'password' => 'secret123',
+            'role' => 'staff',
+            'facility_ids' => [$otherFacility->id],
+        ])->assertForbidden();
 });
 
 test('email must be unique', function () {

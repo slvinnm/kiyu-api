@@ -21,7 +21,7 @@ class AuditLogController extends Controller
             'action' => ['nullable', 'string', 'max:255'],
             'entity_type' => ['nullable', 'string', 'max:255'],
             'entity_id' => ['nullable', 'string', 'max:255'],
-            'user_id' => ['nullable', 'string', 'max:255'],
+            'user_id' => ['nullable', 'integer'],
         ]);
 
         $query = AuditLog::query()->where('tenant_id', $this->tenantId());
@@ -37,8 +37,10 @@ class AuditLogController extends Controller
             $query->where(function ($q) use ($search): void {
                 $q->where('action', 'like', "%{$search}%")
                     ->orWhere('entity_type', 'like', "%{$search}%")
-                    ->orWhere('user_id', 'like', "%{$search}%")
-                    ->orWhere('ip_address', 'like', "%{$search}%");
+                    ->orWhere('ip_address', 'like', "%{$search}%")
+                    ->orWhereHas('user', fn($user) => $user
+                        ->where('name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%"));
             });
         }
 

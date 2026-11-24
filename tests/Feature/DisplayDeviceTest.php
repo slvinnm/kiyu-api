@@ -35,7 +35,7 @@ function displayClinic(array $limits): array
         'is_active' => true,
     ]);
 
-    $admin = User::factory()->create(['role' => 'admin', 'tenant_id' => $tenant->id]);
+    $admin = User::factory()->create(['role' => 'tenant_admin', 'tenant_id' => $tenant->id]);
 
     $department = Department::create([
         'facility_id' => $facility->id,
@@ -48,7 +48,7 @@ function displayClinic(array $limits): array
         'department_id' => $department->id,
         'name' => 'Registration',
         'code' => 'REG-01',
-        'type' => StationType::Registration,
+        'type' => StationType::Intake,
         'queue_prefix' => 'R',
         'is_active' => true,
     ]);
@@ -66,9 +66,9 @@ function displayClinic(array $limits): array
 }
 
 test('admin registers a display and receives a pairing code', function () {
-    $clinic = displayClinic([Feature::MaxDisplayDevices->value => 2]);
+    $tenant = displayClinic([Feature::MaxDisplayDevices->value => 2]);
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/display-devices', ['name' => 'Lobby Screen'])
         ->assertCreated()
         ->assertJsonStructure(['data' => ['device', 'pairing_code', 'pairing_expires_at']])
@@ -76,9 +76,9 @@ test('admin registers a display and receives a pairing code', function () {
 });
 
 test('the pairing code is never stored in plain text', function () {
-    $clinic = displayClinic([Feature::MaxDisplayDevices->value => 2]);
+    $tenant = displayClinic([Feature::MaxDisplayDevices->value => 2]);
 
-    $code = $this->actingAs($clinic['admin'], 'sanctum')
+    $code = $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/display-devices', ['name' => 'Screen'])
         ->json('data.pairing_code');
 
@@ -90,15 +90,15 @@ test('the pairing code is never stored in plain text', function () {
 });
 
 test('a display redeems its code for a credential exactly once', function () {
-    $clinic = displayClinic([Feature::MaxDisplayDevices->value => 1]);
+    $tenant = displayClinic([Feature::MaxDisplayDevices->value => 1]);
 
-    $code = $this->actingAs($clinic['admin'], 'sanctum')
+    $code = $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/display-devices', ['name' => 'Screen'])
         ->json('data.pairing_code');
 
     $credential = $this->postJson('/api/display/pair', ['pairing_code' => $code])
         ->assertOk()
-        ->assertJsonPath('data.device.tenant.slug', $clinic['tenant']->slug)
+        ->assertJsonPath('data.device.tenant.slug', $tenant['tenant']->slug)
         ->json('data.credential');
 
     $stored = DisplayDevice::query()->firstOrFail();
@@ -111,9 +111,9 @@ test('a display redeems its code for a credential exactly once', function () {
 });
 
 test('a paired display resolves the public queue with its token', function () {
-    $clinic = displayClinic([Feature::MaxDisplayDevices->value => 1]);
+    $tenant = displayClinic([Feature::MaxDisplayDevices->value => 1]);
 
-    $code = $this->actingAs($clinic['admin'], 'sanctum')
+    $code = $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/display-devices', ['name' => 'Screen'])
         ->json('data.pairing_code');
 
@@ -126,9 +126,9 @@ test('a paired display resolves the public queue with its token', function () {
 });
 
 test('an unpaired display cannot authenticate', function () {
-    $clinic = displayClinic([Feature::MaxDisplayDevices->value => 1]);
+    $tenant = displayClinic([Feature::MaxDisplayDevices->value => 1]);
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/display-devices', ['name' => 'Screen'])
         ->assertCreated();
 
@@ -138,13 +138,13 @@ test('an unpaired display cannot authenticate', function () {
 });
 
 test('display creation is capped by max_display_devices', function () {
-    $clinic = displayClinic([Feature::MaxDisplayDevices->value => 1]);
+    $tenant = displayClinic([Feature::MaxDisplayDevices->value => 1]);
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/display-devices', ['name' => 'One'])
         ->assertCreated();
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/display-devices', ['name' => 'Two'])
         ->assertStatus(409);
 
@@ -152,16 +152,16 @@ test('display creation is capped by max_display_devices', function () {
 });
 
 test('a revoked display cannot resolve the public queue', function () {
-    $clinic = displayClinic([Feature::MaxDisplayDevices->value => 1]);
+    $tenant = displayClinic([Feature::MaxDisplayDevices->value => 1]);
 
-    $code = $this->actingAs($clinic['admin'], 'sanctum')
+    $code = $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/display-devices', ['name' => 'Screen'])
         ->json('data.pairing_code');
 
     $credential = $this->postJson('/api/display/pair', ['pairing_code' => $code])->json('data.credential');
     $id = DisplayDevice::query()->firstOrFail()->id;
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->deleteJson("/api/display-devices/{$id}")
         ->assertOk();
 
@@ -171,23 +171,23 @@ test('a revoked display cannot resolve the public queue', function () {
 });
 
 test('a pairing code cannot be reissued once the display is paired', function () {
-    $clinic = displayClinic([Feature::MaxDisplayDevices->value => 1]);
+    $tenant = displayClinic([Feature::MaxDisplayDevices->value => 1]);
 
-    $code = $this->actingAs($clinic['admin'], 'sanctum')
+    $code = $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/display-devices', ['name' => 'Screen'])
         ->json('data.pairing_code');
 
     $this->postJson('/api/display/pair', ['pairing_code' => $code])->assertOk();
     $id = DisplayDevice::query()->firstOrFail()->id;
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson("/api/display-devices/{$id}/pairing-code")
         ->assertStatus(409);
 });
 
 test('a non-admin cannot manage display devices', function () {
-    $clinic = displayClinic([Feature::MaxDisplayDevices->value => 2]);
-    $staff = User::factory()->create(['role' => 'staff', 'tenant_id' => $clinic['tenant']->id]);
+    $tenant = displayClinic([Feature::MaxDisplayDevices->value => 2]);
+    $staff = User::factory()->create(['role' => 'staff', 'tenant_id' => $tenant['tenant']->id]);
 
     $this->actingAs($staff, 'sanctum')
         ->postJson('/api/display-devices', ['name' => 'X'])

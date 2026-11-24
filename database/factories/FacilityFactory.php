@@ -22,7 +22,7 @@ class FacilityFactory extends Factory
     {
         return [
             'tenant_id' => Tenant::factory(),
-            'name' => fake()->company() . ' Clinic',
+            'name' => fake()->company() . ' Facility',
             'code' => strtoupper(fake()->unique()->bothify('FAC-####')),
             'address' => fake()->address(),
             'phone' => fake()->numerify('08##########'),

@@ -14,157 +14,107 @@ class MasterDataSeeder extends Seeder
 {
     public function run(): void
     {
-        // All master data is owned by the demo tenant's facility. The
-        // TenantSeeder runs first and must have created it.
         $facility = Facility::query()
             ->whereHas('tenant', fn($query) => $query->where('slug', 'kiyu-demo'))
             ->where('code', 'MAIN')
             ->firstOrFail();
 
-        // Departments
         $generalDepartment = Department::updateOrCreate(
             ['code' => 'GEN'],
             [
                 'facility_id' => $facility->id,
-                'name' => 'Poli Umum',
+                'name' => 'General Service',
                 'is_active' => true,
                 'display_in_kiosk' => true,
             ]
         );
 
-        $dentalDepartment = Department::updateOrCreate(
-            ['code' => 'DNT'],
+        $supportDepartment = Department::updateOrCreate(
+            ['code' => 'SUP'],
             [
                 'facility_id' => $facility->id,
-                'name' => 'Poli Gigi',
+                'name' => 'Support Service',
                 'is_active' => true,
                 'display_in_kiosk' => true,
             ]
         );
 
-        // General Department Stations
-        $generalRegistrationStation = Station::firstOrCreate(
-            ['code' => 'GEN-REG'],
+        $intakeStation = Station::firstOrCreate(
+            ['code' => 'GEN-INT'],
             [
                 'department_id' => $generalDepartment->id,
-                'name' => 'Loket Pendaftaran Umum',
-                'type' => StationType::Registration,
+                'name' => 'Intake Counter',
+                'type' => StationType::Intake,
                 'queue_prefix' => 'R',
                 'is_active' => true,
             ]
         );
 
-        $generalNurseStation = Station::firstOrCreate(
-            ['code' => 'GEN-NUR'],
+        $serviceStation = Station::firstOrCreate(
+            ['code' => 'GEN-SVC1'],
             [
                 'department_id' => $generalDepartment->id,
-                'name' => 'Ruang Perawat Umum',
-                'type' => StationType::Nurse,
-                'queue_prefix' => 'N',
+                'name' => 'Service Counter 1',
+                'type' => StationType::Service,
+                'queue_prefix' => 'S1',
                 'is_active' => true,
             ]
         );
 
-        $generalDoctorStation = Station::firstOrCreate(
-            ['code' => 'GEN-DOC1'],
+        $secondServiceStation = Station::firstOrCreate(
+            ['code' => 'GEN-SVC2'],
             [
                 'department_id' => $generalDepartment->id,
-                'name' => 'Ruang Dokter 1',
-                'type' => StationType::Doctor,
-                'queue_prefix' => 'D1',
-                'is_active' => true,
-            ]
-        );
-
-        $generalPharmacyStation = Station::firstOrCreate(
-            ['code' => 'GEN-PHA'],
-            [
-                'department_id' => $generalDepartment->id,
-                'name' => 'Apotek',
-                'type' => StationType::Pharmacy,
-                'queue_prefix' => 'P',
+                'name' => 'Service Counter 2',
+                'type' => StationType::Service,
+                'queue_prefix' => 'S2',
                 'is_active' => true,
             ]
         );
 
         Station::firstOrCreate(
-            ['code' => 'GEN-LAB'],
+            ['code' => 'GEN-CSH'],
             [
                 'department_id' => $generalDepartment->id,
-                'name' => 'Laboratorium',
-                'type' => StationType::Laboratory,
-                'queue_prefix' => 'L',
-                'is_active' => true,
-            ]
-        );
-
-        Station::firstOrCreate(
-            ['code' => 'GEN-BIL'],
-            [
-                'department_id' => $generalDepartment->id,
-                'name' => 'Kasir',
-                'type' => StationType::Billing,
+                'name' => 'Cashier',
+                'type' => StationType::Cashier,
                 'queue_prefix' => 'K',
                 'is_active' => true,
             ]
         );
 
-        // Dental Department Stations
-        $dentalRegistrationStation = Station::firstOrCreate(
-            ['code' => 'DNT-REG'],
+        $supportIntakeStation = Station::firstOrCreate(
+            ['code' => 'SUP-INT'],
             [
-                'department_id' => $dentalDepartment->id,
-                'name' => 'Loket Pendaftaran Gigi',
-                'type' => StationType::Registration,
-                'queue_prefix' => 'RG',
+                'department_id' => $supportDepartment->id,
+                'name' => 'Support Intake',
+                'type' => StationType::Intake,
+                'queue_prefix' => 'P',
                 'is_active' => true,
             ]
         );
 
-        $dentalDoctorStation = Station::firstOrCreate(
-            ['code' => 'DNT-DOC'],
+        $supportServiceStation = Station::firstOrCreate(
+            ['code' => 'SUP-SVC'],
             [
-                'department_id' => $dentalDepartment->id,
-                'name' => 'Ruang Dokter Gigi',
-                'type' => StationType::Doctor,
-                'queue_prefix' => 'DG',
+                'department_id' => $supportDepartment->id,
+                'name' => 'Support Counter',
+                'type' => StationType::Service,
+                'queue_prefix' => 'PS',
                 'is_active' => true,
             ]
         );
 
-        // General Department Workflow
         $generalWorkflow = Workflow::firstOrCreate(
-            [
-                'department_id' => $generalDepartment->id,
-                'name' => 'Workflow Umum',
-            ],
+            ['department_id' => $generalDepartment->id, 'name' => 'General Flow'],
             ['is_active' => true]
         );
 
-        $generalWorkflowSteps = [
-            [
-                'station' => $generalRegistrationStation,
-                'sequence' => 1,
-                'name' => 'Registrasi',
-            ],
-            [
-                'station' => $generalNurseStation,
-                'sequence' => 2,
-                'name' => 'Perawatan',
-            ],
-            [
-                'station' => $generalDoctorStation,
-                'sequence' => 3,
-                'name' => 'Pemeriksaan Dokter',
-            ],
-            [
-                'station' => $generalPharmacyStation,
-                'sequence' => 4,
-                'name' => 'Apotek',
-            ],
-        ];
-
-        foreach ($generalWorkflowSteps as $step) {
+        foreach ([
+            ['station' => $intakeStation, 'sequence' => 1, 'name' => 'Intake'],
+            ['station' => $serviceStation, 'sequence' => 2, 'name' => 'Service'],
+            ['station' => $secondServiceStation, 'sequence' => 3, 'name' => 'Follow-up'],
+        ] as $step) {
             WorkflowStep::firstOrCreate(
                 [
                     'workflow_id' => $generalWorkflow->id,
@@ -180,32 +130,18 @@ class MasterDataSeeder extends Seeder
             );
         }
 
-        // Dental Department Workflow
-        $dentalWorkflow = Workflow::firstOrCreate(
-            [
-                'department_id' => $dentalDepartment->id,
-                'name' => 'Workflow Gigi',
-            ],
+        $supportWorkflow = Workflow::firstOrCreate(
+            ['department_id' => $supportDepartment->id, 'name' => 'Support Flow'],
             ['is_active' => true]
         );
 
-        $dentalWorkflowSteps = [
-            [
-                'station' => $dentalRegistrationStation,
-                'sequence' => 1,
-                'name' => 'Registrasi Gigi',
-            ],
-            [
-                'station' => $dentalDoctorStation,
-                'sequence' => 2,
-                'name' => 'Pemeriksaan Gigi',
-            ],
-        ];
-
-        foreach ($dentalWorkflowSteps as $step) {
+        foreach ([
+            ['station' => $supportIntakeStation, 'sequence' => 1, 'name' => 'Support Intake'],
+            ['station' => $supportServiceStation, 'sequence' => 2, 'name' => 'Support Service'],
+        ] as $step) {
             WorkflowStep::firstOrCreate(
                 [
-                    'workflow_id' => $dentalWorkflow->id,
+                    'workflow_id' => $supportWorkflow->id,
                     'station_id' => $step['station']->id,
                     'sequence' => $step['sequence'],
                 ],

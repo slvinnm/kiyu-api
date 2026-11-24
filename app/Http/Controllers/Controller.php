@@ -25,16 +25,16 @@ abstract class Controller
     }
 
     /**
-     * The authenticated client's own `clients.id`, or `null` when the user is
+     * The authenticated client's own `customers.id`, or `null` when the user is
      * not a client or has not completed onboarding.
      */
-    protected function clientId(Request $request): ?int
+    protected function customerId(Request $request): ?int
     {
         if (! $this->isClient($request)) {
             return null;
         }
 
-        return $request->user()?->client?->id;
+        return $request->user()?->customer?->id;
     }
 
     /**
@@ -43,9 +43,9 @@ abstract class Controller
      * Never read from the request body: a caller must not be able to attribute
      * their work to a colleague in the audit trail or on a ticket.
      */
-    protected function actor(Request $request): ?string
+    protected function actor(Request $request): ?int
     {
-        return $request->user()?->email;
+        return $request->user()?->id;
     }
 
     /**
@@ -92,7 +92,7 @@ abstract class Controller
     /**
      * A validation rule that only accepts a department inside this facility.
      *
-     * `exists:departments,id` alone accepts another clinic's department; the
+     * `exists:departments,id` alone accepts another tenant's department; the
      * services re-check ownership, but a scoped rule turns the mistake into a
      * clear 422 instead of a later 404 or a cross-tenant write attempt.
      */
@@ -118,16 +118,16 @@ abstract class Controller
     /**
      * A validation rule that only accepts a client of the current tenant.
      */
-    protected function clientRule(): Exists
+    protected function customerRule(): Exists
     {
-        return Rule::exists('clients', 'id')->where('tenant_id', $this->tenantId());
+        return Rule::exists('customers', 'id')->where('tenant_id', $this->tenantId());
     }
 
     /**
-     * A validation rule that only accepts a visit of the current tenant.
+     * A validation rule that only accepts a queue session of the current tenant.
      */
-    protected function visitRule(): Exists
+    protected function queueSessionRule(): Exists
     {
-        return Rule::exists('visits', 'id')->where('tenant_id', $this->tenantId());
+        return Rule::exists('queue_sessions', 'id')->where('tenant_id', $this->tenantId());
     }
 }

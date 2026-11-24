@@ -17,7 +17,7 @@ class IntakeController extends Controller
     /**
      * Create a Kiosk walk-in intake.
      *
-     * Priority is never taken from the kiosk request: a patient at a
+     * Priority is never taken from the kiosk request: a customer at a
      * self-service screen must not be able to put themselves at the front of
      * the queue. Triage priority is set by staff.
      */
@@ -57,7 +57,7 @@ class IntakeController extends Controller
             departmentId: (int) $validated['department_id'],
             priority: (int) ($validated['priority'] ?? 1),
             idempotencyKey: $validated['idempotency_key'] ?? null,
-            registeredBy: $this->actor($request),
+            registeredByUserId: $this->actor($request),
         );
 
         return response()->json([
@@ -70,12 +70,12 @@ class IntakeController extends Controller
      * Create an online booking intake.
      *
      * The booking always belongs to the signed-in client's own profile; the
-     * body's `client_id` is ignored. Staff may book on behalf of a client.
+     * body's `customer_id` is ignored. Staff may book on behalf of a client.
      */
     public function online(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'client_id' => ['nullable', 'integer', $this->clientRule()],
+            'customer_id' => ['nullable', 'integer', $this->customerRule()],
             'department_id' => ['required', 'integer', $this->departmentRule()],
             'priority' => ['nullable', 'integer', 'in:1,2,3'],
             'idempotency_key' => ['nullable', 'string', 'max:100'],
@@ -84,20 +84,20 @@ class IntakeController extends Controller
         // A client may only book for their own profile. Staff roles keep the
         // existing ability to book for any client in their tenant.
         if ($this->isClient($request)) {
-            $ownId = $this->clientId($request);
+            $ownId = $this->customerId($request);
 
             abort_if($ownId === null, 403, 'Forbidden.');
 
-            $clientId = $ownId;
+            $customerId = $ownId;
         } else {
-            $clientId = isset($validated['client_id']) ? (int) $validated['client_id'] : null;
+            $customerId = isset($validated['customer_id']) ? (int) $validated['customer_id'] : null;
 
-            abort_if($clientId === null, 422, 'A client_id is required.');
+            abort_if($customerId === null, 422, 'A customer_id is required.');
         }
 
         $result = $this->intakeService->createOnlineBooking(
             tenant: $this->tenant(),
-            clientId: $clientId,
+            customerId: $customerId,
             departmentId: (int) $validated['department_id'],
             priority: (int) ($validated['priority'] ?? 1),
             idempotencyKey: $validated['idempotency_key'] ?? null

@@ -20,21 +20,21 @@ test('the actor on a queue transition comes from the authenticated user', functi
     $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
     $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $intake['acquisition']['id'],
-        'client_id' => $this->sampleClient->id,
+        'customer_id' => $this->sampleCustomer->id,
     ]);
 
-    $ticket = $this->postJson('/api/clinical/call-next', [
-        'station_id' => $this->nurseStation->id,
+    $ticket = $this->postJson('/api/queue/call-next', [
+        'station_id' => $this->serviceStation1->id,
         // A caller cannot attribute the call to someone else.
-        'assigned_to' => 'somebody-else@example.com',
+        'assigned_to_user_id' => 999999,
     ])->json('data');
 
-    expect($ticket['assigned_to'])->toBe($this->adminUser->email);
+    expect($ticket['assigned_to_user_id'])->toBe($this->adminUser->id);
 
     $this->assertDatabaseHas('queue_events', [
         'queue_ticket_id' => $ticket['id'],
         'event_type' => 'CALLED',
-        'user_id' => $this->adminUser->email,
+        'user_id' => $this->adminUser->id,
     ]);
 
     $this->postJson("/api/tickets/{$ticket['id']}/start", [
@@ -44,7 +44,7 @@ test('the actor on a queue transition comes from the authenticated user', functi
     $this->assertDatabaseHas('queue_events', [
         'queue_ticket_id' => $ticket['id'],
         'event_type' => 'STARTED',
-        'user_id' => $this->adminUser->email,
+        'user_id' => $this->adminUser->id,
     ]);
 
     expect($ticket['status'])->toBe(QueueTicketStatus::Called->value);

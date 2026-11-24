@@ -39,7 +39,6 @@ class KioskDeviceController extends Controller
                 'name' => $device->name,
                 'facility_id' => $device->facility_id,
                 'is_active' => $device->is_active,
-                // Lets the admin dashboard show "awaiting pairing" vs "live".
                 'is_paired' => $device->isPaired(),
                 'is_awaiting_pairing' => $device->isAwaitingPairing(),
                 'paired_at' => $device->paired_at?->toIso8601String(),
@@ -70,8 +69,6 @@ class KioskDeviceController extends Controller
             'tenant_id' => $tenant->id,
             'facility_id' => $this->facilityId(),
             'name' => $validated['name'],
-            // A placeholder credential: the device cannot call the kiosk API
-            // until it redeems the pairing code.
             'credential_hash' => $this->pairing->placeholderCredentialHash(),
             'pairing_code_hash' => hash('sha256', $pairingCode),
             'pairing_expires_at' => now()->addMinutes(DevicePairingService::PAIRING_TTL_MINUTES),

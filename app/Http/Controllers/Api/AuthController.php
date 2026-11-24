@@ -26,8 +26,6 @@ class AuthController extends Controller
 
         $user = User::query()->where('email', $validated['email'])->first();
 
-        // Every failure returns the same body and status so a caller cannot
-        // tell a wrong password from an unknown email or an inactive tenant.
         if (! $user
             || ! Hash::check($validated['password'], $user->password)
             || ! $this->accountCanAuthenticate($user)
@@ -48,10 +46,12 @@ class AuthController extends Controller
     }
 
     /**
-     * Register a public client account and issue a Sanctum token.
+     * Self-register a client account inside the resolved tenant.
      *
-     * Registration is deliberately restricted to the client role. Privileged
-     * roles must be provisioned by an administrator, never by public signup.
+     * Registration is tenant-scoped (the tenant comes from the public
+     * locator, never from the payload), only ever creates a `client` account,
+     * and is refused when the tenant has not enabled public registration.
+     * Privileged roles are created by provisioning or invitation, never here.
      */
     public function register(Request $request): JsonResponse
     {
@@ -61,11 +61,20 @@ class AuthController extends Controller
             'password' => ['required', 'string', 'min:8', 'confirmed'],
         ]);
 
-        // Public registration is tenant-scoped: the tenant comes from the
-        // public locator (set by the public-tenant middleware), never from the
-        // payload.
         $tenant = $request->attributes->get('tenant');
         abort_unless($tenant instanceof Tenant, 404, 'Tenant not specified.');
+
+        abort_unless(
+            $tenant->allow_public_registration,
+            403,
+            'This tenant does not allow public registration.',
+        );
+
+        abort_unless(
+            $tenant->status === TenantStatus::Active,
+            403,
+            'This tenant is not active.',
+        );
 
         $user = new User([
             'name' => $validated['name'],
@@ -74,8 +83,6 @@ class AuthController extends Controller
             'role' => UserRole::Client,
         ]);
 
-        // Ownership is derived from the resolved tenant and is never
-        // mass-assignable from a request payload.
         $user->tenant_id = $tenant->id;
         $user->save();
 
@@ -156,15 +163,13 @@ class AuthController extends Controller
      */
     private function userPayload(User $user): array
     {
-        $user->loadMissing(['client', 'tenant']);
+        $user->loadMissing(['customer', 'tenant']);
 
-        // Tenant and facility are exposed so the browser can join the correct
-        // Reverb channel. A tenant has one active facility in V1, so the
-        // facility needs no separate locator.
-        $facility = $user->tenant?->facilities()
-            ->where('is_active', true)
-            ->orderBy('id')
-            ->first();
+        // Every facility the user may act at. A single entry is the implicit
+        // context; several let the browser render a facility switcher.
+        $facilityIds = $user->hasTenantWideAccess()
+            ? $user->tenant?->facilities()->where('is_active', true)->orderBy('id')->pluck('id')->all() ?? []
+            : $user->facilityAssignments()->pluck('facility_id')->all();
 
         return [
             'id' => $user->id,
@@ -172,10 +177,9 @@ class AuthController extends Controller
             'email' => $user->email,
             'role' => $user->role?->value,
             'tenant_id' => $user->tenant_id,
-            'facility_id' => $facility?->id,
-            'department_id' => $user->department_id,
+            'facility_ids' => $facilityIds,
             'station_id' => $user->station_id,
-            'profile' => $user->client,
+            'profile' => $user->customer,
         ];
     }
 }

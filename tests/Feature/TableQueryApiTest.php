@@ -4,12 +4,13 @@ use App\Enums\IntakeChannel;
 use App\Enums\QueueAcquisitionStatus;
 use App\Enums\QueueTicketStatus;
 use App\Models\AuditLog;
-use App\Models\Client;
+use App\Models\Customer;
 use App\Models\Department;
 use App\Models\QueueAcquisition;
+use App\Models\QueueSession;
 use App\Models\QueueTicket;
-use App\Models\Referral;
-use App\Models\Visit;
+use App\Models\ServiceTransfer;
+use App\Models\Station;
 use App\Models\Workflow;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -22,9 +23,9 @@ beforeEach(function () {
 });
 
 test('master data table endpoints paginate by default', function () {
-    Department::create(['facility_id' => $this->facility->id, 'code' => 'POLI_ANAK', 'name' => 'Poli Anak', 'is_active' => true]);
-    Department::create(['facility_id' => $this->facility->id, 'code' => 'POLI_SARAF', 'name' => 'Poli Saraf', 'is_active' => true]);
-    Department::create(['facility_id' => $this->facility->id, 'code' => 'POLI_JANTUNG', 'name' => 'Poli Jantung', 'is_active' => true]);
+    Department::create(['facility_id' => $this->facility->id, 'code' => 'DEPT_ANAK', 'name' => 'Child Service', 'is_active' => true]);
+    Department::create(['facility_id' => $this->facility->id, 'code' => 'DEPT_SARAF', 'name' => 'Neuro Service', 'is_active' => true]);
+    Department::create(['facility_id' => $this->facility->id, 'code' => 'DEPT_JANTUNG', 'name' => 'Heart Service', 'is_active' => true]);
 
     $this->getJson('/api/departments?per_page=2&page=1')
         ->assertOk()
@@ -34,12 +35,14 @@ test('master data table endpoints paginate by default', function () {
         ->assertJsonPath('data.last_page', 3)
         ->assertJsonCount(2, 'data.data');
 
+    $stationCount = Station::query()->count();
+
     $this->getJson('/api/stations?per_page=2&page=1')
         ->assertOk()
-        ->assertJsonPath('data.total', 7)
+        ->assertJsonPath('data.total', $stationCount)
         ->assertJsonPath('data.per_page', 2)
         ->assertJsonPath('data.current_page', 1)
-        ->assertJsonPath('data.last_page', 4)
+        ->assertJsonPath('data.last_page', (int) ceil($stationCount / 2))
         ->assertJsonCount(2, 'data.data');
 
     Workflow::create([
@@ -61,54 +64,53 @@ test('master data options endpoints return the full lightweight list', function 
     $this->getJson('/api/departments/options')
         ->assertOk()
         ->assertJsonCount(2, 'data')
-        ->assertJsonPath('data.0.code', 'POLI_GIGI')
         ->assertJsonStructure(['data' => [['id', 'code', 'name', 'is_active', 'display_in_kiosk']]]);
 
     $this->getJson('/api/stations/options')
         ->assertOk()
-        ->assertJsonCount(7, 'data')
+        ->assertJsonCount(Station::query()->count(), 'data')
         ->assertJsonStructure(['data' => [['id', 'department_id', 'code', 'name', 'type', 'is_active']]]);
 
-    $this->getJson("/api/stations/options?department_id={$this->dentalDepartment->id}")
+    $this->getJson("/api/stations/options?department_id={$this->supportDepartment->id}")
         ->assertOk()
         ->assertJsonCount(2, 'data');
 
-    $this->getJson('/api/stations/options?type=NURSE')
+    $this->getJson('/api/stations/options?type=CASHIER')
         ->assertOk()
         ->assertJsonCount(1, 'data')
-        ->assertJsonPath('data.0.code', 'NUR-01');
+        ->assertJsonPath('data.0.code', 'CSH-01');
 });
 
 test('statistics endpoints return aggregate counts', function () {
-    Client::factory()->count(3)->create(['tenant_id' => $this->tenant->id]);
-    Visit::factory()->create([
+    Customer::factory()->count(3)->create(['tenant_id' => $this->tenant->id]);
+    QueueSession::factory()->create([
         'tenant_id' => $this->tenant->id,
         'facility_id' => $this->facility->id,
-        'client_id' => $this->sampleClient->id,
+        'customer_id' => $this->sampleCustomer->id,
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
-        'visit_number' => 'V-STATS-0001',
-        'visit_token' => (string) Str::uuid(),
+        'session_number' => 'V-STATS-0001',
+        'tracking_token' => (string) Str::uuid(),
     ]);
 
     $this->getJson('/api/workflows/statistics')
         ->assertOk()
         ->assertJsonPath('data.total', 2);
 
-    $this->getJson('/api/clients/statistics')
+    $this->getJson('/api/customers/statistics')
         ->assertOk()
         ->assertJsonPath('data.total', 4);
 
-    $this->getJson('/api/visits/statistics')
+    $this->getJson('/api/queue-sessions/statistics')
         ->assertOk()
         ->assertJsonPath('data.total', 1);
 
-    $this->getJson('/api/visits/statistics?status=CANCELLED')
+    $this->getJson('/api/queue-sessions/statistics?status=CANCELLED')
         ->assertOk()
         ->assertJsonPath('data.total', 0);
 
     QueueTicket::factory()->create([
-        'visit_id' => Visit::query()->firstOrFail()->id,
+        'queue_session_id' => QueueSession::query()->firstOrFail()->id,
         'workflow_step_id' => $this->regStep->id,
         'station_id' => $this->registrationStation->id,
         'status' => QueueTicketStatus::Created,
@@ -134,15 +136,15 @@ test('per page is clamped between one and one hundred', function () {
 });
 
 test('department search matches code and name', function () {
-    $this->getJson('/api/departments?search=Gigi')
+    $this->getJson('/api/departments?search=Support')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
-        ->assertJsonPath('data.data.0.code', 'POLI_GIGI');
+        ->assertJsonPath('data.data.0.code', 'SUP');
 
-    $this->getJson('/api/departments?search=POLI_UMUM')
+    $this->getJson('/api/departments?search=General')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
-        ->assertJsonPath('data.data.0.code', 'POLI_UMUM');
+        ->assertJsonPath('data.data.0.code', 'GEN');
 
     $this->getJson('/api/departments?search=%20%20')
         ->assertOk()
@@ -150,79 +152,74 @@ test('department search matches code and name', function () {
 });
 
 test('station search matches own columns and related department name', function () {
-    $this->getJson('/api/stations?search=Perawat')
+    $this->getJson('/api/stations?search=Cashier')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
-        ->assertJsonPath('data.data.0.code', 'NUR-01');
+        ->assertJsonPath('data.data.0.code', 'CSH-01');
 
-    $this->getJson('/api/stations?search=NURSE')
-        ->assertOk()
-        ->assertJsonPath('data.total', 1)
-        ->assertJsonPath('data.data.0.code', 'NUR-01');
-
-    $this->getJson('/api/stations?search=Poli%20Gigi')
+    $this->getJson('/api/stations?search=Support')
         ->assertOk()
         ->assertJsonPath('data.total', 2);
 });
 
 test('workflow search matches name and related department name', function () {
-    $this->getJson('/api/workflows?search=Gigi')
+    $this->getJson('/api/workflows?search=Support')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
-        ->assertJsonPath('data.data.0.name', 'Alur Rawat Gigi');
+        ->assertJsonPath('data.data.0.name', 'Support Flow');
 
-    $this->getJson('/api/workflows?search=Poli%20Umum')
+    $this->getJson('/api/workflows?search=General')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
-        ->assertJsonPath('data.data.0.name', 'Alur Rawat Jalan Umum');
+        ->assertJsonPath('data.data.0.name', 'General Flow');
 });
 
 test('visit search matches visit number and client identity', function () {
-    $otherClient = Client::factory()->create(['tenant_id' => $this->tenant->id, 'name' => 'Siti Aminah', 'mrn' => 'MRN-20002', 'nik' => '3201010101900002']);
+    $otherCustomer = Customer::factory()->create(['tenant_id' => $this->tenant->id, 'name' => 'Siti Aminah', 'phone' => '081200000002']);
 
-    $budiVisit = Visit::factory()->create([
-        'client_id' => $this->sampleClient->id,
+    $budiVisit = QueueSession::factory()->create([
+        'customer_id' => $this->sampleCustomer->id,
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
-        'visit_number' => 'V-TEST-0001',
-        'visit_token' => (string) Str::uuid(),
+        'session_number' => 'V-TEST-0001',
+        'tracking_token' => (string) Str::uuid(),
     ]);
 
-    Visit::factory()->create([
-        'client_id' => $otherClient->id,
-        'department_id' => $this->dentalDepartment->id,
-        'workflow_id' => $this->dentalWorkflow->id,
-        'visit_number' => 'V-TEST-0002',
-        'visit_token' => (string) Str::uuid(),
+    QueueSession::factory()->create([
+        'customer_id' => $otherCustomer->id,
+        'department_id' => $this->supportDepartment->id,
+        'workflow_id' => $this->supportWorkflow->id,
+        'session_number' => 'V-TEST-0002',
+        'tracking_token' => (string) Str::uuid(),
     ]);
 
-    $this->getJson('/api/visits?search=V-TEST-0001')
+    $this->getJson('/api/queue-sessions?search=V-TEST-0001')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
         ->assertJsonPath('data.data.0.id', $budiVisit->id);
 
-    $this->getJson('/api/visits?search=Budi')
+    $this->getJson('/api/queue-sessions?search=Budi')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
         ->assertJsonPath('data.data.0.id', $budiVisit->id);
 
-    $this->getJson('/api/visits?search=MRN-20002')
+    $this->getJson('/api/queue-sessions?search=081200000002')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
-        ->assertJsonPath('data.data.0.client_id', $otherClient->id);
+        ->assertJsonPath('data.data.0.customer_id', $otherCustomer->id);
 });
 
 test('ticket search matches queue number and client name', function () {
-    $visit = Visit::factory()->create([
-        'client_id' => $this->sampleClient->id,
+    $visit = QueueSession::factory()->create([
+        'customer_id' => $this->sampleCustomer->id,
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
-        'visit_number' => 'V-TEST-0001',
-        'visit_token' => (string) Str::uuid(),
+        'session_number' => 'V-TEST-0001',
+        'tracking_token' => (string) Str::uuid(),
     ]);
 
     QueueTicket::factory()->create([
-        'visit_id' => $visit->id,
+        'queue_session_id' => $visit->id,
         'workflow_step_id' => $this->regStep->id,
         'station_id' => $this->registrationStation->id,
         'queue_number' => 'R900',
@@ -230,16 +227,16 @@ test('ticket search matches queue number and client name', function () {
     ]);
 
     QueueTicket::factory()->create([
-        'visit_id' => Visit::factory()->create([
+        'queue_session_id' => QueueSession::factory()->create([
             'tenant_id' => $this->tenant->id,
             'facility_id' => $this->facility->id,
             'department_id' => $this->generalDepartment->id,
             'workflow_id' => $this->generalWorkflow->id,
-            'visit_number' => 'V-TEST-0002',
-            'visit_token' => (string) Str::uuid(),
+            'session_number' => 'V-TEST-0002',
+            'tracking_token' => (string) Str::uuid(),
         ])->id,
-        'workflow_step_id' => $this->docStep->id,
-        'station_id' => $this->doctorStation1->id,
+        'workflow_step_id' => $this->serviceStep2->id,
+        'station_id' => $this->serviceStation1->id,
         'queue_number' => 'D900',
         'status' => QueueTicketStatus::Created,
     ]);
@@ -255,48 +252,48 @@ test('ticket search matches queue number and client name', function () {
         ->assertJsonPath('data.data.0.queue_number', 'R900');
 });
 
-test('referral search matches reason and source client identity', function () {
-    $otherClient = Client::factory()->create(['tenant_id' => $this->tenant->id, 'name' => 'Siti Aminah', 'mrn' => 'MRN-20002']);
+test('service transfer search matches reason and source client identity', function () {
+    $otherCustomer = Customer::factory()->create(['tenant_id' => $this->tenant->id, 'name' => 'Siti Aminah', 'phone' => '081200000002']);
 
-    $budiVisit = Visit::factory()->create([
-        'client_id' => $this->sampleClient->id,
+    $budiVisit = QueueSession::factory()->create([
+        'customer_id' => $this->sampleCustomer->id,
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
-        'visit_number' => 'V-TEST-0001',
-        'visit_token' => (string) Str::uuid(),
+        'session_number' => 'V-TEST-0001',
+        'tracking_token' => (string) Str::uuid(),
     ]);
 
-    $otherVisit = Visit::factory()->create([
-        'client_id' => $otherClient->id,
+    $otherVisit = QueueSession::factory()->create([
+        'customer_id' => $otherCustomer->id,
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
-        'visit_number' => 'V-TEST-0002',
-        'visit_token' => (string) Str::uuid(),
+        'session_number' => 'V-TEST-0002',
+        'tracking_token' => (string) Str::uuid(),
     ]);
 
-    Referral::create([
-        'source_visit_id' => $budiVisit->id,
-        'target_department_id' => $this->dentalDepartment->id,
-        'reason' => 'Client needs dental extraction',
+    ServiceTransfer::create([
+        'source_queue_session_id' => $budiVisit->id,
+        'target_department_id' => $this->supportDepartment->id,
+        'reason' => 'Customer needs support',
     ]);
 
-    Referral::create([
-        'source_visit_id' => $otherVisit->id,
-        'target_department_id' => $this->dentalDepartment->id,
+    ServiceTransfer::create([
+        'source_queue_session_id' => $otherVisit->id,
+        'target_department_id' => $this->supportDepartment->id,
         'reason' => 'Routine cleaning',
     ]);
 
-    $this->getJson('/api/referrals?search=extraction')
+    $this->getJson('/api/service-transfers?search=support')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
-        ->assertJsonPath('data.data.0.reason', 'Client needs dental extraction');
+        ->assertJsonPath('data.data.0.reason', 'Customer needs support');
 
-    $this->getJson('/api/referrals?search=Budi')
+    $this->getJson('/api/service-transfers?search=Budi')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
-        ->assertJsonPath('data.data.0.reason', 'Client needs dental extraction');
+        ->assertJsonPath('data.data.0.reason', 'Customer needs support');
 
-    $this->getJson('/api/referrals?search=MRN-20002')
+    $this->getJson('/api/service-transfers?search=081200000002')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
         ->assertJsonPath('data.data.0.reason', 'Routine cleaning');
@@ -305,10 +302,10 @@ test('referral search matches reason and source client identity', function () {
 test('audit log search matches action entity user and ip', function () {
     AuditLog::create([
         'tenant_id' => $this->tenant->id,
-        'action' => 'VISIT_PRIORITY_CHANGED',
-        'entity_type' => 'visit',
+        'action' => 'QUEUE_SESSION_PRIORITY_CHANGED',
+        'entity_type' => 'queue_session',
         'entity_id' => '1',
-        'user_id' => 'admin-carol',
+        'user_id' => $this->adminUser->id,
         'ip_address' => '10.0.0.1',
     ]);
 
@@ -317,20 +314,20 @@ test('audit log search matches action entity user and ip', function () {
         'action' => 'TICKET_CALLED',
         'entity_type' => 'queue_ticket',
         'entity_id' => '2',
-        'user_id' => 'nurse-bob',
+        'user_id' => $this->adminUser->id,
         'ip_address' => '10.0.0.2',
     ]);
 
     AuditLog::create([
         'tenant_id' => $this->tenant->id,
-        'action' => 'CLIENT_CREATED',
-        'entity_type' => 'client',
+        'action' => 'CUSTOMER_CREATED',
+        'entity_type' => 'customer',
         'entity_id' => '3',
-        'user_id' => 'receptionist-1',
+        'user_id' => $this->adminUser->id,
         'ip_address' => '192.168.1.5',
     ]);
 
-    $this->getJson('/api/audit-logs?search=VISIT_PRIORITY')
+    $this->getJson('/api/audit-logs?search=QUEUE_SESSION_PRIORITY')
         ->assertOk()
         ->assertJsonPath('data.total', 1);
 
@@ -338,7 +335,7 @@ test('audit log search matches action entity user and ip', function () {
         ->assertOk()
         ->assertJsonPath('data.total', 1);
 
-    $this->getJson('/api/audit-logs?search=nurse-bob')
+    $this->getJson('/api/audit-logs?search=QUEUE_SESSION_PRIORITY')
         ->assertOk()
         ->assertJsonPath('data.total', 1);
 
@@ -350,66 +347,66 @@ test('audit log search matches action entity user and ip', function () {
 test('allowed sort columns order results descending', function () {
     $this->getJson('/api/departments?sort=name&direction=desc')
         ->assertOk()
-        ->assertJsonPath('data.data.0.name', 'Poli Umum')
-        ->assertJsonPath('data.data.1.name', 'Poli Gigi');
+        ->assertJsonPath('data.data.0.name', 'Support Service')
+        ->assertJsonPath('data.data.1.name', 'General Service');
 
     $this->getJson('/api/stations?sort=code&direction=desc')
         ->assertOk()
-        ->assertJsonPath('data.data.0.code', 'REG-GIGI');
+        ->assertJsonPath('data.data.0.code', 'SVC-02');
 
     $this->getJson('/api/workflows?sort=name&direction=desc')
         ->assertOk()
-        ->assertJsonPath('data.data.0.name', 'Alur Rawat Jalan Umum')
-        ->assertJsonPath('data.data.1.name', 'Alur Rawat Gigi');
+        ->assertJsonPath('data.data.0.name', 'Support Flow')
+        ->assertJsonPath('data.data.1.name', 'General Flow');
 
-    $visitA = Visit::factory()->create([
+    $sessionA = QueueSession::factory()->create([
         'tenant_id' => $this->tenant->id,
         'facility_id' => $this->facility->id,
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
-        'visit_number' => 'V-TEST-0001',
-        'visit_token' => (string) Str::uuid(),
+        'session_number' => 'V-TEST-0001',
+        'tracking_token' => (string) Str::uuid(),
     ]);
-    $visitB = Visit::factory()->create([
+    $sessionB = QueueSession::factory()->create([
         'tenant_id' => $this->tenant->id,
         'facility_id' => $this->facility->id,
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
-        'visit_number' => 'V-TEST-0002',
-        'visit_token' => (string) Str::uuid(),
+        'session_number' => 'V-TEST-0002',
+        'tracking_token' => (string) Str::uuid(),
     ]);
 
-    $this->getJson('/api/visits?sort=visit_number&direction=desc')
+    $this->getJson('/api/queue-sessions?sort=session_number&direction=desc')
         ->assertOk()
-        ->assertJsonPath('data.data.0.id', $visitB->id)
-        ->assertJsonPath('data.data.1.id', $visitA->id);
+        ->assertJsonPath('data.data.0.id', $sessionB->id)
+        ->assertJsonPath('data.data.1.id', $sessionA->id);
 
-    $referralA = Referral::create([
-        'source_visit_id' => $visitA->id,
-        'target_department_id' => $this->dentalDepartment->id,
+    $transferA = ServiceTransfer::create([
+        'source_queue_session_id' => $sessionA->id,
+        'target_department_id' => $this->supportDepartment->id,
         'reason' => 'First',
     ]);
-    $referralB = Referral::create([
-        'source_visit_id' => $visitB->id,
-        'target_department_id' => $this->dentalDepartment->id,
+    $transferB = ServiceTransfer::create([
+        'source_queue_session_id' => $sessionB->id,
+        'target_department_id' => $this->supportDepartment->id,
         'reason' => 'Second',
     ]);
 
-    $this->getJson('/api/referrals?sort=id&direction=desc')
+    $this->getJson('/api/service-transfers?sort=id&direction=desc')
         ->assertOk()
-        ->assertJsonPath('data.data.0.id', $referralB->id)
-        ->assertJsonPath('data.data.1.id', $referralA->id);
+        ->assertJsonPath('data.data.0.id', $transferB->id)
+        ->assertJsonPath('data.data.1.id', $transferA->id);
 
     AuditLog::create([
         'tenant_id' => $this->tenant->id,
         'action' => 'A_FIRST',
-        'entity_type' => 'visit',
+        'entity_type' => 'queue_session',
         'entity_id' => '1',
     ]);
     $lastLog = AuditLog::create([
         'tenant_id' => $this->tenant->id,
         'action' => 'Z_LAST',
-        'entity_type' => 'visit',
+        'entity_type' => 'queue_session',
         'entity_id' => '2',
     ]);
 
@@ -419,7 +416,7 @@ test('allowed sort columns order results descending', function () {
 });
 
 test('unknown sort columns are ignored instead of failing', function () {
-    foreach (['/api/departments', '/api/stations', '/api/workflows', '/api/visits', '/api/tickets', '/api/referrals', '/api/audit-logs'] as $endpoint) {
+    foreach (['/api/departments', '/api/stations', '/api/workflows', '/api/queue-sessions', '/api/tickets', '/api/service-transfers', '/api/audit-logs'] as $endpoint) {
         $this->getJson("{$endpoint}?sort=bogus&direction=desc")
             ->assertOk();
     }
@@ -430,14 +427,14 @@ test('array valued query params are rejected with a validation error', function 
         ->assertUnprocessable()
         ->assertJsonValidationErrors($param);
 })->with([
-    ['/api/clients', 'search'],
-    ['/api/visits', 'search'],
-    ['/api/visits', 'status'],
-    ['/api/visits', 'date'],
+    ['/api/customers', 'search'],
+    ['/api/queue-sessions', 'search'],
+    ['/api/queue-sessions', 'status'],
+    ['/api/queue-sessions', 'date'],
     ['/api/tickets', 'search'],
     ['/api/tickets', 'status'],
     ['/api/tickets', 'date'],
-    ['/api/referrals', 'status'],
+    ['/api/service-transfers', 'status'],
     ['/api/audit-logs', 'search'],
     ['/api/audit-logs', 'user_id'],
     ['/api/departments', 'search'],
@@ -451,27 +448,27 @@ test('invalid enum and date filters return a validation error', function (string
         ->assertUnprocessable()
         ->assertJsonValidationErrors($param);
 })->with([
-    ['/api/visits?status=BOGUS', 'status'],
-    ['/api/visits?date=not-a-date', 'date'],
+    ['/api/queue-sessions?status=BOGUS', 'status'],
+    ['/api/queue-sessions?date=not-a-date', 'date'],
     ['/api/tickets?status=BOGUS', 'status'],
     ['/api/tickets?priority=9', 'priority'],
-    ['/api/referrals?status=BOGUS', 'status'],
+    ['/api/service-transfers?status=BOGUS', 'status'],
     ['/api/stations?type=BOGUS', 'type'],
     ['/api/users?role=BOGUS', 'role'],
 ]);
 
 test('queue acquisitions paginate by default', function () {
-    $visit = Visit::factory()->create([
+    $visit = QueueSession::factory()->create([
         'tenant_id' => $this->tenant->id,
         'facility_id' => $this->facility->id,
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
-        'visit_number' => 'V-ACQ-0001',
-        'visit_token' => (string) Str::uuid(),
+        'session_number' => 'V-ACQ-0001',
+        'tracking_token' => (string) Str::uuid(),
     ]);
 
     QueueAcquisition::create([
-        'visit_id' => $visit->id,
+        'queue_session_id' => $visit->id,
         'tenant_id' => $this->tenant->id,
         'department_id' => $this->generalDepartment->id,
         'channel' => IntakeChannel::Manual,
@@ -482,58 +479,58 @@ test('queue acquisitions paginate by default', function () {
         ->assertOk()
         ->assertJsonPath('data.total', 1)
         ->assertJsonPath('data.per_page', 1)
-        ->assertJsonPath('data.data.0.visit_id', $visit->id);
+        ->assertJsonPath('data.data.0.queue_session_id', $visit->id);
 });
 
 test('a visit exposes its active acquisition through a dedicated endpoint', function () {
-    $visit = Visit::factory()->create([
+    $visit = QueueSession::factory()->create([
         'tenant_id' => $this->tenant->id,
         'facility_id' => $this->facility->id,
         'department_id' => $this->generalDepartment->id,
         'workflow_id' => $this->generalWorkflow->id,
-        'visit_number' => 'V-ACQ-0002',
-        'visit_token' => (string) Str::uuid(),
+        'session_number' => 'V-ACQ-0002',
+        'tracking_token' => (string) Str::uuid(),
     ]);
 
     $acquisition = QueueAcquisition::create([
-        'visit_id' => $visit->id,
+        'queue_session_id' => $visit->id,
         'tenant_id' => $this->tenant->id,
         'department_id' => $this->generalDepartment->id,
         'channel' => IntakeChannel::Manual,
         'status' => QueueAcquisitionStatus::Acquired,
     ]);
 
-    $this->getJson("/api/visits/{$visit->id}/acquisition")
+    $this->getJson("/api/queue-sessions/{$visit->id}/acquisition")
         ->assertOk()
         ->assertJsonPath('data.id', $acquisition->id);
 
     $acquisition->update(['status' => QueueAcquisitionStatus::Registered]);
 
-    $this->getJson("/api/visits/{$visit->id}/acquisition")
+    $this->getJson("/api/queue-sessions/{$visit->id}/acquisition")
         ->assertOk()
         ->assertJsonPath('data', null);
 });
 
 test('client visit history and station queue are paginated', function () {
-    $client = Client::query()->create([
+    $client = Customer::query()->create([
         'tenant_id' => $this->tenant->id,
-        'mrn' => 'MRN-PAGE-1',
+        'phone' => '081200000001',
         'name' => 'Paged Client',
     ]);
 
     foreach (range(1, 3) as $i) {
-        Visit::factory()->create([
+        QueueSession::factory()->create([
             'tenant_id' => $this->tenant->id,
             'facility_id' => $this->facility->id,
-            'client_id' => $client->id,
+            'customer_id' => $client->id,
             'department_id' => $this->generalDepartment->id,
             'workflow_id' => $this->generalWorkflow->id,
-            'visit_number' => "V-PAGE-000{$i}",
-            'visit_token' => (string) Str::uuid(),
+            'session_number' => "V-PAGE-000{$i}",
+            'tracking_token' => (string) Str::uuid(),
         ]);
     }
 
-    $this->getJson("/api/clients/{$client->id}/visits?per_page=2")
+    $this->getJson("/api/customers/{$client->id}/queue-sessions?per_page=2")
         ->assertOk()
         ->assertJsonPath('data.total', 3)
         ->assertJsonPath('data.per_page', 2)

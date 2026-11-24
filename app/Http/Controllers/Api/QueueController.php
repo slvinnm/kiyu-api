@@ -4,18 +4,18 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\QueueTicket;
-use App\Services\ClinicalQueueService;
+use App\Services\QueueService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-class ClinicalQueueController extends Controller
+class QueueController extends Controller
 {
     public function __construct(
-        public ClinicalQueueService $clinicalQueueService
+        public QueueService $queueService
     ) {}
 
     /**
-     * Call next queue ticket for a clinical station.
+     * Call next queue ticket for a station.
      */
     public function callNext(Request $request): JsonResponse
     {
@@ -23,10 +23,10 @@ class ClinicalQueueController extends Controller
             'station_id' => ['required', 'integer', $this->stationRule()],
         ]);
 
-        $ticket = $this->clinicalQueueService->callNext(
+        $ticket = $this->queueService->callNext(
             tenant: $this->tenant(),
             stationId: (int) $validated['station_id'],
-            assignedTo: $this->actor($request),
+            userId: $this->actor($request),
         );
 
         if (! $ticket) {
@@ -50,26 +50,26 @@ class ClinicalQueueController extends Controller
         $ticket = $this->findTicket($id);
         $userId = $this->actor($request);
 
-        $result = $this->clinicalQueueService->recall($ticket, $userId);
+        $result = $this->queueService->recall($ticket, $userId);
 
         return response()->json([
-            'message' => "Ticket {$result->queue_number} recalled for clinical station.",
+            'message' => "Ticket {$result->queue_number} recalled for station.",
             'data' => $result,
         ]);
     }
 
     /**
-     * Start clinical service for a ticket.
+     * Start service for a ticket.
      */
     public function start(Request $request, int $id): JsonResponse
     {
         $ticket = $this->findTicket($id);
         $userId = $this->actor($request);
 
-        $result = $this->clinicalQueueService->start($ticket, $userId);
+        $result = $this->queueService->start($ticket, $userId);
 
         return response()->json([
-            'message' => "Service started for ticket {$result->queue_number}. Visit is now in progress.",
+            'message' => "Service started for ticket {$result->queue_number}. QueueSession is now in progress.",
             'data' => $result,
         ]);
     }
@@ -83,7 +83,7 @@ class ClinicalQueueController extends Controller
         $notes = $request->input('notes');
         $userId = $this->actor($request);
 
-        $result = $this->clinicalQueueService->hold($ticket, $notes, $userId);
+        $result = $this->queueService->hold($ticket, $notes, $userId);
 
         return response()->json([
             'message' => "Ticket {$result->queue_number} placed on hold.",
@@ -99,7 +99,7 @@ class ClinicalQueueController extends Controller
         $ticket = $this->findTicket($id);
         $userId = $this->actor($request);
 
-        $result = $this->clinicalQueueService->resume($ticket, $userId);
+        $result = $this->queueService->resume($ticket, $userId);
 
         return response()->json([
             'message' => "Ticket {$result->queue_number} resumed to CALLED status.",
@@ -116,7 +116,7 @@ class ClinicalQueueController extends Controller
         $notes = $request->input('notes');
         $userId = $this->actor($request);
 
-        $result = $this->clinicalQueueService->complete($ticket, $notes, $userId);
+        $result = $this->queueService->complete($ticket, $notes, $userId);
 
         return response()->json([
             'message' => "Ticket {$ticket->queue_number} completed.",
@@ -133,7 +133,7 @@ class ClinicalQueueController extends Controller
         $notes = $request->input('notes');
         $userId = $this->actor($request);
 
-        $result = $this->clinicalQueueService->skip($ticket, $notes, $userId);
+        $result = $this->queueService->skip($ticket, $notes, $userId);
 
         return response()->json([
             'message' => "Ticket {$result->queue_number} marked as skipped.",
@@ -150,7 +150,7 @@ class ClinicalQueueController extends Controller
         $notes = $request->input('notes');
         $userId = $this->actor($request);
 
-        $result = $this->clinicalQueueService->noShow($ticket, $notes, $userId);
+        $result = $this->queueService->noShow($ticket, $notes, $userId);
 
         return response()->json([
             'message' => "Ticket {$result->queue_number} marked as no-show.",
@@ -167,7 +167,7 @@ class ClinicalQueueController extends Controller
         $notes = $request->input('notes');
         $userId = $this->actor($request);
 
-        $result = $this->clinicalQueueService->cancelTicket($ticket, $notes, $userId);
+        $result = $this->queueService->cancelTicket($ticket, $notes, $userId);
 
         return response()->json([
             'message' => "Ticket {$result->queue_number} cancelled.",
@@ -187,7 +187,7 @@ class ClinicalQueueController extends Controller
 
         $ticket = $this->findTicket($id);
 
-        $result = $this->clinicalQueueService->transfer(
+        $result = $this->queueService->transfer(
             tenant: $this->tenant(),
             ticket: $ticket,
             targetStationId: (int) $validated['target_station_id'],
@@ -207,7 +207,7 @@ class ClinicalQueueController extends Controller
     private function findTicket(int $id): QueueTicket
     {
         return QueueTicket::query()
-            ->whereHas('visit', fn($q) => $q->where('tenant_id', $this->tenantId()))
+            ->whereHas('queueSession', fn($q) => $q->where('tenant_id', $this->tenantId()))
             ->findOrFail($id);
     }
 }

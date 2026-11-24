@@ -27,7 +27,7 @@ class ReceptionController extends Controller
             tenant: $this->tenant(),
             departmentId: (int) $validated['department_id'],
             stationId: isset($validated['station_id']) ? (int) $validated['station_id'] : null,
-            actor: $request->user()?->email
+            actor: $request->user()?->id
         );
 
         return response()->json([
@@ -49,7 +49,7 @@ class ReceptionController extends Controller
         $ticket = $this->receptionService->callNext(
             tenant: $this->tenant(),
             departmentId: (int) $validated['department_id'],
-            assignedTo: $this->actor($request),
+            userId: $this->actor($request),
             stationId: isset($validated['station_id']) ? (int) $validated['station_id'] : null
         );
 
@@ -73,30 +73,26 @@ class ReceptionController extends Controller
     {
         $validated = $request->validate([
             'acquisition_id' => ['required', 'integer', 'exists:queue_acquisitions,id'],
-            'client_id' => ['nullable', 'integer', $this->clientRule()],
-            'client_data' => ['nullable', 'array'],
-            'client_data.name' => ['required_with:client_data', 'string', 'max:255'],
-            'client_data.nik' => ['nullable', 'string', 'max:50'],
-            'client_data.mrn' => ['nullable', 'string', 'max:50'],
-            'client_data.date_of_birth' => ['nullable', 'date'],
-            'client_data.gender' => ['nullable', 'string'],
-            'client_data.phone' => ['nullable', 'string'],
-            'client_data.email' => ['nullable', 'email'],
-            'client_data.address' => ['nullable', 'string'],
+            'customer_id' => ['nullable', 'integer', $this->customerRule()],
+            'customer_data' => ['nullable', 'array'],
+            'customer_data.name' => ['required_with:customer_data', 'string', 'max:255'],
+            'customer_data.phone' => ['nullable', 'string'],
+            'customer_data.email' => ['nullable', 'email'],
+            'customer_data.address' => ['nullable', 'string'],
             'priority' => ['nullable', 'integer', 'in:1,2,3'],
         ]);
 
         $result = $this->receptionService->completeRegistration(
             tenant: $this->tenant(),
             acquisitionId: (int) $validated['acquisition_id'],
-            clientId: isset($validated['client_id']) ? (int) $validated['client_id'] : null,
-            clientData: $validated['client_data'] ?? null,
+            customerId: isset($validated['customer_id']) ? (int) $validated['customer_id'] : null,
+            customerData: $validated['customer_data'] ?? null,
             priority: isset($validated['priority']) ? (int) $validated['priority'] : null,
-            registeredBy: $this->actor($request),
+            userId: $this->actor($request),
         );
 
         return response()->json([
-            'message' => 'Registration completed successfully and clinical ticket created.',
+            'message' => 'Registration completed successfully and queue ticket created.',
             'data' => $result,
         ]);
     }
@@ -109,7 +105,7 @@ class ReceptionController extends Controller
         $ticket = $this->receptionService->recall(
             tenant: $this->tenant(),
             ticketId: $id,
-            assignedTo: $this->actor($request),
+            userId: $this->actor($request),
         );
 
         return response()->json([

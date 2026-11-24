@@ -2,8 +2,8 @@
 
 namespace App\Services;
 
+use App\Models\QueueSession;
 use App\Models\QueueTicket;
-use App\Models\Visit;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\LazyCollection;
 
@@ -20,30 +20,30 @@ class ReportService
      *
      * @return array<string, mixed>
      */
-    public function visitSummary(int $tenantId, int $facilityId, Carbon $from, Carbon $to, ?array $period = null): array
+    public function sessionSummary(int $tenantId, int $facilityId, Carbon $from, Carbon $to, ?array $period = null): array
     {
-        $visits = Visit::query()
+        $sessions = QueueSession::query()
             ->where('tenant_id', $tenantId)
             ->where('facility_id', $facilityId)
             ->whereBetween('created_at', [$from, $to]);
 
-        $byStatus = (clone $visits)
+        $byStatus = (clone $sessions)
             ->selectRaw('status, COUNT(*) AS total')
             ->groupBy('status')
             ->pluck('total', 'status');
 
-        $byChannel = (clone $visits)
+        $byChannel = (clone $sessions)
             ->selectRaw('intake_channel, COUNT(*) AS total')
             ->groupBy('intake_channel')
             ->pluck('total', 'intake_channel');
 
-        $total = (clone $visits)->count();
+        $total = (clone $sessions)->count();
         $completed = (int) ($byStatus['COMPLETED'] ?? 0);
 
         return [
             'period' => $period ?? ['from' => $from->toDateString(), 'to' => $to->toDateString()],
-            'total_visits' => $total,
-            'completed_visits' => $completed,
+            'total_sessions' => $total,
+            'completed_sessions' => $completed,
             'completion_rate' => $total > 0 ? round($completed / $total * 100, 1) : 0.0,
             'by_status' => $byStatus,
             'by_channel' => $byChannel,
@@ -59,7 +59,7 @@ class ReportService
     public function queueSummary(int $tenantId, int $facilityId, Carbon $from, Carbon $to, ?array $period = null): array
     {
         $tickets = QueueTicket::query()
-            ->whereHas('visit', fn($query) => $query
+            ->whereHas('queueSession', fn($query) => $query
                 ->where('tenant_id', $tenantId)
                 ->where('facility_id', $facilityId))
             ->whereBetween('created_at', [$from, $to]);
@@ -94,15 +94,15 @@ class ReportService
     /**
      * Rows for the visit CSV export.
      *
-     * @return LazyCollection<int, Visit>
+     * @return LazyCollection<int, QueueSession>
      */
-    public function visitRows(int $tenantId, int $facilityId, Carbon $from, Carbon $to): LazyCollection
+    public function sessionRows(int $tenantId, int $facilityId, Carbon $from, Carbon $to): LazyCollection
     {
-        return Visit::query()
+        return QueueSession::query()
             ->where('tenant_id', $tenantId)
             ->where('facility_id', $facilityId)
             ->whereBetween('created_at', [$from, $to])
-            ->with(['client:id,name,mrn', 'department:id,code,name'])
+            ->with(['customer:id,name,phone', 'department:id,code,name'])
             ->orderBy('id')
             ->lazyById();
     }
@@ -114,7 +114,7 @@ class ReportService
     {
         // Aggregated in SQL: loading every visit just to average two columns
         // grows linearly with the reporting range.
-        $average = Visit::query()
+        $average = QueueSession::query()
             ->where('tenant_id', $tenantId)
             ->where('facility_id', $facilityId)
             ->whereNotNull('checked_in_at')

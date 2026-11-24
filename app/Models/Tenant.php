@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\TenantStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Tenant extends Model
@@ -25,6 +26,8 @@ class Tenant extends Model
         'contact_email',
         'contact_phone',
         'timezone',
+        'allow_public_registration',
+        'owner_user_id',
     ];
 
     /**
@@ -45,6 +48,14 @@ class Tenant extends Model
     }
 
     /**
+     * Get the canonical owner of the tenant.
+     */
+    public function owner(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'owner_user_id');
+    }
+
+    /**
      * Get the users belonging to the tenant.
      */
     public function users(): HasMany
@@ -53,19 +64,19 @@ class Tenant extends Model
     }
 
     /**
-     * Get the clients owned by the tenant.
+     * Get the customers owned by the tenant.
      */
-    public function clients(): HasMany
+    public function customers(): HasMany
     {
-        return $this->hasMany(Client::class);
+        return $this->hasMany(Customer::class);
     }
 
     /**
-     * Get the visits recorded for the tenant.
+     * Get the queue sessions recorded for the tenant.
      */
-    public function visits(): HasMany
+    public function queueSessions(): HasMany
     {
-        return $this->hasMany(Visit::class);
+        return $this->hasMany(QueueSession::class);
     }
 
     /**

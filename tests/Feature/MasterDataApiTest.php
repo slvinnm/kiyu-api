@@ -27,7 +27,7 @@ test('department and station crud works correctly', function () {
         'department_id' => $deptId,
         'name' => 'Ruang Periksa Mata',
         'code' => 'EYE-01',
-        'type' => StationType::Doctor->value,
+        'type' => StationType::Service->value,
         'queue_prefix' => 'M',
     ]);
 
@@ -43,7 +43,7 @@ test('department and station crud works correctly', function () {
 test('workflow step creation and management', function () {
     // Add a step to general workflow
     $stepRes = $this->postJson("/api/workflows/{$this->generalWorkflow->id}/steps", [
-        'station_id' => $this->doctorStation2->id,
+        'station_id' => $this->serviceStation2->id,
         'name' => 'Second Opinion Dokter',
         'sequence' => 10,
     ]);
@@ -68,13 +68,13 @@ test('workflow step creation and management', function () {
 
 test('client directory search and retrieval', function () {
     // Search by name
-    $searchRes = $this->getJson('/api/clients?search=Budi');
+    $searchRes = $this->getJson('/api/customers?search=Budi');
     $searchRes->assertStatus(200)
         ->assertJsonCount(1, 'data.data')
         ->assertJsonPath('data.data.0.name', 'Budi Santoso');
 
     // Show client with visits
-    $this->getJson("/api/clients/{$this->sampleClient->id}")
+    $this->getJson("/api/customers/{$this->sampleCustomer->id}")
         ->assertStatus(200)
-        ->assertJsonPath('data.mrn', $this->sampleClient->mrn);
+        ->assertJsonPath('data.mrn', $this->sampleCustomer->mrn);
 });

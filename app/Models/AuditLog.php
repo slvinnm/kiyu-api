@@ -18,6 +18,7 @@ class AuditLog extends Model
     protected $fillable = [
         'tenant_id',
         'user_id',
+        'platform_user_id',
         'action',
         'entity_type',
         'entity_id',
@@ -40,5 +41,21 @@ class AuditLog extends Model
     public function tenant(): BelongsTo
     {
         return $this->belongsTo(Tenant::class);
+    }
+
+    /**
+     * Get the user who performed the action.
+     */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Get the platform operator who acted through a support context, if any.
+     */
+    public function platformUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'platform_user_id');
     }
 }

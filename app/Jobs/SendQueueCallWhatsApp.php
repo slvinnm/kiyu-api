@@ -33,13 +33,13 @@ class SendQueueCallWhatsApp implements ShouldQueue
      */
     public static function forTicket(QueueTicket $ticket): void
     {
-        $visit = $ticket->visit;
+        $session = $ticket->queueSession;
 
-        if ($visit === null || $visit->tenant_id === null) {
+        if ($session === null || $session->tenant_id === null) {
             return;
         }
 
-        $phone = (string) ($visit->client?->phone ?? '');
+        $phone = (string) ($session->customer?->phone ?? '');
         $station = $ticket->station?->name ?? 'the counter';
 
         if ($phone === '') {
@@ -52,7 +52,7 @@ class SendQueueCallWhatsApp implements ShouldQueue
             $station,
         );
 
-        self::dispatch((int) $visit->tenant_id, $phone, $message);
+        self::dispatch((int) $session->tenant_id, $phone, $message);
     }
 
     /**

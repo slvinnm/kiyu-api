@@ -2,7 +2,7 @@
 
 use App\Enums\IntakeChannel;
 use App\Enums\QueueAcquisitionStatus;
-use App\Enums\VisitStatus;
+use App\Enums\QueueSessionStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\SetupKiyuHospital;
 
@@ -20,7 +20,7 @@ test('queue acquisitions can be listed with filters', function () {
 
     // 2. Create online booking
     $this->postJson('/api/intake/online', [
-        'client_id' => $this->sampleClient->id,
+        'customer_id' => $this->sampleCustomer->id,
         'department_id' => $this->generalDepartment->id,
     ])->assertStatus(201);
 
@@ -63,7 +63,7 @@ test('queue acquisition can be cancelled and transitions visit to CANCELLED', fu
     ])->json('data');
 
     $acqId = $intake['acquisition']['id'];
-    $visitId = $intake['visit']['id'];
+    $sessionId = $intake['queue_session']['id'];
 
     $cancelRes = $this->postJson("/api/queue-acquisitions/{$acqId}/cancel", [
         'reason' => 'Client decided not to wait',
@@ -79,9 +79,9 @@ test('queue acquisition can be cancelled and transitions visit to CANCELLED', fu
         'status' => QueueAcquisitionStatus::Cancelled->value,
     ]);
 
-    $this->assertDatabaseHas('visits', [
-        'id' => $visitId,
-        'status' => VisitStatus::Cancelled->value,
+    $this->assertDatabaseHas('queue_sessions', [
+        'id' => $sessionId,
+        'status' => QueueSessionStatus::Cancelled->value,
     ]);
 
     // Check audit log
@@ -105,7 +105,7 @@ test('cannot cancel an acquisition that has already completed registration', fun
 
     $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $acqId,
-        'client_id' => $this->sampleClient->id,
+        'customer_id' => $this->sampleCustomer->id,
     ])->assertStatus(200);
 
     // Now try cancelling acquisition

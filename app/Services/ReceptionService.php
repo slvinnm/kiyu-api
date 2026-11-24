@@ -5,23 +5,22 @@ namespace App\Services;
 use App\Enums\Priority;
 use App\Enums\QueueAcquisitionStatus;
 use App\Enums\QueueEventType;
+use App\Enums\QueueSessionStatus;
 use App\Enums\QueueTicketStatus;
-use App\Enums\VisitStatus;
 use App\Exceptions\BusinessConflictException;
 use App\Exceptions\InvalidStateException;
-use App\Models\Client;
+use App\Models\Customer;
 use App\Models\Department;
 use App\Models\QueueAcquisition;
 use App\Models\QueueEvent;
+use App\Models\QueueSession;
 use App\Models\QueueTicket;
 use App\Models\Station;
 use App\Models\Tenant;
-use App\Models\Visit;
 use App\Support\LocalDay;
 use App\Support\QueueBroadcast;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 class ReceptionService
 {
@@ -29,7 +28,7 @@ class ReceptionService
         public WorkflowService $workflowService,
         public SequenceService $sequenceService,
         public AuditService $auditService,
-        public ClinicalQueueService $clinicalQueue,
+        public QueueService $queueService,
     ) {}
 
     /**
@@ -58,16 +57,16 @@ class ReceptionService
         // "Current calling" is per-operator: a ticket called by a colleague at
         // the same desk must not appear as this user's current client.
         $currentCalling = QueueTicket::query()
-            ->with(['visit.client', 'station', 'workflowStep'])
+            ->with(['queueSession.customer', 'station', 'workflowStep'])
             ->where('station_id', $registrationStation->id)
             ->where('status', QueueTicketStatus::Called)
-            ->when($actor !== null, fn($query) => $query->where('assigned_to', $actor))
+            ->when($actor !== null, fn($query) => $query->where('assigned_to_user_id', $actor))
             ->latest('called_at')
             ->first();
 
         // Waiting tickets (ordered by priority desc, internal_sequence asc)
         $waitingTickets = QueueTicket::query()
-            ->with(['visit.client', 'station', 'workflowStep'])
+            ->with(['queueSession.customer', 'station', 'workflowStep'])
             ->where('station_id', $registrationStation->id)
             ->where('status', QueueTicketStatus::Created)
             ->whereBetween('created_at', [$dayStart, $dayEnd])
@@ -77,7 +76,7 @@ class ReceptionService
 
         // On hold tickets (if any)
         $onHoldTickets = QueueTicket::query()
-            ->with(['visit.client', 'station', 'workflowStep'])
+            ->with(['queueSession.customer', 'station', 'workflowStep'])
             ->where('station_id', $registrationStation->id)
             ->where('status', QueueTicketStatus::OnHold)
             ->whereBetween('created_at', [$dayStart, $dayEnd])
@@ -105,7 +104,7 @@ class ReceptionService
     public function callNext(
         Tenant $tenant,
         int $departmentId,
-        ?string $assignedTo = null,
+        ?int $userId = null,
         ?int $stationId = null
     ): ?QueueTicket {
         $this->assertDepartmentInTenant($tenant, $departmentId);
@@ -118,15 +117,15 @@ class ReceptionService
             throw new InvalidStateException("Provided station #{$stationId} does not match active registration station #{$registrationStation->id}.");
         }
 
-        return $this->clinicalQueue->claimNextAt($tenant, $registrationStation, $assignedTo, 'RECEPTION_CALL_NEXT');
+        return $this->queueService->claimNextAt($tenant, $registrationStation, $userId, 'RECEPTION_CALL_NEXT');
     }
 
     /**
      * Recall a previously called reception ticket (e.g. client did not hear).
      */
-    public function recall(Tenant $tenant, int $ticketId, ?string $assignedTo = null): QueueTicket
+    public function recall(Tenant $tenant, int $ticketId, ?int $userId = null): QueueTicket
     {
-        $ticket = DB::transaction(function () use ($tenant, $ticketId, $assignedTo): QueueTicket {
+        $ticket = DB::transaction(function () use ($tenant, $ticketId, $userId): QueueTicket {
             /** @var QueueTicket $ticket */
             $ticket = $this->ticketsWithin($tenant)
                 ->lockForUpdate()
@@ -141,7 +140,7 @@ class ReceptionService
                 'event_type' => QueueEventType::Recalled,
                 'from_status' => QueueTicketStatus::Called->value,
                 'to_status' => QueueTicketStatus::Called->value,
-                'user_id' => $assignedTo,
+                'user_id' => $userId,
                 'payload' => ['reason' => 'Reception recall announced'],
             ]);
 
@@ -153,11 +152,11 @@ class ReceptionService
                     'queue_number' => $ticket->queue_number,
                     'station_id' => $ticket->station_id,
                 ],
-                userId: $assignedTo,
+                userId: $userId,
                 tenant: $tenant,
             );
 
-            return $ticket->load(['visit.client', 'station', 'workflowStep']);
+            return $ticket->load(['queueSession.customer', 'station', 'workflowStep']);
         });
 
         if ($ticket) {
@@ -172,11 +171,11 @@ class ReceptionService
     /**
      * Skip a reception ticket (client not present, defer).
      *
-     * Unlike a clinical skip this does not advance the workflow: the client
+     * Unlike a reception skip this does not advance the workflow: the client
      * is still at the desk and will be recalled, so the visit keeps waiting
      * on the registration step.
      */
-    public function skip(Tenant $tenant, int $ticketId, ?string $reason = null, ?string $userId = null): QueueTicket
+    public function skip(Tenant $tenant, int $ticketId, ?string $reason = null, ?int $userId = null): QueueTicket
     {
         return DB::transaction(function () use ($tenant, $ticketId, $reason, $userId): QueueTicket {
             /** @var QueueTicket $ticket */
@@ -211,14 +210,14 @@ class ReceptionService
                 tenant: $tenant,
             );
 
-            return $ticket->load(['visit.client', 'station', 'workflowStep']);
+            return $ticket->load(['queueSession.customer', 'station', 'workflowStep']);
         });
     }
 
     /**
      * Mark a reception ticket as no-show.
      */
-    public function noShow(Tenant $tenant, int $ticketId, ?string $userId = null): QueueTicket
+    public function noShow(Tenant $tenant, int $ticketId, ?int $userId = null): QueueTicket
     {
         return DB::transaction(function () use ($tenant, $ticketId, $userId): QueueTicket {
             /** @var QueueTicket $ticket */
@@ -251,29 +250,29 @@ class ReceptionService
                 tenant: $tenant,
             );
 
-            return $ticket->load(['visit.client', 'station', 'workflowStep']);
+            return $ticket->load(['queueSession.customer', 'station', 'workflowStep']);
         });
     }
 
     /**
      * Complete registration process atomically.
      *
-     * @param  array<string, mixed>|null  $clientData
-     * @return array{visit: Visit, acquisition: QueueAcquisition, registration_ticket: QueueTicket, next_ticket: ?QueueTicket}
+     * @param  array<string, mixed>|null  $customerData
+     * @return array{queue_session: QueueSession, acquisition: QueueAcquisition, registration_ticket: QueueTicket, next_ticket: ?QueueTicket}
      */
     public function completeRegistration(
         Tenant $tenant,
         int $acquisitionId,
-        ?int $clientId = null,
-        ?array $clientData = null,
+        ?int $customerId = null,
+        ?array $customerData = null,
         ?int $priority = null,
-        ?string $registeredBy = null
+        ?int $userId = null
     ): array {
-        return DB::transaction(function () use ($tenant, $acquisitionId, $clientId, $clientData, $priority, $registeredBy): array {
+        return DB::transaction(function () use ($tenant, $acquisitionId, $customerId, $customerData, $priority, $userId): array {
             /** @var QueueAcquisition|null $acquisition */
             $acquisition = QueueAcquisition::query()
-                ->whereHas('visit', fn($q) => $q->where('tenant_id', $tenant->id))
-                ->with(['visit.workflow', 'visit.client'])
+                ->whereHas('queueSession', fn($q) => $q->where('tenant_id', $tenant->id))
+                ->with(['queueSession.workflow', 'queueSession.customer'])
                 ->lockForUpdate()
                 ->find($acquisitionId);
 
@@ -289,51 +288,35 @@ class ReceptionService
                 throw new InvalidStateException("Acquisition #{$acquisitionId} has been cancelled.");
             }
 
-            /** @var Visit $visit */
-            $visit = $acquisition->visit;
+            /** @var QueueSession $session */
+            $session = $acquisition->queueSession;
 
-            // Resolve or link client
-            $resolvedClient = null;
-            if ($clientId) {
-                $resolvedClient = Client::query()
+            // Resolve or create the customer.
+            $resolvedCustomer = null;
+            if ($customerId) {
+                $resolvedCustomer = Customer::query()
                     ->where('tenant_id', $tenant->id)
-                    ->findOrFail($clientId);
-            } elseif ($clientData) {
-                $nik = $clientData['nik'] ?? null;
-                if ($nik) {
-                    $existing = Client::query()
-                        ->where('tenant_id', $tenant->id)
-                        ->where('nik', $nik)
-                        ->first();
-                    if ($existing) {
-                        throw new BusinessConflictException("NIK '{$nik}' already exists for client '{$existing->name}' (MRN: {$existing->mrn}). Link existing client or use different NIK.");
-                    }
-                }
-                $mrn = $clientData['mrn'] ?? ('MRN-' . strtoupper(Str::random(8)));
-
-                $resolvedClient = new Client([
-                    'mrn' => $mrn,
-                    'nik' => $clientData['nik'] ?? null,
-                    'name' => $clientData['name'],
-                    'date_of_birth' => $clientData['date_of_birth'] ?? null,
-                    'gender' => $clientData['gender'] ?? null,
-                    'phone' => $clientData['phone'] ?? null,
-                    'email' => $clientData['email'] ?? null,
-                    'address' => $clientData['address'] ?? null,
+                    ->findOrFail($customerId);
+            } elseif ($customerData) {
+                $resolvedCustomer = new Customer([
+                    'name' => $customerData['name'],
+                    'phone' => $customerData['phone'] ?? null,
+                    'email' => $customerData['email'] ?? null,
+                    'address' => $customerData['address'] ?? null,
                 ]);
-                $resolvedClient->tenant_id = $tenant->id;
-                $resolvedClient->save();
-            } elseif ($visit->client_id) {
-                $resolvedClient = $visit->client;
+                $resolvedCustomer->tenant_id = $tenant->id;
+                $resolvedCustomer->save();
+            } elseif ($session->customer_id) {
+                $resolvedCustomer = $session->customer;
             }
 
-            if (! $resolvedClient) {
-                throw new InvalidStateException('Client identification is required to complete registration.');
+            if (! $resolvedCustomer) {
+                throw new InvalidStateException('Customer identification is required to complete registration.');
             }
 
             $updateData = [
-                'client_id' => $resolvedClient->id,
-                'registered_by' => $registeredBy,
+                'customer_id' => $resolvedCustomer->id,
+                'registered_by_user_id' => $userId,
                 'registered_at' => now(),
             ];
 
@@ -344,19 +327,19 @@ class ReceptionService
                 }
             }
 
-            $visit->update($updateData);
+            $session->update($updateData);
 
             // Complete registration QueueTicket
             /** @var QueueTicket|null $regTicket */
             $regTicket = QueueTicket::query()
-                ->where('visit_id', $visit->id)
+                ->where('queue_session_id', $session->id)
                 ->whereIn('status', [QueueTicketStatus::Created, QueueTicketStatus::Called, QueueTicketStatus::InProgress])
                 ->lockForUpdate()
                 ->latest('id')
                 ->first();
 
             if (! $regTicket) {
-                throw new InvalidStateException("Active registration ticket not found for visit #{$visit->id}.");
+                throw new InvalidStateException("Active registration ticket not found for queue session #{$session->id}.");
             }
 
             $prevStatus = $regTicket->status;
@@ -370,18 +353,18 @@ class ReceptionService
                 'event_type' => QueueEventType::Completed,
                 'from_status' => $prevStatus->value,
                 'to_status' => QueueTicketStatus::Completed->value,
-                'user_id' => $registeredBy,
+                'user_id' => $userId,
                 'payload' => ['reason' => 'Reception registration completed'],
             ]);
 
             // Update QueueAcquisition
             $acquisition->update([
                 'status' => QueueAcquisitionStatus::Registered,
-                'registered_by' => $registeredBy,
+                'registered_by_user_id' => $userId,
             ]);
 
             // Resolve next workflow step
-            $workflow = $visit->workflow;
+            $workflow = $session->workflow;
             $nextStep = $this->workflowService->resolveNextStep($workflow, $regTicket->workflowStep->sequence);
 
             $nextTicket = null;
@@ -391,11 +374,11 @@ class ReceptionService
 
                 /** @var QueueTicket $nextTicket */
                 $nextTicket = QueueTicket::query()->create([
-                    'visit_id' => $visit->id,
+                    'queue_session_id' => $session->id,
                     'workflow_step_id' => $nextStep->id,
                     'station_id' => $nextStation->id,
                     'queue_number' => $numbering['queue_number'],
-                    'priority' => $visit->priority,
+                    'priority' => $session->priority,
                     'internal_sequence' => $numbering['internal_sequence'],
                     'status' => QueueTicketStatus::Created,
                 ]);
@@ -405,13 +388,13 @@ class ReceptionService
                     'event_type' => QueueEventType::Created,
                     'from_status' => null,
                     'to_status' => QueueTicketStatus::Created->value,
-                    'user_id' => $registeredBy,
-                    'payload' => ['reason' => 'Clinical handoff after registration'],
+                    'user_id' => $userId,
+                    'payload' => ['reason' => 'Queue handoff after registration'],
                 ]);
             } else {
                 // No next step in workflow -> visit completed
-                $visit->update([
-                    'status' => VisitStatus::Completed,
+                $session->update([
+                    'status' => QueueSessionStatus::Completed,
                     'completed_at' => now(),
                 ]);
             }
@@ -421,17 +404,17 @@ class ReceptionService
                 entityType: 'QueueAcquisition',
                 entityId: $acquisition->id,
                 metadata: [
-                    'visit_id' => $visit->id,
-                    'client_id' => $resolvedClient->id,
+                    'queue_session_id' => $session->id,
+                    'customer_id' => $resolvedCustomer->id,
                     'next_ticket_id' => $nextTicket?->id,
                     'next_station_id' => $nextTicket?->station_id,
                 ],
-                userId: $registeredBy,
+                userId: $userId,
                 tenant: $tenant,
             );
 
             return [
-                'visit' => $visit->fresh(['client', 'department', 'workflow']),
+                'queue_session' => $session->fresh(['customer', 'department', 'workflow']),
                 'acquisition' => $acquisition->fresh(),
                 'registration_ticket' => $regTicket->fresh(['station', 'workflowStep']),
                 'next_ticket' => $nextTicket?->load(['station', 'workflowStep']),
@@ -460,6 +443,6 @@ class ReceptionService
     private function ticketsWithin(Tenant $tenant)
     {
         return QueueTicket::query()
-            ->whereHas('visit', fn($q) => $q->where('tenant_id', $tenant->id));
+            ->whereHas('queueSession', fn($q) => $q->where('tenant_id', $tenant->id));
     }
 }

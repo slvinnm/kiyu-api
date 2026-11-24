@@ -2,7 +2,7 @@
 
 namespace App\Enums;
 
-enum ReferralStatus: string
+enum ServiceTransferStatus: string
 {
     case Pending = 'PENDING';
     case Accepted = 'ACCEPTED';

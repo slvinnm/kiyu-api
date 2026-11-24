@@ -3,18 +3,6 @@
 use App\Models\User;
 use Illuminate\Support\Facades\Broadcast;
 
-/*
-|--------------------------------------------------------------------------
-| Broadcast Channels
-|--------------------------------------------------------------------------
-|
-| Public kiosk channels are scoped by tenant and facility slug, so a client
-| can only reach the display of the clinic it is looking at. Staff channels
-| are private and authorise the authenticated user against the channel's
-| tenant.
-|
-*/
-
 // Public display channel, one per facility. A guessed numeric id cannot reach
 // another tenant: the facility slug is the routing key and no PII is broadcast.
 Broadcast::channel('public.facility.{facilityId}', function ($user, int $facilityId) {

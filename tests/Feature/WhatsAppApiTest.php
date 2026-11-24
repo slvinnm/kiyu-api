@@ -32,7 +32,7 @@ function whatsappClinic(bool $grantWhatsApp = true): array
         'is_active' => true,
     ]);
 
-    $admin = User::factory()->create(['role' => 'admin', 'tenant_id' => $tenant->id]);
+    $admin = User::factory()->create(['role' => 'tenant_admin', 'tenant_id' => $tenant->id]);
 
     $plan = Plan::query()->create(['code' => 'WA-' . uniqid(), 'name' => 'WA', 'is_active' => true]);
 
@@ -62,9 +62,9 @@ beforeEach(function () {
 test('a text message is sent through the configured provider', function () {
     Http::fake(['wa.example.test/*' => Http::response(['status' => true, 'id' => 'msg-1'])]);
 
-    $clinic = whatsappClinic();
+    $tenant = whatsappClinic();
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/whatsapp/messages', [
             'to' => '628123',
             'type' => 'text',
@@ -84,9 +84,9 @@ test('a text message is sent through the configured provider', function () {
 test('a media message includes the media url', function () {
     Http::fake(['wa.example.test/*' => Http::response(['status' => true])]);
 
-    $clinic = whatsappClinic();
+    $tenant = whatsappClinic();
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/whatsapp/messages', [
             'to' => '628999',
             'type' => 'document',
@@ -101,9 +101,9 @@ test('a media message includes the media url', function () {
 test('sending requires the whatsapp feature', function () {
     Http::fake();
 
-    $clinic = whatsappClinic(grantWhatsApp: false);
+    $tenant = whatsappClinic(grantWhatsApp: false);
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/whatsapp/messages', [
             'to' => '628123',
             'type' => 'text',
@@ -122,9 +122,9 @@ test('the gateway is provider-neutral: changing config changes the call', functi
         'services.whatsapp.body' => ['phone' => '{to}', 'text' => '{body}'],
     ]);
 
-    $clinic = whatsappClinic();
+    $tenant = whatsappClinic();
 
-    $this->actingAs($clinic['admin'], 'sanctum')
+    $this->actingAs($tenant['admin'], 'sanctum')
         ->postJson('/api/whatsapp/messages', [
             'to' => '628777',
             'type' => 'text',

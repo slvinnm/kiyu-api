@@ -3,19 +3,19 @@
 namespace App\Services;
 
 use App\Enums\QueueEventType;
+use App\Enums\QueueSessionStatus;
 use App\Enums\QueueTicketStatus;
-use App\Enums\VisitStatus;
 use App\Exceptions\InvalidStateException;
 use App\Jobs\SendQueueCallWhatsApp;
 use App\Models\QueueEvent;
+use App\Models\QueueSession;
 use App\Models\QueueTicket;
 use App\Models\Station;
 use App\Models\Tenant;
-use App\Models\Visit;
 use App\Support\QueueBroadcast;
 use Illuminate\Support\Facades\DB;
 
-class ClinicalQueueService
+class QueueService
 {
     public function __construct(
         public SequenceService $sequenceService,
@@ -24,9 +24,9 @@ class ClinicalQueueService
     ) {}
 
     /**
-     * Call the next eligible ticket for a clinical station.
+     * Call the next eligible ticket for a station.
      */
-    public function callNext(Tenant $tenant, int $stationId, ?string $assignedTo = null): ?QueueTicket
+    public function callNext(Tenant $tenant, int $stationId, ?int $userId = null): ?QueueTicket
     {
         $station = Station::query()
             ->whereKey($stationId)
@@ -36,7 +36,7 @@ class ClinicalQueueService
             throw new InvalidStateException("Station #{$stationId} is inactive.");
         }
 
-        return $this->claimNextAt($tenant, $station, $assignedTo, 'CLINICAL_CALL_NEXT');
+        return $this->claimNextAt($tenant, $station, $userId, 'QUEUE_CALL_NEXT');
     }
 
     /**
@@ -46,9 +46,9 @@ class ClinicalQueueService
      * calls this: the claim, the event, the audit row and the notifications
      * must behave identically for both.
      */
-    public function claimNextAt(Tenant $tenant, Station $station, ?string $assignedTo, string $auditAction): ?QueueTicket
+    public function claimNextAt(Tenant $tenant, Station $station, ?int $userId, string $auditAction): ?QueueTicket
     {
-        $ticket = DB::transaction(function () use ($tenant, $station, $assignedTo, $auditAction): ?QueueTicket {
+        $ticket = DB::transaction(function () use ($tenant, $station, $userId, $auditAction): ?QueueTicket {
             /** @var QueueTicket|null $ticket */
             $ticket = QueueTicket::query()
                 ->where('station_id', $station->id)
@@ -65,7 +65,7 @@ class ClinicalQueueService
             $ticket->update([
                 'status' => QueueTicketStatus::Called,
                 'called_at' => now(),
-                'assigned_to' => $assignedTo,
+                'assigned_to_user_id' => $userId,
             ]);
 
             QueueEvent::query()->create([
@@ -73,7 +73,7 @@ class ClinicalQueueService
                 'event_type' => QueueEventType::Called,
                 'from_status' => QueueTicketStatus::Created->value,
                 'to_status' => QueueTicketStatus::Called->value,
-                'user_id' => $assignedTo,
+                'user_id' => $userId,
             ]);
 
             $this->auditService->log(
@@ -83,17 +83,17 @@ class ClinicalQueueService
                 metadata: [
                     'queue_number' => $ticket->queue_number,
                     'station_id' => $station->id,
-                    'assigned_to' => $assignedTo,
+                    'assigned_to_user_id' => $userId,
                 ],
-                userId: $assignedTo,
+                userId: $userId,
                 tenant: $tenant,
             );
 
-            return $ticket->load(['visit.client', 'station', 'workflowStep']);
+            return $ticket->load(['queueSession.customer', 'station', 'workflowStep']);
         });
 
         if ($ticket) {
-            $ticket->loadMissing(['station.department', 'visit.client']);
+            $ticket->loadMissing(['station.department', 'queueSession.customer']);
 
             QueueBroadcast::called($ticket);
             SendQueueCallWhatsApp::forTicket($ticket);
@@ -103,13 +103,13 @@ class ClinicalQueueService
     }
 
     /**
-     * Recall a previously called clinical ticket (sound the announcement again).
+     * Recall a previously called queue ticket (sound the announcement again).
      */
-    public function recall(QueueTicket $ticket, ?string $userId = null): QueueTicket
+    public function recall(QueueTicket $ticket, ?int $userId = null): QueueTicket
     {
         $result = DB::transaction(function () use ($ticket, $userId): QueueTicket {
             /** @var QueueTicket $lockedTicket */
-            $lockedTicket = QueueTicket::query()->with('visit')->lockForUpdate()->findOrFail($ticket->id);
+            $lockedTicket = QueueTicket::query()->with('queueSession')->lockForUpdate()->findOrFail($ticket->id);
 
             if ($lockedTicket->status !== QueueTicketStatus::Called) {
                 throw new InvalidStateException("Ticket #{$lockedTicket->queue_number} cannot be recalled from status '{$lockedTicket->status->value}'. Must be CALLED.");
@@ -121,11 +121,11 @@ class ClinicalQueueService
                 'from_status' => QueueTicketStatus::Called->value,
                 'to_status' => QueueTicketStatus::Called->value,
                 'user_id' => $userId,
-                'payload' => ['reason' => 'Clinical recall announced'],
+                'payload' => ['reason' => 'Queue recall announced'],
             ]);
 
             $this->auditService->log(
-                action: 'CLINICAL_RECALL',
+                action: 'QUEUE_RECALL',
                 entityType: 'QueueTicket',
                 entityId: $lockedTicket->id,
                 metadata: [
@@ -133,10 +133,10 @@ class ClinicalQueueService
                     'station_id' => $lockedTicket->station_id,
                 ],
                 userId: $userId,
-                tenant: $lockedTicket->visit?->tenant_id,
+                tenant: $lockedTicket->queueSession?->tenant_id,
             );
 
-            return $lockedTicket->load(['visit.client', 'station', 'workflowStep']);
+            return $lockedTicket->load(['queueSession.customer', 'station', 'workflowStep']);
         });
         QueueBroadcast::called($result);
 
@@ -144,13 +144,13 @@ class ClinicalQueueService
     }
 
     /**
-     * Start clinical service for a ticket.
+     * Start service for a ticket.
      */
-    public function start(QueueTicket $ticket, ?string $userId = null): QueueTicket
+    public function start(QueueTicket $ticket, ?int $userId = null): QueueTicket
     {
         return DB::transaction(function () use ($ticket, $userId): QueueTicket {
             /** @var QueueTicket $lockedTicket */
-            $lockedTicket = QueueTicket::query()->with('visit')->lockForUpdate()->findOrFail($ticket->id);
+            $lockedTicket = QueueTicket::query()->with('queueSession')->lockForUpdate()->findOrFail($ticket->id);
 
             if ($lockedTicket->status !== QueueTicketStatus::Called) {
                 throw new InvalidStateException("Ticket #{$lockedTicket->queue_number} cannot start from status '{$lockedTicket->status->value}'. Must be CALLED.");
@@ -170,35 +170,35 @@ class ClinicalQueueService
                 'user_id' => $userId,
             ]);
 
-            // Transition Visit to IN_PROGRESS when clinical service starts
-            /** @var Visit $visit */
-            $visit = $lockedTicket->visit;
-            if ($visit->status === VisitStatus::Waiting) {
-                $visit->update([
-                    'status' => VisitStatus::InProgress,
+            // Transition QueueSession to IN_PROGRESS when service starts
+            /** @var QueueSession $session */
+            $session = $lockedTicket->queueSession;
+            if ($session->status === QueueSessionStatus::Waiting) {
+                $session->update([
+                    'status' => QueueSessionStatus::InProgress,
                 ]);
             }
 
             $this->auditService->log(
-                action: 'CLINICAL_TICKET_STARTED',
+                action: 'QUEUE_TICKET_STARTED',
                 entityType: 'QueueTicket',
                 entityId: $lockedTicket->id,
                 metadata: [
                     'queue_number' => $lockedTicket->queue_number,
-                    'visit_id' => $visit->id,
+                    'queue_session_id' => $session->id,
                 ],
                 userId: $userId,
-                tenant: $visit->tenant_id,
+                tenant: $session->tenant_id,
             );
 
-            return $lockedTicket->fresh(['visit.client', 'station', 'workflowStep']);
+            return $lockedTicket->fresh(['queueSession.customer', 'station', 'workflowStep']);
         });
     }
 
     /**
      * Hold a ticket.
      */
-    public function hold(QueueTicket $ticket, ?string $notes = null, ?string $userId = null): QueueTicket
+    public function hold(QueueTicket $ticket, ?string $notes = null, ?int $userId = null): QueueTicket
     {
         return DB::transaction(function () use ($ticket, $notes, $userId): QueueTicket {
             /** @var QueueTicket $lockedTicket */
@@ -224,22 +224,22 @@ class ClinicalQueueService
             ]);
 
             $this->auditService->log(
-                action: 'CLINICAL_TICKET_HELD',
+                action: 'QUEUE_TICKET_HELD',
                 entityType: 'QueueTicket',
                 entityId: $lockedTicket->id,
                 metadata: ['queue_number' => $lockedTicket->queue_number],
                 userId: $userId,
-                tenant: $lockedTicket->visit?->tenant_id,
+                tenant: $lockedTicket->queueSession?->tenant_id,
             );
 
-            return $lockedTicket->fresh(['visit.client', 'station', 'workflowStep']);
+            return $lockedTicket->fresh(['queueSession.customer', 'station', 'workflowStep']);
         });
     }
 
     /**
      * Resume a ticket from ON_HOLD back to CALLED.
      */
-    public function resume(QueueTicket $ticket, ?string $userId = null): QueueTicket
+    public function resume(QueueTicket $ticket, ?int $userId = null): QueueTicket
     {
         return DB::transaction(function () use ($ticket, $userId): QueueTicket {
             /** @var QueueTicket $lockedTicket */
@@ -263,29 +263,29 @@ class ClinicalQueueService
             ]);
 
             $this->auditService->log(
-                action: 'CLINICAL_TICKET_RESUMED',
+                action: 'QUEUE_TICKET_RESUMED',
                 entityType: 'QueueTicket',
                 entityId: $lockedTicket->id,
                 metadata: ['queue_number' => $lockedTicket->queue_number],
                 userId: $userId,
-                tenant: $lockedTicket->visit?->tenant_id,
+                tenant: $lockedTicket->queueSession?->tenant_id,
             );
 
-            return $lockedTicket->fresh(['visit.client', 'station', 'workflowStep']);
+            return $lockedTicket->fresh(['queueSession.customer', 'station', 'workflowStep']);
         });
     }
 
     /**
      * Complete a ticket and advance the workflow.
      *
-     * @return array{ticket: QueueTicket, next_ticket: ?QueueTicket, visit: Visit}
+     * @return array{ticket: QueueTicket, next_ticket: ?QueueTicket, visit: QueueSession}
      */
-    public function complete(QueueTicket $ticket, ?string $notes = null, ?string $userId = null): array
+    public function complete(QueueTicket $ticket, ?string $notes = null, ?int $userId = null): array
     {
         return DB::transaction(function () use ($ticket, $notes, $userId): array {
             /** @var QueueTicket $lockedTicket */
             $lockedTicket = QueueTicket::query()
-                ->with(['visit.workflow', 'workflowStep'])
+                ->with(['queueSession.workflow', 'workflowStep'])
                 ->lockForUpdate()
                 ->findOrFail($ticket->id);
 
@@ -308,9 +308,9 @@ class ClinicalQueueService
                 'payload' => ['notes' => $notes],
             ]);
 
-            /** @var Visit $visit */
-            $visit = $lockedTicket->visit;
-            $workflow = $visit->workflow;
+            /** @var QueueSession $session */
+            $session = $lockedTicket->queueSession;
+            $workflow = $session->workflow;
             $nextStep = $this->workflowService->resolveNextStep($workflow, $lockedTicket->workflowStep->sequence);
 
             $nextTicket = null;
@@ -320,11 +320,11 @@ class ClinicalQueueService
 
                 /** @var QueueTicket $nextTicket */
                 $nextTicket = QueueTicket::query()->create([
-                    'visit_id' => $visit->id,
+                    'queue_session_id' => $session->id,
                     'workflow_step_id' => $nextStep->id,
                     'station_id' => $nextStation->id,
                     'queue_number' => $numbering['queue_number'],
-                    'priority' => $visit->priority,
+                    'priority' => $session->priority,
                     'internal_sequence' => $numbering['internal_sequence'],
                     'status' => QueueTicketStatus::Created,
                 ]);
@@ -339,29 +339,29 @@ class ClinicalQueueService
                 ]);
             } else {
                 // All steps completed -> visit COMPLETED
-                $visit->update([
-                    'status' => VisitStatus::Completed,
+                $session->update([
+                    'status' => QueueSessionStatus::Completed,
                     'completed_at' => now(),
                 ]);
             }
 
             $this->auditService->log(
-                action: 'CLINICAL_TICKET_COMPLETED',
+                action: 'QUEUE_TICKET_COMPLETED',
                 entityType: 'QueueTicket',
                 entityId: $lockedTicket->id,
                 metadata: [
                     'queue_number' => $lockedTicket->queue_number,
-                    'visit_id' => $visit->id,
+                    'queue_session_id' => $session->id,
                     'next_ticket_id' => $nextTicket?->id,
                 ],
                 userId: $userId,
-                tenant: $visit->tenant_id,
+                tenant: $session->tenant_id,
             );
 
             return [
                 'ticket' => $lockedTicket->fresh(['station', 'workflowStep']),
                 'next_ticket' => $nextTicket?->load(['station', 'workflowStep']),
-                'visit' => $visit->fresh(['client', 'department', 'workflow']),
+                'queue_session' => $session->fresh(['customer', 'department', 'workflow']),
             ];
         });
     }
@@ -369,12 +369,12 @@ class ClinicalQueueService
     /**
      * Skip a ticket.
      */
-    public function skip(QueueTicket $ticket, ?string $notes = null, ?string $userId = null): QueueTicket
+    public function skip(QueueTicket $ticket, ?string $notes = null, ?int $userId = null): QueueTicket
     {
         return DB::transaction(function () use ($ticket, $notes, $userId): QueueTicket {
             /** @var QueueTicket $lockedTicket */
             $lockedTicket = QueueTicket::query()
-                ->with(['visit.workflow', 'workflowStep'])
+                ->with(['queueSession.workflow', 'workflowStep'])
                 ->lockForUpdate()
                 ->findOrFail($ticket->id);
 
@@ -416,7 +416,7 @@ class ClinicalQueueService
     /**
      * Mark a ticket as No-Show.
      */
-    public function noShow(QueueTicket $ticket, ?string $notes = null, ?string $userId = null): QueueTicket
+    public function noShow(QueueTicket $ticket, ?string $notes = null, ?int $userId = null): QueueTicket
     {
         return DB::transaction(function () use ($ticket, $notes, $userId): QueueTicket {
             /** @var QueueTicket $lockedTicket */
@@ -448,12 +448,12 @@ class ClinicalQueueService
     /**
      * Cancel a ticket.
      */
-    public function cancelTicket(QueueTicket $ticket, ?string $notes = null, ?string $userId = null): QueueTicket
+    public function cancelTicket(QueueTicket $ticket, ?string $notes = null, ?int $userId = null): QueueTicket
     {
         return DB::transaction(function () use ($ticket, $notes, $userId): QueueTicket {
             /** @var QueueTicket $lockedTicket */
             $lockedTicket = QueueTicket::query()
-                ->with(['visit.workflow', 'workflowStep'])
+                ->with(['queueSession.workflow', 'workflowStep'])
                 ->lockForUpdate()
                 ->findOrFail($ticket->id);
 
@@ -494,7 +494,7 @@ class ClinicalQueueService
      *
      * @return array{old_ticket: QueueTicket, new_ticket: QueueTicket}
      */
-    public function transfer(Tenant $tenant, QueueTicket $ticket, int $targetStationId, ?string $notes = null, ?string $userId = null): array
+    public function transfer(Tenant $tenant, QueueTicket $ticket, int $targetStationId, ?string $notes = null, ?int $userId = null): array
     {
         return DB::transaction(function () use ($tenant, $ticket, $targetStationId, $notes, $userId): array {
             /** @var QueueTicket $lockedTicket */
@@ -551,7 +551,7 @@ class ClinicalQueueService
 
             /** @var QueueTicket $newTicket */
             $newTicket = QueueTicket::query()->create([
-                'visit_id' => $lockedTicket->visit_id,
+                'queue_session_id' => $lockedTicket->queue_session_id,
                 'workflow_step_id' => $lockedTicket->workflow_step_id,
                 'station_id' => $targetStationId,
                 'queue_number' => $numbering['queue_number'],
@@ -600,16 +600,16 @@ class ClinicalQueueService
      * starts the next step or, when no required step is left, is completed.
      * Must be called inside the caller's transaction.
      */
-    private function advanceWorkflow(QueueTicket $ticket, ?string $userId, string $reason): void
+    private function advanceWorkflow(QueueTicket $ticket, ?int $userId, string $reason): void
     {
-        /** @var Visit|null $visit */
-        $visit = $ticket->visit;
+        /** @var QueueSession|null $session */
+        $session = $ticket->queueSession;
 
-        if ($visit === null || $visit->status->isTerminal()) {
+        if ($session === null || $session->status->isTerminal()) {
             return;
         }
 
-        $workflow = $visit->workflow;
+        $workflow = $session->workflow;
 
         if ($workflow === null) {
             return;
@@ -622,11 +622,11 @@ class ClinicalQueueService
 
             /** @var QueueTicket $nextTicket */
             $nextTicket = QueueTicket::query()->create([
-                'visit_id' => $visit->id,
+                'queue_session_id' => $session->id,
                 'workflow_step_id' => $nextStep->id,
                 'station_id' => $nextStep->station_id,
                 'queue_number' => $numbering['queue_number'],
-                'priority' => $visit->priority,
+                'priority' => $session->priority,
                 'internal_sequence' => $numbering['internal_sequence'],
                 'status' => QueueTicketStatus::Created,
             ]);
@@ -644,8 +644,8 @@ class ClinicalQueueService
         }
 
         // No further step: the visit is finished.
-        $visit->update([
-            'status' => VisitStatus::Completed,
+        $session->update([
+            'status' => QueueSessionStatus::Completed,
             'completed_at' => now(),
         ]);
     }

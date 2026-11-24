@@ -27,8 +27,8 @@ class QueueAcquisitionController extends Controller
         ]);
 
         $query = QueueAcquisition::query()
-            ->whereHas('visit', fn($q) => $q->where('tenant_id', $this->tenantId()))
-            ->with(['visit.client', 'department', 'visit.workflow']);
+            ->whereHas('queueSession', fn($q) => $q->where('tenant_id', $this->tenantId()))
+            ->with(['queueSession.customer', 'department', 'queueSession.workflow']);
 
         if (! empty($validated['channel'])) {
             $query->where('channel', $validated['channel']);

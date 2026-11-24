@@ -181,7 +181,7 @@ class WorkflowController extends Controller
     /**
      * A rule that only accepts a station inside the current facility.
      *
-     * `exists:stations,id` alone would accept another clinic's station and
+     * `exists:stations,id` alone would accept another tenant's station and
      * let a step reference it, so the tenant's facility is part of the rule.
      */
     private function stationInFacilityRule(): Exists
