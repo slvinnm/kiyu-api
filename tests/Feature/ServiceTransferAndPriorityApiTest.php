@@ -21,7 +21,9 @@ test('service transfer creates target visit in target department and initial que
 
     $sourceVisitId = $intake['queue_session']['id'];
 
-    // 2. Create ServiceTransfer to Support Department
+    // 2. Create ServiceTransfer to Support Department (Staff-only action).
+    $this->actAsStaff();
+
     $transferRes = $this->postJson('/api/service-transfers', [
         'source_queue_session_id' => $sourceVisitId,
         'target_department_id' => $this->supportDepartment->id,

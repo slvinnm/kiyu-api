@@ -192,6 +192,9 @@ test('ticket transfer moves client to another compatible station in the same dep
     $this->postJson('/api/queue/call-next', ['station_id' => $this->serviceStation2->id]);
 
     // Transfer between two stations of the same department and type.
+    // Ticket reassignment is Staff-only (PRD §14.6).
+    $this->actAsStaff();
+
     $transferRes = $this->postJson("/api/tickets/{$docTicket['id']}/transfer", [
         'target_station_id' => $this->serviceStation1->id,
         'notes' => 'Transferring to the other service counter',

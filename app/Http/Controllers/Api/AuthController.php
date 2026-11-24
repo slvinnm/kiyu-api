@@ -15,13 +15,27 @@ use Laravel\Sanctum\PersonalAccessToken;
 class AuthController extends Controller
 {
     /**
+     * Application contexts (PRD §6.1). A session is issued for exactly one.
+     */
+    public const CONTEXT_PLATFORM_PORTAL = 'platform_portal';
+
+    public const CONTEXT_TENANT_WORKSPACE = 'tenant_workspace';
+
+    /**
      * Authenticate a user and issue a Sanctum personal access token.
+     *
+     * `context` names the application the credentials were submitted to. The
+     * role must be allowed there: platform_admin and tenant_admin only in the
+     * Platform Portal; facility_admin, operator, staff and client only in the
+     * Tenant Workspace. Omitting it (non-browser clients, legacy callers) keeps
+     * the previous behaviour; the UI always sends it.
      */
     public function login(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'email' => ['required', 'email'],
             'password' => ['required', 'string'],
+            'context' => ['nullable', 'string', 'in:'.self::CONTEXT_PLATFORM_PORTAL.','.self::CONTEXT_TENANT_WORKSPACE],
         ]);
 
         $user = User::query()->where('email', $validated['email'])->first();
@@ -36,10 +50,20 @@ class AuthController extends Controller
             ], 422);
         }
 
+        $context = $validated['context'] ?? null;
+
+        if ($context !== null && ! $this->roleAllowedInContext($user, $context)) {
+            return response()->json([
+                'message' => 'Akun ini tidak dapat masuk pada aplikasi ini.',
+                'error_type' => 'WRONG_APPLICATION_CONTEXT',
+            ], 403);
+        }
+
         return response()->json([
             'message' => 'Login successful.',
             'data' => [
-                'token' => $this->issueToken($user),
+                'token' => $this->issueToken($user, $context),
+                'context' => $context,
                 'user' => $this->userPayload($user),
             ],
         ]);
@@ -148,12 +172,37 @@ class AuthController extends Controller
 
     /**
      * Issue a time-limited Sanctum personal access token.
+     *
+     * The context is recorded as a token ability (`ctx:platform_portal` or
+     * `ctx:tenant_workspace`) so `EnsureApplicationContext` can prove on every
+     * request that the token was issued by this application. A token minted by
+     * the other frontend is refused even when its user is otherwise valid.
      */
-    private function issueToken(User $user): string
+    private function issueToken(User $user, ?string $context = null): string
     {
         $ttlMinutes = (int) config('auth.token_ttl_minutes', 480);
 
-        return $user->createToken('web', ['*'], now()->addMinutes($ttlMinutes))->plainTextToken;
+        $abilities = ['*'];
+
+        if ($context !== null) {
+            $abilities = ["ctx:{$context}"];
+        }
+
+        return $user->createToken('web', $abilities, now()->addMinutes($ttlMinutes))->plainTextToken;
+    }
+
+    /**
+     * Whether the role may sign in to the given application context.
+     */
+    private function roleAllowedInContext(User $user, string $context): bool
+    {
+        $role = $user->role;
+
+        return match ($context) {
+            self::CONTEXT_PLATFORM_PORTAL => in_array($role?->value, ['platform_admin', 'tenant_admin'], true),
+            self::CONTEXT_TENANT_WORKSPACE => in_array($role?->value, ['facility_admin', 'operator', 'staff', 'client'], true),
+            default => false,
+        };
     }
 
     /**
@@ -177,6 +226,13 @@ class AuthController extends Controller
             'email' => $user->email,
             'role' => $user->role?->value,
             'tenant_id' => $user->tenant_id,
+            'tenant' => $user->tenant === null ? null : [
+                'id' => $user->tenant->id,
+                'name' => $user->tenant->name,
+                'slug' => $user->tenant->slug,
+                'status' => $user->tenant->status?->value,
+                'timezone' => $user->tenant->timezone,
+            ],
             'facility_ids' => $facilityIds,
             'station_id' => $user->station_id,
             'profile' => $user->customer,

@@ -15,9 +15,19 @@ use App\Http\Controllers\Api\IntakeController;
 use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\KioskDeviceController;
 use App\Http\Controllers\Api\KioskPairingController;
+use App\Http\Controllers\Api\PublicController\SignupController;
+use App\Http\Controllers\Api\Portal\DashboardController as PortalDashboardController;
+use App\Http\Controllers\Api\Platform\AuditLogController as PlatformAuditLogController;
+use App\Http\Controllers\Api\Platform\DashboardController as PlatformDashboardController;
+use App\Http\Controllers\Api\Platform\PaymentController as PlatformPaymentController;
 use App\Http\Controllers\Api\Platform\PlanController;
+use App\Http\Controllers\Api\Platform\ReportController as PlatformReportController;
+use App\Http\Controllers\Api\Platform\SettingController;
+use App\Http\Controllers\Api\Platform\SubscriptionController as PlatformSubscriptionController;
+use App\Http\Controllers\Api\Platform\SupportAccessController;
 use App\Http\Controllers\Api\Platform\TenantController;
 use App\Http\Controllers\Api\PublicQueueController;
+use App\Http\Controllers\Api\PublicController\TenantResolutionController;
 use App\Http\Controllers\Api\QueueAcquisitionController;
 use App\Http\Controllers\Api\QueueController;
 use App\Http\Controllers\Api\QueueMonitorController;
@@ -42,6 +52,12 @@ Route::prefix('auth')
     ->controller(AuthController::class)
     ->group(function () {
         Route::post('/login', 'login')->middleware('throttle:6,1');
+
+        // Public SaaS self-service signup: creates an organization + owner +
+        // first facility + a TRIALING subscription. No tenant exists yet, so it
+        // must NOT run behind tenant resolution (PRD §12.1).
+        Route::post('/signup', [SignupController::class, 'register'])
+            ->middleware('throttle:3,60');
 
         // Tenant user self-registration. The tenant comes from the tenant host or
         // the X-Tenant-Slug locator; the tenant's own registration policy decides
@@ -83,6 +99,9 @@ Route::post('/kiosk/pair', [KioskPairingController::class, 'pair'])
 Route::post('/display/pair', [DisplayPairingController::class, 'pair'])
     ->middleware('throttle:10,1');
 
+Route::get('/public/tenant/{slug}', [TenantResolutionController::class, 'show'])
+    ->middleware('throttle:120,1');
+
 Route::get('/public/queue', [PublicQueueController::class, 'index'])
     ->middleware(['public-tenant', 'throttle:120,1']);
 
@@ -101,7 +120,7 @@ Route::post('/webhooks/payments/{provider}', [WebhookController::class, 'handle'
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth:sanctum', 'tenant'])
+Route::middleware(['auth:sanctum', 'tenant', 'context:tenant_workspace'])
     ->group(function () {
 
         Route::post('/intake/manual', [IntakeController::class, 'manual'])
@@ -154,17 +173,25 @@ Route::middleware(['auth:sanctum', 'tenant'])
                     Route::post('/{id}/skip', 'skip')->whereNumber('id');
                     Route::post('/{id}/no-show', 'noShow')->whereNumber('id');
                     Route::post('/{id}/cancel', 'cancel')->whereNumber('id');
-                    Route::post('/{id}/transfer', 'transfer')->whereNumber('id');
+
+                    // Ticket-level reassignment is a Staff-only operational step
+                    // (PRD §8.5, §14.6). Operator/admin consoles do not get it.
+                    Route::post('/{id}/transfer', 'transfer')->whereNumber('id')
+                        ->middleware('role:staff');
                 });
             });
 
+        // Service Transfer (cross-department handoff) is Staff-only (PRD §8.5,
+        // §14.5). Admins may read the history for monitoring; nobody else may
+        // create one, and Operator is refused both the action and the list it
+        // appears in.
         Route::prefix('service-transfers')
             ->middleware('role:tenant_admin,facility_admin,staff')
             ->controller(ServiceTransferController::class)
             ->group(function () {
                 Route::get('/', 'index');
-                Route::post('/', 'store');
                 Route::get('/{id}', 'show')->whereNumber('id');
+                Route::post('/', 'store')->middleware('role:staff');
             });
 
         /*
@@ -424,18 +451,162 @@ Route::middleware(['auth:sanctum', 'tenant'])
 
 /*
 |--------------------------------------------------------------------------
+| TenantAdmin Portal (app.kiyu.test/portal)
+|--------------------------------------------------------------------------
+|
+| TenantAdmin signs in to the Platform Portal, not the tenant workspace (PRD
+| §5.1). It manages its organization from here: Facilities, the configuration
+| inside a chosen Facility (via X-Facility-Id), users, organization-wide
+| queue/session monitoring, billing and audit. It does not call queues.
+|
+| The controllers are shared with the tenant API on purpose — same domain
+| rules, one implementation. Only the middleware/context and role set differ.
+|
+*/
+
+Route::prefix('portal')
+    ->middleware(['auth:sanctum', 'tenant', 'context:platform_portal', 'role:tenant_admin'])
+    ->group(function () {
+        Route::get('/dashboard', PortalDashboardController::class);
+
+        // Facilities.
+        Route::get('/facilities', [FacilityController::class, 'index']);
+        Route::post('/facilities', [FacilityController::class, 'store']);
+        Route::put('/facilities/{id}', [FacilityController::class, 'update'])->whereNumber('id');
+
+        // Users + facility assignments + invitations.
+        Route::prefix('users')->controller(UserController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::get('/{id}', 'show')->whereNumber('id');
+            Route::put('/{id}', 'update')->whereNumber('id');
+            Route::delete('/{id}', 'destroy')->whereNumber('id');
+        });
+
+        Route::prefix('users/{userId}/facilities')
+            ->controller(FacilityAssignmentController::class)
+            ->group(function () {
+                Route::get('/', 'index')->whereNumber('userId');
+                Route::post('/', 'store')->whereNumber('userId');
+                Route::delete('/{facilityId}', 'destroy')->whereNumber('userId')->whereNumber('facilityId');
+            });
+
+        Route::prefix('invitations')->controller(InvitationController::class)->group(function () {
+            Route::get('/', 'index');
+            Route::post('/', 'store');
+            Route::delete('/{id}', 'revoke')->whereNumber('id');
+        });
+
+        // Facility-scoped configuration (X-Facility-Id selects the Facility).
+        Route::middleware('facility')->group(function () {
+            Route::prefix('departments')->controller(DepartmentController::class)->group(function () {
+                Route::get('/', 'index');
+                Route::get('/options', 'options');
+                Route::post('/', 'store');
+                Route::get('/{id}', 'show')->whereNumber('id');
+                Route::put('/{id}', 'update')->whereNumber('id');
+                Route::get('/{id}/stations', 'stations')->whereNumber('id');
+                Route::get('/{id}/workflows', 'workflows')->whereNumber('id');
+            });
+
+            Route::prefix('stations')->controller(StationController::class)->group(function () {
+                Route::get('/', 'index');
+                Route::get('/options', 'options');
+                Route::post('/', 'store');
+                Route::get('/{id}', 'show')->whereNumber('id');
+                Route::put('/{id}', 'update')->whereNumber('id');
+                Route::get('/{id}/queue', 'queue')->whereNumber('id');
+            });
+
+            Route::prefix('workflows')->controller(WorkflowController::class)->group(function () {
+                Route::get('/', 'index');
+                Route::get('/statistics', 'statistics');
+                Route::post('/', 'store');
+                Route::get('/{id}', 'show')->whereNumber('id');
+                Route::post('/{id}/steps', 'addStep')->whereNumber('id');
+            });
+
+            Route::prefix('workflow-steps')->controller(WorkflowController::class)->group(function () {
+                Route::put('/{id}', 'updateStep')->whereNumber('id');
+                Route::delete('/{id}', 'deleteStep')->whereNumber('id');
+            });
+
+            Route::get('/reports/summary', [ReportController::class, 'summary'])
+                ->middleware('feature:basic_reports');
+            Route::get('/reports/queue-sessions/export', [ReportController::class, 'exportQueueSessions'])
+                ->middleware('feature:advanced_reports');
+            Route::post('/reports/queue-sessions/export-file', [ReportController::class, 'exportFile'])
+                ->middleware('feature:advanced_reports');
+            Route::get('/reports/download', [ReportController::class, 'download'])
+                ->name('portal.reports.download')
+                ->middleware('feature:advanced_reports');
+        });
+
+        // Organization-wide monitoring (tenant scope, Facility filter).
+        Route::get('/queue/monitor', [QueueMonitorController::class, 'index']);
+        Route::get('/queue-sessions', [QueueSessionController::class, 'index']);
+        Route::get('/queue-sessions/statistics', [QueueSessionController::class, 'statistics']);
+        Route::get('/queue-sessions/{id}', [QueueSessionController::class, 'show'])->whereNumber('id');
+        Route::post('/queue-sessions/{id}/cancel', [QueueSessionController::class, 'cancel'])->whereNumber('id');
+
+        Route::get('/customers', [CustomerController::class, 'index']);
+        Route::get('/customers/statistics', [CustomerController::class, 'statistics']);
+        Route::get('/customers/{id}', [CustomerController::class, 'show'])->whereNumber('id');
+        Route::get('/customers/{id}/queue-sessions', [CustomerController::class, 'queueSessions'])->whereNumber('id');
+
+        Route::get('/audit-logs', [AuditLogController::class, 'index']);
+
+        // Billing (tenant self-service).
+        Route::prefix('billing/subscription')->controller(SubscriptionController::class)->group(function () {
+            Route::get('/', 'show');
+            Route::post('/', 'store');
+            Route::post('/cancel', 'cancel');
+        });
+        Route::post('/billing/pay', [PaymentController::class, 'charge']);
+    });
+
+/*
+|--------------------------------------------------------------------------
 | Platform Administration
 |--------------------------------------------------------------------------
 */
 
 Route::prefix('platform')
-    ->middleware(['auth:sanctum', 'platform'])
+    ->middleware(['auth:sanctum', 'platform', 'context:platform_portal'])
     ->group(function () {
+        Route::get('/dashboard', PlatformDashboardController::class);
+
         Route::get('/tenants', [TenantController::class, 'index']);
         Route::post('/tenants', [TenantController::class, 'store']);
         Route::get('/tenants/{id}', [TenantController::class, 'show'])->whereNumber('id');
+        Route::post('/tenants/{id}/suspend', [TenantController::class, 'suspend'])->whereNumber('id');
+        Route::post('/tenants/{id}/reactivate', [TenantController::class, 'reactivate'])->whereNumber('id');
+
+        Route::get('/subscriptions', [PlatformSubscriptionController::class, 'index']);
+        Route::get('/subscriptions/{id}', [PlatformSubscriptionController::class, 'show'])->whereNumber('id');
+
+        Route::get('/payments', [PlatformPaymentController::class, 'index']);
+        Route::get('/payments/{id}', [PlatformPaymentController::class, 'show'])->whereNumber('id');
+        Route::get('/payments-webhooks', [PlatformPaymentController::class, 'webhooks']);
+
         Route::get('/plans', [PlanController::class, 'index']);
         Route::post('/plans', [PlanController::class, 'store']);
+        Route::get('/plans/{id}', [PlanController::class, 'show'])->whereNumber('id');
+        Route::put('/plans/{id}', [PlanController::class, 'update'])->whereNumber('id');
+        Route::post('/plans/{id}/prices', [PlanController::class, 'addPrice'])->whereNumber('id');
+        Route::put('/plans/{id}/entitlements', [PlanController::class, 'updateEntitlements'])->whereNumber('id');
+
+        Route::get('/reports/revenue', [PlatformReportController::class, 'revenue']);
+        Route::get('/reports/growth', [PlatformReportController::class, 'growth']);
+        Route::get('/reports/subscriptions', [PlatformReportController::class, 'subscriptions']);
+
+        Route::get('/support-access', [SupportAccessController::class, 'index']);
+        Route::post('/support-access', [SupportAccessController::class, 'store']);
+        Route::post('/support-access/{id}/end', [SupportAccessController::class, 'end'])->whereNumber('id');
+
+        Route::get('/audit-logs', [PlatformAuditLogController::class, 'index']);
+        Route::get('/settings', [SettingController::class, 'show']);
+        Route::put('/settings', [SettingController::class, 'update']);
 
         /*
         |--------------------------------------------------------------------------

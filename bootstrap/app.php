@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EnsureApplicationContext;
 use App\Http\Middleware\EnsurePlanFeature;
 use App\Http\Middleware\EnsurePlatformAccount;
 use App\Http\Middleware\EnsureUserRole;
@@ -31,6 +32,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'platform' => EnsurePlatformAccount::class,
             'platform-tenant' => ResolvePlatformTenant::class,
             'feature' => EnsurePlanFeature::class,
+            'context' => EnsureApplicationContext::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

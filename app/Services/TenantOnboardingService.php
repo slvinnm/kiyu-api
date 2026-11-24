@@ -2,12 +2,14 @@
 
 namespace App\Services;
 
+use App\Enums\BillingInterval;
 use App\Enums\StationType;
 use App\Enums\TenantStatus;
 use App\Enums\UserRole;
 use App\Exceptions\BusinessConflictException;
 use App\Models\Department;
 use App\Models\Facility;
+use App\Models\Plan;
 use App\Models\Station;
 use App\Models\Tenant;
 use App\Models\User;
@@ -47,8 +49,10 @@ class TenantOnboardingService
      *     admin_password: string,
      *     department_code?: string,
      *     department_name?: string,
+     *     trial_days?: int|null,
+     *     plan_code?: string|null,
      * }  $data
-     * @return array{tenant: Tenant, facility: Facility, admin: User}
+     * @return array{tenant: Tenant, facility: Facility, subscription: \App\Models\Subscription|null, tenant_admin: User}
      */
     public function provision(array $data): array
     {
@@ -67,6 +71,12 @@ class TenantOnboardingService
         }
 
         return DB::transaction(function () use ($data, $slug): array {
+            // A self-service signup starts on a trial: the org is usable
+            // immediately, and the subscription is TRIALING (PRD §12.1). A
+            // platform-provisioned tenant is ACTIVE with no trial.
+            $trialDays = $data['trial_days'] ?? null;
+            $isTrial = $trialDays !== null && $trialDays > 0;
+
             $tenant = Tenant::query()->create([
                 'name' => $data['name'],
                 'slug' => $slug,
@@ -78,6 +88,7 @@ class TenantOnboardingService
                 'contact_name' => $data['contact_name'] ?? null,
                 'contact_email' => $data['contact_email'] ?? null,
                 'contact_phone' => $data['contact_phone'] ?? null,
+                'allow_public_registration' => $isTrial,
             ]);
 
             $facility = $this->createFacility($tenant, $data);
@@ -99,9 +110,28 @@ class TenantOnboardingService
 
             $this->createDefaultTemplate($facility, $data);
 
+            $subscription = null;
+
+            if ($isTrial && isset($data['plan_code'])) {
+                $plan = Plan::query()
+                    ->where('code', $data['plan_code'])
+                    ->where('is_active', true)
+                    ->first();
+
+                if ($plan !== null) {
+                    $subscription = app(SubscriptionService::class)->start(
+                        tenant: $tenant,
+                        plan: $plan,
+                        interval: BillingInterval::Monthly,
+                        trialDays: (int) $trialDays,
+                    );
+                }
+            }
+
             return [
                 'tenant' => $tenant,
                 'facility' => $facility,
+                'subscription' => $subscription,
                 'tenant_admin' => $admin,
             ];
         });

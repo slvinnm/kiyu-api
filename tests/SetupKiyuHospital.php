@@ -59,6 +59,8 @@ trait SetupKiyuHospital
 
     protected User $adminUser;
 
+    protected User $staffUser;
+
     protected function setupHospital(): void
     {
         $this->tenant = Tenant::query()->create([
@@ -243,6 +245,28 @@ trait SetupKiyuHospital
             'facility_id' => $this->facility->id,
         ]);
 
+        // Service Transfer and ticket reassignment are Staff-only (PRD §14.5).
+        $this->staffUser = User::factory()->create([
+            'role' => 'staff',
+            'tenant_id' => $this->tenant->id,
+        ]);
+
+        UserFacilityAssignment::query()->create([
+            'tenant_id' => $this->tenant->id,
+            'user_id' => $this->staffUser->id,
+            'facility_id' => $this->facility->id,
+        ]);
+
         $this->actingAs($this->adminUser, 'sanctum');
+    }
+
+    /**
+     * Authenticate the fixture's staff account for Staff-only operations.
+     */
+    protected function actAsStaff(): static
+    {
+        $this->actingAs($this->staffUser, 'sanctum');
+
+        return $this;
     }
 }
