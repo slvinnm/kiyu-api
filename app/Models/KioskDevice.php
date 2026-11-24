@@ -2,13 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasDevicePairing;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class KioskDevice extends Model
 {
-    use HasFactory;
+    use HasDevicePairing, HasFactory;
 
     /**
      * The attributes that are mass assignable.
@@ -50,54 +50,4 @@ class KioskDevice extends Model
         'pairing_expires_at' => 'datetime',
         'paired_at' => 'datetime',
     ];
-
-    /**
-     * Whether the device has redeemed a pairing code and holds a real
-     * credential. A registered-but-unpaired device stores only a placeholder
-     * credential hash and must never authenticate.
-     */
-    public function isPaired(): bool
-    {
-        return $this->paired_at !== null;
-    }
-
-    /**
-     * Determine whether the device credential may currently be used.
-     *
-     * The device must be paired, active, and (when set) not past its expiry.
-     */
-    public function isUsable(): bool
-    {
-        return $this->isPaired()
-            && $this->is_active
-            && ($this->expires_at === null || $this->expires_at->isFuture());
-    }
-
-    /**
-     * Whether the device is waiting for an operator to redeem its pairing code.
-     */
-    public function isAwaitingPairing(): bool
-    {
-        return ! $this->isPaired()
-            && $this->is_active
-            && $this->pairing_code_hash !== null
-            && $this->pairing_expires_at !== null
-            && $this->pairing_expires_at->isFuture();
-    }
-
-    /**
-     * Get the tenant that registered the device.
-     */
-    public function tenant(): BelongsTo
-    {
-        return $this->belongsTo(Tenant::class);
-    }
-
-    /**
-     * Get the facility the device operates at.
-     */
-    public function facility(): BelongsTo
-    {
-        return $this->belongsTo(Facility::class);
-    }
 }

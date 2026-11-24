@@ -3,13 +3,12 @@
 namespace App\Http\Controllers\Api;
 
 use App\Enums\Feature;
-use App\Exceptions\InvalidStateException;
 use App\Http\Controllers\Controller;
 use App\Models\KioskDevice;
+use App\Services\DevicePairingService;
 use App\Services\SubscriptionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 
 /**
  * Manage the tenant's kiosk devices.
@@ -21,14 +20,9 @@ use Illuminate\Support\Str;
  */
 class KioskDeviceController extends Controller
 {
-    /** How long an operator has to enter the pairing code. */
-    private const PAIRING_TTL_MINUTES = 30;
-
-    /** Length of the generated pairing code. */
-    private const PAIRING_CODE_LENGTH = 8;
-
     public function __construct(
         private readonly SubscriptionService $subscriptions,
+        private readonly DevicePairingService $pairing,
     ) {}
 
     /**
@@ -70,7 +64,7 @@ class KioskDeviceController extends Controller
 
         $this->subscriptions->ensureCapacity($tenant, Feature::MaxKioskDevices);
 
-        $pairingCode = $this->generatePairingCode();
+        $pairingCode = $this->pairing->generateCode(KioskDevice::class);
 
         $device = KioskDevice::query()->create([
             'tenant_id' => $tenant->id,
@@ -78,9 +72,9 @@ class KioskDeviceController extends Controller
             'name' => $validated['name'],
             // A placeholder credential: the device cannot call the kiosk API
             // until it redeems the pairing code.
-            'credential_hash' => hash('sha256', Str::random(64)),
+            'credential_hash' => $this->pairing->placeholderCredentialHash(),
             'pairing_code_hash' => hash('sha256', $pairingCode),
-            'pairing_expires_at' => now()->addMinutes(self::PAIRING_TTL_MINUTES),
+            'pairing_expires_at' => now()->addMinutes(DevicePairingService::PAIRING_TTL_MINUTES),
             'is_active' => true,
             'expires_at' => $validated['expires_at'] ?? null,
         ]);
@@ -115,11 +109,11 @@ class KioskDeviceController extends Controller
             'This device is already paired. Revoke and re-register it to change its credential.',
         );
 
-        $pairingCode = $this->generatePairingCode();
+        $pairingCode = $this->pairing->generateCode(KioskDevice::class);
 
         $device->forceFill([
             'pairing_code_hash' => hash('sha256', $pairingCode),
-            'pairing_expires_at' => now()->addMinutes(self::PAIRING_TTL_MINUTES),
+            'pairing_expires_at' => now()->addMinutes(DevicePairingService::PAIRING_TTL_MINUTES),
         ])->save();
 
         return response()->json([
@@ -130,36 +124,6 @@ class KioskDeviceController extends Controller
                 'pairing_expires_at' => $device->pairing_expires_at?->toIso8601String(),
             ],
         ]);
-    }
-
-    /**
-     * Generate a short, unambiguous pairing code with no hash collision.
-     *
-     * The alphabet omits characters that are easy to confuse when read off a
-     * screen (0/O, 1/I/L). A unique index backs the hash, so a (very unlikely)
-     * collision is retried rather than failing the request.
-     */
-    private function generatePairingCode(): string
-    {
-        $alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-
-        for ($attempt = 0; $attempt < 10; $attempt++) {
-            $code = '';
-
-            for ($i = 0; $i < self::PAIRING_CODE_LENGTH; $i++) {
-                $code .= $alphabet[random_int(0, strlen($alphabet) - 1)];
-            }
-
-            $taken = KioskDevice::query()
-                ->where('pairing_code_hash', hash('sha256', $code))
-                ->exists();
-
-            if (! $taken) {
-                return $code;
-            }
-        }
-
-        throw new InvalidStateException('Could not generate a unique pairing code; please retry.');
     }
 
     /**

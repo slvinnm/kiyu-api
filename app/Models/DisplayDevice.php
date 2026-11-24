@@ -2,9 +2,9 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasDevicePairing;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * A public queue-display screen at a facility.
@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class DisplayDevice extends Model
 {
-    use HasFactory;
+    use HasDevicePairing, HasFactory;
 
     /**
      * The attributes that are mass assignable.
@@ -57,51 +57,4 @@ class DisplayDevice extends Model
         'pairing_expires_at' => 'datetime',
         'paired_at' => 'datetime',
     ];
-
-    /**
-     * Whether the display has redeemed a pairing code and holds a real
-     * credential.
-     */
-    public function isPaired(): bool
-    {
-        return $this->paired_at !== null;
-    }
-
-    /**
-     * Determine whether the display credential may currently be used.
-     */
-    public function isUsable(): bool
-    {
-        return $this->isPaired()
-            && $this->is_active
-            && ($this->expires_at === null || $this->expires_at->isFuture());
-    }
-
-    /**
-     * Whether the display is waiting for an operator to redeem its code.
-     */
-    public function isAwaitingPairing(): bool
-    {
-        return ! $this->isPaired()
-            && $this->is_active
-            && $this->pairing_code_hash !== null
-            && $this->pairing_expires_at !== null
-            && $this->pairing_expires_at->isFuture();
-    }
-
-    /**
-     * Get the tenant that registered the display.
-     */
-    public function tenant(): BelongsTo
-    {
-        return $this->belongsTo(Tenant::class);
-    }
-
-    /**
-     * Get the facility the display is mounted at.
-     */
-    public function facility(): BelongsTo
-    {
-        return $this->belongsTo(Facility::class);
-    }
 }

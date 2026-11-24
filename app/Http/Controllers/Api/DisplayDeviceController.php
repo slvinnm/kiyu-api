@@ -3,28 +3,26 @@
 namespace App\Http\Controllers\Api;
 
 use App\Enums\Feature;
-use App\Exceptions\InvalidStateException;
 use App\Http\Controllers\Controller;
 use App\Models\DisplayDevice;
+use App\Services\DevicePairingService;
 use App\Services\SubscriptionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 
 /**
  * Manage the tenant's display devices.
  *
- * Creating a display is gated by the max_display_devices limit. Registration
- * returns a one-time pairing code, not the credential.
+ * Creating a device is gated by the max_display_devices limit. Registration
+ * returns a short pairing code, not the credential: the operator types the code
+ * on the kiosk and the device trades it for its credential through the public
+ * pairing endpoint. Neither the code nor the credential is recoverable later.
  */
 class DisplayDeviceController extends Controller
 {
-    private const PAIRING_TTL_MINUTES = 30;
-
-    private const PAIRING_CODE_LENGTH = 8;
-
     public function __construct(
         private readonly SubscriptionService $subscriptions,
+        private readonly DevicePairingService $pairing,
     ) {}
 
     /**
@@ -41,6 +39,7 @@ class DisplayDeviceController extends Controller
                 'name' => $device->name,
                 'facility_id' => $device->facility_id,
                 'is_active' => $device->is_active,
+                // Lets the admin dashboard show "awaiting pairing" vs "live".
                 'is_paired' => $device->isPaired(),
                 'is_awaiting_pairing' => $device->isAwaitingPairing(),
                 'paired_at' => $device->paired_at?->toIso8601String(),
@@ -65,22 +64,23 @@ class DisplayDeviceController extends Controller
 
         $this->subscriptions->ensureCapacity($tenant, Feature::MaxDisplayDevices);
 
-        $pairingCode = $this->generatePairingCode();
+        $pairingCode = $this->pairing->generateCode(DisplayDevice::class);
 
         $device = DisplayDevice::query()->create([
             'tenant_id' => $tenant->id,
             'facility_id' => $this->facilityId(),
             'name' => $validated['name'],
-            // Placeholder credential; unusable until the code is redeemed.
-            'credential_hash' => hash('sha256', Str::random(64)),
+            // A placeholder credential: the device cannot call the public kiosk API
+            // until it redeems the pairing code.
+            'credential_hash' => $this->pairing->placeholderCredentialHash(),
             'pairing_code_hash' => hash('sha256', $pairingCode),
-            'pairing_expires_at' => now()->addMinutes(self::PAIRING_TTL_MINUTES),
+            'pairing_expires_at' => now()->addMinutes(DevicePairingService::PAIRING_TTL_MINUTES),
             'is_active' => true,
             'expires_at' => $validated['expires_at'] ?? null,
         ]);
 
         return response()->json([
-            'message' => 'Display device registered. Enter the pairing code on the screen; it is shown only once.',
+            'message' => 'Kiosk device registered. Enter the pairing code on the screen; it is shown only once.',
             'data' => [
                 'device' => $device,
                 'pairing_code' => $pairingCode,
@@ -100,17 +100,20 @@ class DisplayDeviceController extends Controller
 
         abort_unless($device->is_active, 409, 'The display device is revoked.');
 
+        // Only an unpaired device may receive a new code. Reissuing for an
+        // already-paired device would hand out a code that, when redeemed,
+        // silently replaces the credential of a live device.
         abort_if(
             $device->isPaired(),
             409,
-            'This display is already paired. Revoke and re-register it to change its credential.',
+            'This device is already paired. Revoke and re-register it to change its credential.',
         );
 
-        $pairingCode = $this->generatePairingCode();
+        $pairingCode = $this->pairing->generateCode(DisplayDevice::class);
 
         $device->forceFill([
             'pairing_code_hash' => hash('sha256', $pairingCode),
-            'pairing_expires_at' => now()->addMinutes(self::PAIRING_TTL_MINUTES),
+            'pairing_expires_at' => now()->addMinutes(DevicePairingService::PAIRING_TTL_MINUTES),
         ])->save();
 
         return response()->json([
@@ -137,31 +140,5 @@ class DisplayDeviceController extends Controller
         return response()->json([
             'message' => 'Display device revoked.',
         ]);
-    }
-
-    /**
-     * Generate a short, unambiguous pairing code with no hash collision.
-     */
-    private function generatePairingCode(): string
-    {
-        $alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-
-        for ($attempt = 0; $attempt < 10; $attempt++) {
-            $code = '';
-
-            for ($i = 0; $i < self::PAIRING_CODE_LENGTH; $i++) {
-                $code .= $alphabet[random_int(0, strlen($alphabet) - 1)];
-            }
-
-            $taken = DisplayDevice::query()
-                ->where('pairing_code_hash', hash('sha256', $code))
-                ->exists();
-
-            if (! $taken) {
-                return $code;
-            }
-        }
-
-        throw new InvalidStateException('Could not generate a unique pairing code; please retry.');
     }
 }
