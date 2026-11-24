@@ -206,6 +206,8 @@ class StationController extends Controller
             ->orderBy('internal_sequence', 'asc')
             ->paginate($this->tablePerPage($validated));
 
+        // `station` sits beside `data` on purpose: the queue screen needs the
+        // station header and its paginated tickets in one response.
         return response()->json([
             'station' => $station,
             'data' => $tickets,

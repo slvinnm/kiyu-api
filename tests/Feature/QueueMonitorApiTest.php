@@ -1,6 +1,11 @@
 <?php
 
 use App\Enums\QueueTicketStatus;
+use App\Enums\StationType;
+use App\Models\Department;
+use App\Models\Facility;
+use App\Models\Station;
+use App\Models\Tenant;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\SetupKiyuHospital;
 
@@ -69,7 +74,7 @@ test('queue monitor reports the called ticket and waiting count', function () {
 });
 
 test('queue monitor filters by department and station', function () {
-    $byDepartment = $this->getJson('/api/queue/monitor?department_id='.$this->generalDepartment->id)
+    $byDepartment = $this->getJson('/api/queue/monitor?department_id=' . $this->generalDepartment->id)
         ->assertOk()
         ->json('data');
 
@@ -77,7 +82,7 @@ test('queue monitor filters by department and station', function () {
     expect(collect($byDepartment)->pluck('department_id')->unique()->all())
         ->toBe([$this->generalDepartment->id]);
 
-    $byStation = $this->getJson('/api/queue/monitor?station_id='.$this->nurseStation->id)
+    $byStation = $this->getJson('/api/queue/monitor?station_id=' . $this->nurseStation->id)
         ->assertOk()
         ->json('data');
 
@@ -85,22 +90,22 @@ test('queue monitor filters by department and station', function () {
 });
 
 test('queue monitor does not leak another tenant stations', function () {
-    $otherTenant = \App\Models\Tenant::factory()->create();
-    $otherFacility = \App\Models\Facility::factory()->create([
+    $otherTenant = Tenant::factory()->create();
+    $otherFacility = Facility::factory()->create([
         'tenant_id' => $otherTenant->id,
         'is_active' => true,
     ]);
-    $otherDepartment = \App\Models\Department::create([
+    $otherDepartment = Department::create([
         'facility_id' => $otherFacility->id,
         'code' => 'OTH',
         'name' => 'Other Department',
         'is_active' => true,
     ]);
-    $otherStation = \App\Models\Station::create([
+    $otherStation = Station::create([
         'department_id' => $otherDepartment->id,
         'code' => 'OTH-1',
         'name' => 'Other Station',
-        'type' => \App\Enums\StationType::Registration,
+        'type' => StationType::Registration,
         'is_active' => true,
     ]);
 
