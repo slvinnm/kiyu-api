@@ -162,6 +162,14 @@ class StationController extends Controller
             'is_active' => ['nullable', 'boolean'],
         ]);
 
+        // A station may only move inside the current facility; a bare integer
+        // rule would let it be re-parented into another tenant's department.
+        if (isset($validated['department_id'])) {
+            Department::query()
+                ->where('facility_id', $this->facilityId())
+                ->findOrFail($validated['department_id']);
+        }
+
         $station->update($validated);
 
         return response()->json([

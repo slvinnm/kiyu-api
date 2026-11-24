@@ -9,6 +9,8 @@ use App\Models\Workflow;
 use App\Models\WorkflowStep;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Exists;
 
 class WorkflowController extends Controller
 {
@@ -112,7 +114,7 @@ class WorkflowController extends Controller
             ->findOrFail($id);
 
         $validated = $request->validate([
-            'station_id' => ['required', 'integer'],
+            'station_id' => ['required', 'integer', $this->stationInFacilityRule()],
             'name' => ['required', 'string', 'max:255'],
             'sequence' => ['required', 'integer', 'min:1'],
             'is_active' => ['nullable', 'boolean'],
@@ -151,7 +153,7 @@ class WorkflowController extends Controller
             ->findOrFail($id);
 
         $validated = $request->validate([
-            'station_id' => ['sometimes', 'required', 'integer'],
+            'station_id' => ['sometimes', 'required', 'integer', $this->stationInFacilityRule()],
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'sequence' => ['sometimes', 'required', 'integer', 'min:1'],
             'is_active' => ['nullable', 'boolean'],
@@ -183,5 +185,23 @@ class WorkflowController extends Controller
         return response()->json([
             'message' => 'Workflow step deleted successfully.',
         ]);
+    }
+
+    /**
+     * A rule that only accepts a station inside the current facility.
+     *
+     * `exists:stations,id` alone would accept another clinic's station and
+     * let a step reference it, so the tenant's facility is part of the rule.
+     */
+    private function stationInFacilityRule(): Exists
+    {
+        return Rule::exists('stations', 'id')->where(
+            fn($query) => $query->whereIn(
+                'department_id',
+                Department::query()
+                    ->where('facility_id', $this->facilityId())
+                    ->select('id'),
+            ),
+        );
     }
 }

@@ -217,3 +217,56 @@ test('a missing kiosk credential is rejected', function () {
         'department_id' => $this->a['department']->id,
     ])->assertForbidden();
 });
+
+test('a workflow step cannot reference a station from another tenant', function () {
+    $this->actingAs($this->a['admin'], 'sanctum')
+        ->postJson("/api/workflows/{$this->a['workflow']->id}/steps", [
+            'station_id' => $this->b['station']->id,
+            'name' => 'Leaked Step',
+            'sequence' => 2,
+        ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('station_id');
+
+    $this->assertDatabaseMissing('workflow_steps', [
+        'workflow_id' => $this->a['workflow']->id,
+        'station_id' => $this->b['station']->id,
+    ]);
+});
+
+test('a workflow step can be updated to a station inside the same facility', function () {
+    $step = $this->a['workflow']->steps()->firstOrFail();
+
+    $this->actingAs($this->a['admin'], 'sanctum')
+        ->putJson("/api/workflow-steps/{$step->id}", [
+            'station_id' => $this->a['station']->id,
+        ])
+        ->assertOk();
+});
+
+test('a station cannot be moved into another tenant department', function () {
+    $this->actingAs($this->a['admin'], 'sanctum')
+        ->putJson("/api/stations/{$this->a['station']->id}", [
+            'department_id' => $this->b['department']->id,
+        ])
+        ->assertNotFound();
+
+    expect($this->a['station']->fresh()->department_id)->toBe($this->a['department']->id);
+});
+
+test('a station can be moved inside its own facility', function () {
+    $extra = Department::create([
+        'facility_id' => $this->a['facility']->id,
+        'code' => 'GEN-A2',
+        'name' => 'Second',
+        'is_active' => true,
+    ]);
+
+    $this->actingAs($this->a['admin'], 'sanctum')
+        ->putJson("/api/stations/{$this->a['station']->id}", [
+            'department_id' => $extra->id,
+        ])
+        ->assertOk();
+
+    expect($this->a['station']->fresh()->department_id)->toBe($extra->id);
+});
