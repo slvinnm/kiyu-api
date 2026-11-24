@@ -36,7 +36,19 @@ class ClinicalQueueService
             throw new InvalidStateException("Station #{$stationId} is inactive.");
         }
 
-        $ticket = DB::transaction(function () use ($tenant, $station, $assignedTo): ?QueueTicket {
+        return $this->claimNextAt($tenant, $station, $assignedTo, 'CLINICAL_CALL_NEXT');
+    }
+
+    /**
+     * Claim the next CREATED ticket at a station and announce it.
+     *
+     * Shared with the reception desk, which resolves its own station and then
+     * calls this: the claim, the event, the audit row and the notifications
+     * must behave identically for both.
+     */
+    public function claimNextAt(Tenant $tenant, Station $station, ?string $assignedTo, string $auditAction): ?QueueTicket
+    {
+        $ticket = DB::transaction(function () use ($tenant, $station, $assignedTo, $auditAction): ?QueueTicket {
             /** @var QueueTicket|null $ticket */
             $ticket = QueueTicket::query()
                 ->where('station_id', $station->id)
@@ -65,7 +77,7 @@ class ClinicalQueueService
             ]);
 
             $this->auditService->log(
-                action: 'CLINICAL_CALL_NEXT',
+                action: $auditAction,
                 entityType: 'QueueTicket',
                 entityId: $ticket->id,
                 metadata: [

@@ -9,7 +9,6 @@ use App\Enums\QueueTicketStatus;
 use App\Enums\VisitStatus;
 use App\Exceptions\BusinessConflictException;
 use App\Exceptions\InvalidStateException;
-use App\Jobs\SendQueueCallWhatsApp;
 use App\Models\Client;
 use App\Models\Department;
 use App\Models\QueueAcquisition;
@@ -29,7 +28,8 @@ class ReceptionService
     public function __construct(
         public WorkflowService $workflowService,
         public SequenceService $sequenceService,
-        public AuditService $auditService
+        public AuditService $auditService,
+        public ClinicalQueueService $clinicalQueue,
     ) {}
 
     /**
@@ -118,58 +118,7 @@ class ReceptionService
             throw new InvalidStateException("Provided station #{$stationId} does not match active registration station #{$registrationStation->id}.");
         }
 
-        $ticket = DB::transaction(function () use ($tenant, $registrationStation, $assignedTo): ?QueueTicket {
-            /** @var QueueTicket|null $ticket */
-            $ticket = QueueTicket::query()
-                ->where('station_id', $registrationStation->id)
-                ->where('status', QueueTicketStatus::Created)
-                ->orderBy('priority', 'desc')
-                ->orderBy('internal_sequence', 'asc')
-                ->lockForUpdate()
-                ->first();
-
-            if (! $ticket) {
-                return null;
-            }
-
-            $ticket->update([
-                'status' => QueueTicketStatus::Called,
-                'called_at' => now(),
-                'assigned_to' => $assignedTo,
-            ]);
-
-            QueueEvent::query()->create([
-                'queue_ticket_id' => $ticket->id,
-                'event_type' => QueueEventType::Called,
-                'from_status' => QueueTicketStatus::Created->value,
-                'to_status' => QueueTicketStatus::Called->value,
-                'user_id' => $assignedTo,
-            ]);
-
-            $this->auditService->log(
-                action: 'RECEPTION_CALL_NEXT',
-                entityType: 'QueueTicket',
-                entityId: $ticket->id,
-                metadata: [
-                    'queue_number' => $ticket->queue_number,
-                    'station_id' => $registrationStation->id,
-                    'assigned_to' => $assignedTo,
-                ],
-                userId: $assignedTo,
-                tenant: $tenant,
-            );
-
-            return $ticket->load(['visit.client', 'station', 'workflowStep']);
-        });
-
-        if ($ticket) {
-            $ticket->loadMissing(['station.department', 'visit.client']);
-
-            QueueBroadcast::called($ticket);
-            SendQueueCallWhatsApp::forTicket($ticket);
-        }
-
-        return $ticket;
+        return $this->clinicalQueue->claimNextAt($tenant, $registrationStation, $assignedTo, 'RECEPTION_CALL_NEXT');
     }
 
     /**
