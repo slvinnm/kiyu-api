@@ -293,3 +293,72 @@ test('skipping a ticket advances the visit to the next step', function () {
         'status' => QueueTicketStatus::Created->value,
     ]);
 });
+
+test('marking a called ticket no-show records the event', function () {
+    $intake = $this->postJson('/api/intake/kiosk', [
+        'department_id' => $this->generalDepartment->id,
+    ])->json('data');
+
+    $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
+    $this->postJson('/api/reception/complete-registration', [
+        'acquisition_id' => $intake['acquisition']['id'],
+        'client_id' => $this->sampleClient->id,
+    ]);
+
+    $ticket = $this->postJson('/api/clinical/call-next', [
+        'station_id' => $this->nurseStation->id,
+    ])->json('data');
+
+    $this->postJson("/api/tickets/{$ticket['id']}/no-show")
+        ->assertOk()
+        ->assertJsonPath('data.status', QueueTicketStatus::NoShow->value);
+
+    $this->assertDatabaseHas('queue_events', [
+        'queue_ticket_id' => $ticket['id'],
+        'event_type' => 'NO_SHOW',
+    ]);
+});
+
+test('cancelling an active ticket records the event', function () {
+    $intake = $this->postJson('/api/intake/kiosk', [
+        'department_id' => $this->generalDepartment->id,
+    ])->json('data');
+
+    $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
+    $this->postJson('/api/reception/complete-registration', [
+        'acquisition_id' => $intake['acquisition']['id'],
+        'client_id' => $this->sampleClient->id,
+    ]);
+
+    $ticket = $this->postJson('/api/clinical/call-next', [
+        'station_id' => $this->nurseStation->id,
+    ])->json('data');
+
+    $this->postJson("/api/tickets/{$ticket['id']}/cancel", ['notes' => 'Client left'])
+        ->assertOk()
+        ->assertJsonPath('data.status', QueueTicketStatus::Cancelled->value);
+
+    $this->assertDatabaseHas('queue_events', [
+        'queue_ticket_id' => $ticket['id'],
+        'event_type' => 'CANCELLED',
+    ]);
+});
+
+test('a historical ticket cannot be cancelled again', function () {
+    $intake = $this->postJson('/api/intake/kiosk', [
+        'department_id' => $this->generalDepartment->id,
+    ])->json('data');
+
+    $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
+    $this->postJson('/api/reception/complete-registration', [
+        'acquisition_id' => $intake['acquisition']['id'],
+        'client_id' => $this->sampleClient->id,
+    ]);
+
+    $ticket = $this->postJson('/api/clinical/call-next', [
+        'station_id' => $this->nurseStation->id,
+    ])->json('data');
+
+    $this->postJson("/api/tickets/{$ticket['id']}/cancel")->assertOk();
+    $this->postJson("/api/tickets/{$ticket['id']}/cancel")->assertStatus(422);
+});
