@@ -117,7 +117,7 @@ class ReceptionService
             throw new InvalidStateException("Provided station #{$stationId} does not match active registration station #{$registrationStation->id}.");
         }
 
-        $ticket = DB::transaction(function () use ($registrationStation, $assignedTo): ?QueueTicket {
+        $ticket = DB::transaction(function () use ($tenant, $registrationStation, $assignedTo): ?QueueTicket {
             /** @var QueueTicket|null $ticket */
             $ticket = QueueTicket::query()
                 ->where('station_id', $registrationStation->id)
@@ -154,7 +154,8 @@ class ReceptionService
                     'station_id' => $registrationStation->id,
                     'assigned_to' => $assignedTo,
                 ],
-                userId: $assignedTo
+                userId: $assignedTo,
+                tenant: $tenant,
             );
 
             return $ticket->load(['visit.client', 'station', 'workflowStep']);
@@ -202,7 +203,8 @@ class ReceptionService
                     'queue_number' => $ticket->queue_number,
                     'station_id' => $ticket->station_id,
                 ],
-                userId: $assignedTo
+                userId: $assignedTo,
+                tenant: $tenant,
             );
 
             return $ticket->load(['visit.client', 'station', 'workflowStep']);
@@ -251,7 +253,8 @@ class ReceptionService
                 entityType: 'QueueTicket',
                 entityId: $ticket->id,
                 metadata: ['reason' => $reason],
-                userId: $userId
+                userId: $userId,
+                tenant: $tenant,
             );
 
             return $ticket->load(['visit.client', 'station', 'workflowStep']);
@@ -290,7 +293,8 @@ class ReceptionService
                 entityType: 'QueueTicket',
                 entityId: $ticket->id,
                 metadata: [],
-                userId: $userId
+                userId: $userId,
+                tenant: $tenant,
             );
 
             return $ticket->load(['visit.client', 'station', 'workflowStep']);
@@ -468,7 +472,8 @@ class ReceptionService
                     'next_ticket_id' => $nextTicket?->id,
                     'next_station_id' => $nextTicket?->station_id,
                 ],
-                userId: $registeredBy
+                userId: $registeredBy,
+                tenant: $tenant,
             );
 
             return [

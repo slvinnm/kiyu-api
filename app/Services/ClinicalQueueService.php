@@ -36,7 +36,7 @@ class ClinicalQueueService
             throw new InvalidStateException("Station #{$stationId} is inactive.");
         }
 
-        $ticket = DB::transaction(function () use ($station, $assignedTo): ?QueueTicket {
+        $ticket = DB::transaction(function () use ($tenant, $station, $assignedTo): ?QueueTicket {
             /** @var QueueTicket|null $ticket */
             $ticket = QueueTicket::query()
                 ->where('station_id', $station->id)
@@ -73,7 +73,8 @@ class ClinicalQueueService
                     'station_id' => $station->id,
                     'assigned_to' => $assignedTo,
                 ],
-                userId: $assignedTo
+                userId: $assignedTo,
+                tenant: $tenant,
             );
 
             return $ticket->load(['visit.client', 'station', 'workflowStep']);
@@ -96,7 +97,7 @@ class ClinicalQueueService
     {
         $result = DB::transaction(function () use ($ticket, $userId): QueueTicket {
             /** @var QueueTicket $lockedTicket */
-            $lockedTicket = QueueTicket::query()->lockForUpdate()->findOrFail($ticket->id);
+            $lockedTicket = QueueTicket::query()->with('visit')->lockForUpdate()->findOrFail($ticket->id);
 
             if ($lockedTicket->status !== QueueTicketStatus::Called) {
                 throw new InvalidStateException("Ticket #{$lockedTicket->queue_number} cannot be recalled from status '{$lockedTicket->status->value}'. Must be CALLED.");
@@ -119,7 +120,8 @@ class ClinicalQueueService
                     'queue_number' => $lockedTicket->queue_number,
                     'station_id' => $lockedTicket->station_id,
                 ],
-                userId: $userId
+                userId: $userId,
+                tenant: $lockedTicket->visit?->tenant_id,
             );
 
             return $lockedTicket->load(['visit.client', 'station', 'workflowStep']);
@@ -173,7 +175,8 @@ class ClinicalQueueService
                     'queue_number' => $lockedTicket->queue_number,
                     'visit_id' => $visit->id,
                 ],
-                userId: $userId
+                userId: $userId,
+                tenant: $visit->tenant_id,
             );
 
             return $lockedTicket->fresh(['visit.client', 'station', 'workflowStep']);
@@ -213,7 +216,8 @@ class ClinicalQueueService
                 entityType: 'QueueTicket',
                 entityId: $lockedTicket->id,
                 metadata: ['queue_number' => $lockedTicket->queue_number],
-                userId: $userId
+                userId: $userId,
+                tenant: $lockedTicket->visit?->tenant_id,
             );
 
             return $lockedTicket->fresh(['visit.client', 'station', 'workflowStep']);
@@ -251,7 +255,8 @@ class ClinicalQueueService
                 entityType: 'QueueTicket',
                 entityId: $lockedTicket->id,
                 metadata: ['queue_number' => $lockedTicket->queue_number],
-                userId: $userId
+                userId: $userId,
+                tenant: $lockedTicket->visit?->tenant_id,
             );
 
             return $lockedTicket->fresh(['visit.client', 'station', 'workflowStep']);
@@ -337,7 +342,8 @@ class ClinicalQueueService
                     'visit_id' => $visit->id,
                     'next_ticket_id' => $nextTicket?->id,
                 ],
-                userId: $userId
+                userId: $userId,
+                tenant: $visit->tenant_id,
             );
 
             return [
@@ -537,7 +543,8 @@ class ClinicalQueueService
                     'new_ticket_id' => $newTicket->id,
                     'target_station_id' => $targetStationId,
                 ],
-                userId: $userId
+                userId: $userId,
+                tenant: $tenant,
             );
 
             return [

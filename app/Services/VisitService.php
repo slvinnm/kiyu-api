@@ -375,7 +375,8 @@ class VisitService
                     'to_priority' => $newPriority->value,
                     'updated_ticket_count' => $activeTickets->count(),
                 ],
-                userId: $userId
+                userId: $userId,
+                tenant: $visit->tenant_id,
             );
 
             return $visit->fresh(['client', 'department', 'workflow', 'queueTickets']);
@@ -428,7 +429,8 @@ class VisitService
                 entityType: 'Visit',
                 entityId: $visit->id,
                 metadata: ['reason' => $reason],
-                userId: $userId
+                userId: $userId,
+                tenant: $visit->tenant_id,
             );
 
             return $visit->fresh(['client', 'department', 'workflow', 'queueTickets']);

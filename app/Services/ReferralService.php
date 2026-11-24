@@ -146,7 +146,8 @@ class ReferralService
                     'target_department_id' => $targetDepartmentId,
                     'target_visit_id' => $targetVisit->id,
                 ],
-                userId: $referredBy
+                userId: $referredBy,
+                tenant: $tenant,
             );
 
             return [

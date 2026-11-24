@@ -212,3 +212,32 @@ test('ticket transfer moves client to another compatible station in the same dep
     // Needs to be CALLED or IN_PROGRESS before transferring
     $incompatibleRes->assertStatus(422);
 });
+
+test('queue audit entries are scoped to the acting tenant', function () {
+    $intake = $this->postJson('/api/intake/kiosk', [
+        'department_id' => $this->generalDepartment->id,
+    ])->json('data');
+
+    $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
+    $this->postJson('/api/reception/complete-registration', [
+        'acquisition_id' => $intake['acquisition']['id'],
+        'client_id' => $this->sampleClient->id,
+    ]);
+
+    $this->postJson('/api/clinical/call-next', ['station_id' => $this->nurseStation->id]);
+
+    // Every queue-side audit row must carry the tenant, otherwise the tenant
+    // audit log endpoint can never show them.
+    $this->assertDatabaseMissing('audit_logs', [
+        'tenant_id' => null,
+    ]);
+
+    $response = $this->getJson('/api/audit-logs');
+
+    $response->assertOk();
+
+    $actions = collect($response->json('data.data'))->pluck('action');
+
+    expect($actions)->toContain('RECEPTION_CALL_NEXT')
+        ->and($actions)->toContain('CLINICAL_CALL_NEXT');
+});
