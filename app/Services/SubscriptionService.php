@@ -25,7 +25,11 @@ use Illuminate\Support\Facades\DB;
 class SubscriptionService
 {
     /**
-     * Start a trial, or activate the plan immediately when no trial is given.
+     * Start a trial, or a paid subscription that awaits its first payment.
+     *
+     * A subscription without a trial is created PastDue and grants nothing:
+     * only a verified provider webhook (see PaymentService) marks it Active.
+     * Anything else would hand out a paid plan for free.
      *
      * Any previously effective subscription is cancelled first, so history is
      * preserved and only one subscription is ever in force.
@@ -55,7 +59,7 @@ class SubscriptionService
                 'plan_id' => $plan->id,
                 'plan_price_id' => $price?->id,
                 'billing_interval' => $interval,
-                'status' => $isTrial ? SubscriptionStatus::Trialing : SubscriptionStatus::Active,
+                'status' => $isTrial ? SubscriptionStatus::Trialing : SubscriptionStatus::PastDue,
                 'cancel_at_period_end' => false,
             ]);
 
@@ -63,9 +67,6 @@ class SubscriptionService
                 $subscription->trial_ends_at = $now->copy()->addDays($trialDays);
                 $subscription->current_period_start = $now;
                 $subscription->current_period_end = $subscription->trial_ends_at;
-            } else {
-                $subscription->current_period_start = $now;
-                $subscription->current_period_end = $now->copy()->addMonths($interval->months());
             }
 
             $subscription->save();

@@ -93,7 +93,21 @@ test('only one subscription is ever effective per tenant', function () {
 
     expect($effective)->toBe(1)
         ->and($first->fresh()->status)->toBe(SubscriptionStatus::Cancelled)
-        ->and($second->fresh()->status)->toBe(SubscriptionStatus::Active);
+        ->and($second->fresh()->status)->toBe(SubscriptionStatus::PastDue);
+});
+
+test('a subscription without a trial is not effective until it is paid', function () {
+    $clinic = billingClinic();
+
+    $subscription = app(SubscriptionService::class)->start(
+        $clinic['tenant'],
+        $clinic['plan'],
+        BillingInterval::Monthly,
+    );
+
+    expect($subscription->status)->toBe(SubscriptionStatus::PastDue)
+        ->and($subscription->isEffective())->toBeFalse()
+        ->and($subscription->current_period_start)->toBeNull();
 });
 
 test('an expired trial is not effective', function () {
@@ -153,6 +167,23 @@ test('a tenant admin can view and start a subscription over the API', function (
         ->getJson('/api/billing/subscription')
         ->assertOk()
         ->assertJsonPath('data.is_effective', true);
+});
+
+test('starting a paid plan over the API does not activate it without payment', function () {
+    $clinic = billingClinic();
+
+    $this->actingAs($clinic['admin'], 'sanctum')
+        ->postJson('/api/billing/subscription', [
+            'plan_code' => 'STANDARD',
+            'billing_interval' => 'MONTHLY',
+        ])
+        ->assertCreated()
+        ->assertJsonPath('data.status', SubscriptionStatus::PastDue->value)
+        ->assertJsonPath('data.is_effective', false)
+        ->assertJsonPath('data.payment_required', true);
+
+    expect(app(SubscriptionService::class)->hasFeature($clinic['tenant'], Feature::QueueManagement))
+        ->toBeFalse();
 });
 
 test('a non-admin tenant user cannot start a subscription', function () {

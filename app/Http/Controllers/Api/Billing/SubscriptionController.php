@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Billing;
 
 use App\Enums\BillingInterval;
+use App\Enums\SubscriptionStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Plan;
 use App\Models\Subscription;
@@ -66,8 +67,14 @@ class SubscriptionController extends Controller
         );
 
         return response()->json([
-            'message' => 'Subscription started.',
-            'data' => $subscription->load('plan.entitlements'),
+            'message' => $subscription->status === SubscriptionStatus::Trialing
+                ? 'Subscription started.'
+                : 'Subscription created. Complete the payment to activate it.',
+            'data' => [
+                ...$subscription->load('plan.entitlements')->toArray(),
+                'is_effective' => $subscription->isEffective(),
+                'payment_required' => ! $subscription->isEffective(),
+            ],
         ], 201);
     }
 
