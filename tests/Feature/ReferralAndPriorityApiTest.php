@@ -27,7 +27,6 @@ test('referral creates target visit in target department and initial queue ticke
         'target_department_id' => $this->dentalDepartment->id,
         'priority' => Priority::Priority->value,
         'reason' => 'Client needs dental extraction',
-        'referred_by' => 'doctor-alice',
     ]);
 
     $referralRes->assertStatus(201)
@@ -71,7 +70,6 @@ test('updating visit priority propagates to active tickets only and preserves hi
     // Elevate Visit Priority to EMERGENCY (3)
     $priorityRes = $this->patchJson("/api/visits/{$visitId}/priority", [
         'priority' => Priority::Emergency->value,
-        'user_id' => 'admin-carol',
     ]);
 
     $priorityRes->assertStatus(200)
@@ -97,7 +95,7 @@ test('updating visit priority propagates to active tickets only and preserves hi
     $this->assertDatabaseHas('audit_logs', [
         'action' => 'VISIT_PRIORITY_CHANGED',
         'entity_id' => (string) $visitId,
-        'user_id' => 'admin-carol',
+        'user_id' => $this->adminUser->email,
     ]);
 });
 

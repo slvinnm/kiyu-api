@@ -72,14 +72,13 @@ class QueueAcquisitionController extends Controller
     {
         $validated = $request->validate([
             'reason' => ['nullable', 'string', 'max:500'],
-            'user_id' => ['nullable', 'string'],
         ]);
 
         $acquisition = $this->intakeService->cancelAcquisition(
             tenant: $this->tenant(),
             id: $id,
             reason: $validated['reason'] ?? null,
-            userId: $validated['user_id'] ?? null
+            userId: $this->actor($request),
         );
 
         return response()->json([

@@ -54,6 +54,8 @@ trait SetupKiyuHospital
 
     protected Client $sampleClient;
 
+    protected User $adminUser;
+
     protected function setupHospital(): void
     {
         // Legacy single-clinic tenant and its primary facility.
@@ -242,12 +244,12 @@ trait SetupKiyuHospital
         ]);
 
         // Authenticate a privileged staff user for protected API routes.
-        $this->actingAs(
-            User::factory()->create([
-                'role' => 'admin',
-                'tenant_id' => $this->tenant->id,
-            ]),
-            'sanctum'
-        );
+        // Exposed so tests can assert the actor recorded on queue operations.
+        $this->adminUser = User::factory()->create([
+            'role' => 'admin',
+            'tenant_id' => $this->tenant->id,
+        ]);
+
+        $this->actingAs($this->adminUser, 'sanctum');
     }
 }

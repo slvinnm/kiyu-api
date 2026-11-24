@@ -50,7 +50,6 @@ class IntakeController extends Controller
             'department_id' => ['required', 'integer', 'exists:departments,id'],
             'priority' => ['nullable', 'integer', 'in:1,2,3'],
             'idempotency_key' => ['nullable', 'string', 'max:100'],
-            'registered_by' => ['nullable', 'string'],
         ]);
 
         $result = $this->intakeService->createManualIntake(
@@ -58,7 +57,7 @@ class IntakeController extends Controller
             departmentId: (int) $validated['department_id'],
             priority: (int) ($validated['priority'] ?? 1),
             idempotencyKey: $validated['idempotency_key'] ?? null,
-            registeredBy: $validated['registered_by'] ?? null
+            registeredBy: $this->actor($request),
         );
 
         return response()->json([

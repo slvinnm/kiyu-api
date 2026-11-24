@@ -21,13 +21,12 @@ class ClinicalQueueController extends Controller
     {
         $validated = $request->validate([
             'station_id' => ['required', 'integer', 'exists:stations,id'],
-            'assigned_to' => ['nullable', 'string'],
         ]);
 
         $ticket = $this->clinicalQueueService->callNext(
             tenant: $this->tenant(),
             stationId: (int) $validated['station_id'],
-            assignedTo: $validated['assigned_to'] ?? $request->user()?->email
+            assignedTo: $this->actor($request),
         );
 
         if (! $ticket) {
@@ -49,7 +48,7 @@ class ClinicalQueueController extends Controller
     public function recall(Request $request, int $id): JsonResponse
     {
         $ticket = $this->findTicket($id);
-        $userId = $request->input('user_id');
+        $userId = $this->actor($request);
 
         $result = $this->clinicalQueueService->recall($ticket, $userId);
 
@@ -65,7 +64,7 @@ class ClinicalQueueController extends Controller
     public function start(Request $request, int $id): JsonResponse
     {
         $ticket = $this->findTicket($id);
-        $userId = $request->input('user_id');
+        $userId = $this->actor($request);
 
         $result = $this->clinicalQueueService->start($ticket, $userId);
 
@@ -82,7 +81,7 @@ class ClinicalQueueController extends Controller
     {
         $ticket = $this->findTicket($id);
         $notes = $request->input('notes');
-        $userId = $request->input('user_id');
+        $userId = $this->actor($request);
 
         $result = $this->clinicalQueueService->hold($ticket, $notes, $userId);
 
@@ -98,7 +97,7 @@ class ClinicalQueueController extends Controller
     public function resume(Request $request, int $id): JsonResponse
     {
         $ticket = $this->findTicket($id);
-        $userId = $request->input('user_id');
+        $userId = $this->actor($request);
 
         $result = $this->clinicalQueueService->resume($ticket, $userId);
 
@@ -115,7 +114,7 @@ class ClinicalQueueController extends Controller
     {
         $ticket = $this->findTicket($id);
         $notes = $request->input('notes');
-        $userId = $request->input('user_id');
+        $userId = $this->actor($request);
 
         $result = $this->clinicalQueueService->complete($ticket, $notes, $userId);
 
@@ -132,7 +131,7 @@ class ClinicalQueueController extends Controller
     {
         $ticket = $this->findTicket($id);
         $notes = $request->input('notes');
-        $userId = $request->input('user_id');
+        $userId = $this->actor($request);
 
         $result = $this->clinicalQueueService->skip($ticket, $notes, $userId);
 
@@ -149,7 +148,7 @@ class ClinicalQueueController extends Controller
     {
         $ticket = $this->findTicket($id);
         $notes = $request->input('notes');
-        $userId = $request->input('user_id');
+        $userId = $this->actor($request);
 
         $result = $this->clinicalQueueService->noShow($ticket, $notes, $userId);
 
@@ -166,7 +165,7 @@ class ClinicalQueueController extends Controller
     {
         $ticket = $this->findTicket($id);
         $notes = $request->input('notes');
-        $userId = $request->input('user_id');
+        $userId = $this->actor($request);
 
         $result = $this->clinicalQueueService->cancelTicket($ticket, $notes, $userId);
 
@@ -184,7 +183,6 @@ class ClinicalQueueController extends Controller
         $validated = $request->validate([
             'target_station_id' => ['required', 'integer', 'exists:stations,id'],
             'notes' => ['nullable', 'string'],
-            'user_id' => ['nullable', 'string'],
         ]);
 
         $ticket = $this->findTicket($id);
@@ -194,7 +192,7 @@ class ClinicalQueueController extends Controller
             ticket: $ticket,
             targetStationId: (int) $validated['target_station_id'],
             notes: $validated['notes'] ?? null,
-            userId: $validated['user_id'] ?? null
+            userId: $this->actor($request),
         );
 
         return response()->json([

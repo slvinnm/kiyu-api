@@ -32,14 +32,14 @@ test('reception call-next automatically resolves registration station and calls 
     // 3. Receptionist calls next
     $callResponse = $this->postJson('/api/reception/call-next', [
         'department_id' => $this->generalDepartment->id,
-        'assigned_to' => 'receptionist-alice',
     ]);
 
+    // The actor is the authenticated user, not a body value.
     $callResponse->assertStatus(200)
         ->assertJsonPath('data.id', $emergencyTicketId)
         ->assertJsonPath('data.status', QueueTicketStatus::Called->value)
         ->assertJsonPath('data.priority', Priority::Emergency->value)
-        ->assertJsonPath('data.assigned_to', 'receptionist-alice');
+        ->assertJsonPath('data.assigned_to', $this->adminUser->email);
 
     // Verify QueueEvent was created
     $this->assertDatabaseHas('queue_events', [
@@ -47,7 +47,7 @@ test('reception call-next automatically resolves registration station and calls 
         'event_type' => 'CALLED',
         'from_status' => 'CREATED',
         'to_status' => 'CALLED',
-        'user_id' => 'receptionist-alice',
+        'user_id' => $this->adminUser->email,
     ]);
 });
 
@@ -69,7 +69,7 @@ test('reception complete-registration links client, completes ticket, creates ne
     $completeRes = $this->postJson('/api/reception/complete-registration', [
         'acquisition_id' => $acqId,
         'client_id' => $this->sampleClient->id,
-        'registered_by' => 'receptionist-alice',
+        'registered_by' => $this->adminUser->email,
     ]);
 
     $completeRes->assertStatus(200)

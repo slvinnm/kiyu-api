@@ -67,7 +67,6 @@ class ReferralController extends Controller
             'target_department_id' => ['required', 'integer', 'exists:departments,id'],
             'priority' => ['nullable', 'integer', 'in:1,2,3'],
             'reason' => ['nullable', 'string'],
-            'referred_by' => ['nullable', 'string'],
         ]);
 
         $result = $this->referralService->createReferral(
@@ -76,7 +75,7 @@ class ReferralController extends Controller
             targetDepartmentId: (int) $validated['target_department_id'],
             priority: isset($validated['priority']) ? (int) $validated['priority'] : null,
             reason: $validated['reason'] ?? null,
-            referredBy: $validated['referred_by'] ?? null
+            referredBy: $this->actor($request),
         );
 
         return response()->json([

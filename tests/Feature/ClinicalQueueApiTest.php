@@ -29,13 +29,13 @@ test('clinical call-next claims ticket for clinical station', function () {
     // 2. Nurse calls next at nurse station
     $callRes = $this->postJson('/api/clinical/call-next', [
         'station_id' => $this->nurseStation->id,
-        'assigned_to' => 'nurse-bob',
     ]);
 
+    // The actor is the authenticated user, not a body value.
     $callRes->assertStatus(200)
         ->assertJsonPath('data.status', QueueTicketStatus::Called->value)
         ->assertJsonPath('data.station_id', $this->nurseStation->id)
-        ->assertJsonPath('data.assigned_to', 'nurse-bob');
+        ->assertJsonPath('data.assigned_to', $this->adminUser->email);
 
     // Verify QueueEvent CALLED
     $this->assertDatabaseHas('queue_events', [

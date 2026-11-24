@@ -35,6 +35,17 @@ abstract class Controller
     }
 
     /**
+     * The actor recorded on an operation, taken from the authenticated user.
+     *
+     * Never read from the request body: a caller must not be able to attribute
+     * their work to a colleague in the audit trail or on a ticket.
+     */
+    protected function actor(Request $request): ?string
+    {
+        return $request->user()?->email;
+    }
+
+    /**
      * The tenant resolved for this request by the tenant middleware.
      */
     protected function tenant(): Tenant

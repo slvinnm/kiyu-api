@@ -44,13 +44,12 @@ class ReceptionController extends Controller
         $validated = $request->validate([
             'department_id' => ['required', 'integer', 'exists:departments,id'],
             'station_id' => ['nullable', 'integer', 'exists:stations,id'],
-            'assigned_to' => ['nullable', 'string'],
         ]);
 
         $ticket = $this->receptionService->callNext(
             tenant: $this->tenant(),
             departmentId: (int) $validated['department_id'],
-            assignedTo: $validated['assigned_to'] ?? $request->user()?->email,
+            assignedTo: $this->actor($request),
             stationId: isset($validated['station_id']) ? (int) $validated['station_id'] : null
         );
 
@@ -85,7 +84,6 @@ class ReceptionController extends Controller
             'client_data.email' => ['nullable', 'email'],
             'client_data.address' => ['nullable', 'string'],
             'priority' => ['nullable', 'integer', 'in:1,2,3'],
-            'registered_by' => ['nullable', 'string'],
         ]);
 
         $result = $this->receptionService->completeRegistration(
@@ -94,7 +92,7 @@ class ReceptionController extends Controller
             clientId: isset($validated['client_id']) ? (int) $validated['client_id'] : null,
             clientData: $validated['client_data'] ?? null,
             priority: isset($validated['priority']) ? (int) $validated['priority'] : null,
-            registeredBy: $validated['registered_by'] ?? null
+            registeredBy: $this->actor($request),
         );
 
         return response()->json([
@@ -108,14 +106,10 @@ class ReceptionController extends Controller
      */
     public function recall(Request $request, int $id): JsonResponse
     {
-        $validated = $request->validate([
-            'assigned_to' => ['nullable', 'string'],
-        ]);
-
         $ticket = $this->receptionService->recall(
             tenant: $this->tenant(),
             ticketId: $id,
-            assignedTo: $validated['assigned_to'] ?? null
+            assignedTo: $this->actor($request),
         );
 
         return response()->json([
@@ -131,14 +125,13 @@ class ReceptionController extends Controller
     {
         $validated = $request->validate([
             'reason' => ['nullable', 'string'],
-            'user_id' => ['nullable', 'string'],
         ]);
 
         $ticket = $this->receptionService->skip(
             tenant: $this->tenant(),
             ticketId: $id,
             reason: $validated['reason'] ?? null,
-            userId: $validated['user_id'] ?? null
+            userId: $this->actor($request),
         );
 
         return response()->json([
@@ -152,14 +145,10 @@ class ReceptionController extends Controller
      */
     public function noShow(Request $request, int $id): JsonResponse
     {
-        $validated = $request->validate([
-            'user_id' => ['nullable', 'string'],
-        ]);
-
         $ticket = $this->receptionService->noShow(
             tenant: $this->tenant(),
             ticketId: $id,
-            userId: $validated['user_id'] ?? null
+            userId: $this->actor($request),
         );
 
         return response()->json([

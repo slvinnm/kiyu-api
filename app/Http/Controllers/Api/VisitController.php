@@ -189,7 +189,6 @@ class VisitController extends Controller
     {
         $validated = $request->validate([
             'priority' => ['required', 'integer', 'in:1,2,3'],
-            'user_id' => ['nullable', 'string'],
         ]);
 
         $visit = Visit::query()
@@ -198,7 +197,7 @@ class VisitController extends Controller
         $updatedVisit = $this->visitService->updatePriority(
             visit: $visit,
             priority: (int) $validated['priority'],
-            userId: $validated['user_id'] ?? null
+            userId: $this->actor($request),
         );
 
         return response()->json([
@@ -214,7 +213,6 @@ class VisitController extends Controller
     {
         $validated = $request->validate([
             'reason' => ['nullable', 'string'],
-            'user_id' => ['nullable', 'string'],
         ]);
 
         $visit = Visit::query()
@@ -223,7 +221,7 @@ class VisitController extends Controller
         $cancelledVisit = $this->visitService->cancelVisit(
             visit: $visit,
             reason: $validated['reason'] ?? null,
-            userId: $validated['user_id'] ?? null
+            userId: $this->actor($request),
         );
 
         return response()->json([
