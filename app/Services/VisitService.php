@@ -354,7 +354,10 @@ class VisitService
             $prevPriority = $visit->priority;
             $visit->update(['priority' => $newPriority]);
 
-            // Propagate ONLY to active / pending tickets
+            // Propagate only to tickets that have not started service. An
+            // IN_PROGRESS ticket keeps the priority it was called with: the
+            // client is already in the room, so re-ranking it has no effect on
+            // the queue and would only rewrite the record of how it was served.
             $activeTickets = QueueTicket::query()
                 ->where('visit_id', $visit->id)
                 ->whereIn('status', [QueueTicketStatus::Created, QueueTicketStatus::Called, QueueTicketStatus::OnHold])
