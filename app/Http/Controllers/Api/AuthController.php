@@ -216,9 +216,19 @@ class AuthController extends Controller
 
         // Every facility the user may act at. A single entry is the implicit
         // context; several let the browser render a facility switcher.
-        $facilityIds = $user->hasTenantWideAccess()
-            ? $user->tenant?->facilities()->where('is_active', true)->orderBy('id')->pluck('id')->all() ?? []
-            : $user->facilityAssignments()->pluck('facility_id')->all();
+        $facilityQuery = $user->hasTenantWideAccess()
+            ? ($user->tenant?->facilities()->where('is_active', true)->orderBy('id') ?? null)
+            : null;
+
+        $facilities = $facilityQuery !== null
+            ? $facilityQuery->get(['id', 'name', 'code'])
+            : \App\Models\Facility::query()
+                ->whereIn('id', $user->facilityAssignments()->select('facility_id'))
+                ->where('is_active', true)
+                ->orderBy('id')
+                ->get(['id', 'name', 'code']);
+
+        $facilityIds = $facilities->pluck('id')->all();
 
         return [
             'id' => $user->id,
@@ -226,6 +236,14 @@ class AuthController extends Controller
             'email' => $user->email,
             'role' => $user->role?->value,
             'tenant_id' => $user->tenant_id,
+            // Names for the sidebar header + facility switcher, so a workspace
+            // role does not need tenant-wide facility-list permission to label
+            // its own facility (PRD §8.3, §9).
+            'facilities' => $facilities->map(fn($facility): array => [
+                'id' => $facility->id,
+                'name' => $facility->name,
+                'code' => $facility->code,
+            ])->all(),
             'tenant' => $user->tenant === null ? null : [
                 'id' => $user->tenant->id,
                 'name' => $user->tenant->name,

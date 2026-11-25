@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Api;
 
 use App\Enums\Feature;
+use App\Enums\StationType;
 use App\Enums\UserRole;
 use App\Exceptions\InvalidStateException;
 use App\Http\Controllers\Api\Concerns\HandlesTableQuery;
 use App\Http\Controllers\Controller;
+use App\Models\Department;
 use App\Models\Station;
 use App\Models\User;
 use App\Models\UserFacilityAssignment;
@@ -35,6 +37,7 @@ class UserController extends Controller
             'role' => ['nullable', 'string', Rule::in(UserRole::tenantValues())],
             'facility_id' => ['nullable', 'integer', 'exists:facilities,id'],
             'station_id' => ['nullable', 'integer', 'exists:stations,id'],
+            'department_id' => ['nullable', 'integer', 'exists:departments,id'],
         ]);
 
         $query = User::query()
@@ -67,6 +70,12 @@ class UserController extends Controller
             }
         }
 
+        // Users "belong" to a department through their station; the department
+        // detail page lists exactly those.
+        if (! empty($validated['department_id'])) {
+            $query->whereHas('station', fn($q) => $q->where('department_id', (int) $validated['department_id']));
+        }
+
         $this->applyTableSort($query, $validated, ['name', 'email', 'role', 'created_at', 'id']);
 
         return response()->json([
@@ -87,11 +96,13 @@ class UserController extends Controller
             'password' => ['required', 'string', 'min:8'],
             'role' => ['required', 'string', Rule::in($this->assignableRoles($request))],
             'station_id' => ['nullable', 'integer'],
+            'department_id' => ['nullable', 'integer'],
             'facility_ids' => ['nullable', 'array'],
             'facility_ids.*' => ['integer'],
         ]);
 
         $this->validateAssignedOrganisation($validated);
+        $this->guardDepartmentScopedRole($validated);
         $this->guardFacilityGrants($request, $validated);
 
         // Only staff roles count against the seat limit; customers do not.
@@ -158,11 +169,13 @@ class UserController extends Controller
             'password' => ['sometimes', 'nullable', 'string', 'min:8'],
             'role' => ['sometimes', 'required', 'string', Rule::in($this->assignableRoles($request))],
             'station_id' => ['nullable', 'integer'],
+            'department_id' => ['nullable', 'integer'],
             'facility_ids' => ['nullable', 'array'],
             'facility_ids.*' => ['integer'],
         ]);
 
         $this->validateAssignedOrganisation($validated, $user);
+        $this->guardDepartmentScopedRole($validated, $user);
         $this->guardFacilityGrants($request, $validated);
 
         if (array_key_exists('password', $validated) && $validated['password'] === null) {
@@ -243,6 +256,88 @@ class UserController extends Controller
             UserRole::Staff->value,
             UserRole::Client->value,
         ];
+    }
+
+    /**
+     * Enforce the department-scoped role/station rules (PRD §8.3, §8.4).
+     *
+     * When a caller supplies `department_id` (i.e. manages users from inside a
+     * department), only the operational roles belong there and the station must
+     * be part of that department and match the role's station type:
+     *
+     *   - operator → INTAKE stations
+     *   - staff    → SERVICE, CASHIER, COUNTER stations
+     *
+     * This is the authoritative check; the form's filtering is only UX.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function guardDepartmentScopedRole(array $data, ?User $user = null): void
+    {
+        if (empty($data['department_id'])) {
+            return;
+        }
+
+        $departmentId = (int) $data['department_id'];
+
+        $department = Department::query()
+            ->whereKey($departmentId)
+            ->whereHas('facility', fn($q) => $q->where('tenant_id', $this->tenantId()))
+            ->first();
+
+        if ($department === null) {
+            throw ValidationException::withMessages([
+                'department_id' => ['Department does not belong to your tenant.'],
+            ]);
+        }
+
+        $role = (string) ($data['role'] ?? $user?->role?->value ?? '');
+
+        $allowedRoles = [UserRole::Operator->value, UserRole::Staff->value];
+
+        if (! in_array($role, $allowedRoles, true)) {
+            throw ValidationException::withMessages([
+                'role' => ['Only Operator and Staff may be managed from a department.'],
+            ]);
+        }
+
+        $stationId = $data['station_id'] ?? null;
+
+        // Operator requires a station; staff may be assigned one or none.
+        if ($role === UserRole::Operator->value && $stationId === null) {
+            throw ValidationException::withMessages([
+                'station_id' => ['An operator needs a station.'],
+            ]);
+        }
+
+        if ($stationId === null) {
+            return;
+        }
+
+        $allowedTypes = $role === UserRole::Operator->value
+            ? [StationType::Intake]
+            : [StationType::Service, StationType::Cashier, StationType::Counter];
+
+        $station = Station::query()
+            ->whereKey((int) $stationId)
+            ->where('department_id', $departmentId)
+            ->first();
+
+        if ($station === null) {
+            throw ValidationException::withMessages([
+                'station_id' => ['Station is not part of this department.'],
+            ]);
+        }
+
+        if (! in_array($station->type, $allowedTypes, true)) {
+            throw ValidationException::withMessages([
+                'station_id' => [
+                    $role === UserRole::Operator->value
+                        ? 'An operator must be assigned to an INTAKE station.'
+                        : 'A staff member must be assigned to a SERVICE, CASHIER or COUNTER station.',
+                ],
+            ]);
+        }
     }
 
     /**

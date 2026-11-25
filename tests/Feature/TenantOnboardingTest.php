@@ -72,7 +72,16 @@ test('a provisioned admin can authenticate and read their own tenant', function 
 test('a provisioned admin can create staff scoped to their tenant', function () {
     $result = app(TenantOnboardingService::class)->provision(provisionPayload());
     $department = Department::query()->where('facility_id', $result['facility']->id)->firstOrFail();
-    $station = Station::query()->where('department_id', $department->id)->firstOrFail();
+    // Staff belong at a SERVICE station; the default template only seeds an
+    // INTAKE station, so add one here (PRD §8.4).
+    $station = Station::query()->create([
+        'department_id' => $department->id,
+        'name' => 'Service Counter',
+        'code' => 'SVC-01',
+        'type' => StationType::Service,
+        'queue_prefix' => 'S',
+        'is_active' => true,
+    ]);
 
     $this->actingAs($result['tenant_admin'], 'sanctum')
         ->postJson('/api/users', [

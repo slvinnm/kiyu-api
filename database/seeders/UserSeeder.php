@@ -20,13 +20,16 @@ class UserSeeder extends Seeder
         $intakeStation = Station::query()
             ->where('type', StationType::Intake->value)
             ->first();
+        $serviceStation = Station::query()
+            ->where('type', StationType::Service->value)
+            ->first();
 
         $accounts = [
             ['role' => UserRole::PlatformAdmin, 'email' => 'platform@kiyu.id', 'name' => 'Platform Operator', 'station' => null],
             ['role' => UserRole::TenantAdmin, 'email' => 'admin@kiyu.id', 'name' => 'Tenant Administrator', 'station' => null],
             ['role' => UserRole::FacilityAdmin, 'email' => 'facility@kiyu.id', 'name' => 'Facility Administrator', 'station' => null],
             ['role' => UserRole::Operator, 'email' => 'operator@kiyu.id', 'name' => 'Front Desk Operator', 'station' => $intakeStation],
-            ['role' => UserRole::Staff, 'email' => 'staff@kiyu.id', 'name' => 'Service Staff', 'station' => null],
+            ['role' => UserRole::Staff, 'email' => 'staff@kiyu.id', 'name' => 'Service Staff', 'station' => $serviceStation],
             ['role' => UserRole::Client, 'email' => 'client@kiyu.id', 'name' => 'Sample Client', 'station' => null],
         ];
 

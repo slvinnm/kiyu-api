@@ -35,6 +35,22 @@ class FacilityController extends Controller
     }
 
     /**
+     * Show one facility with its departments (prerequisite for the nested
+     * Facility → Department detail UI, PRD §8.2).
+     */
+    public function show(int $id): JsonResponse
+    {
+        $facility = Facility::query()
+            ->where('tenant_id', $this->tenantId())
+            ->withCount('departments')
+            ->findOrFail($id);
+
+        return response()->json([
+            'data' => $facility->load('departments.stations'),
+        ]);
+    }
+
+    /**
      * Create a facility.
      */
     public function store(Request $request): JsonResponse

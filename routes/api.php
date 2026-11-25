@@ -472,6 +472,7 @@ Route::prefix('portal')
         // Facilities.
         Route::get('/facilities', [FacilityController::class, 'index']);
         Route::post('/facilities', [FacilityController::class, 'store']);
+        Route::get('/facilities/{id}', [FacilityController::class, 'show'])->whereNumber('id');
         Route::put('/facilities/{id}', [FacilityController::class, 'update'])->whereNumber('id');
 
         // Users + facility assignments + invitations.
