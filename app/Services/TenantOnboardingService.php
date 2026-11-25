@@ -11,6 +11,7 @@ use App\Models\Department;
 use App\Models\Facility;
 use App\Models\Plan;
 use App\Models\Station;
+use App\Models\Subscription;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Models\Workflow;
@@ -52,7 +53,7 @@ class TenantOnboardingService
      *     trial_days?: int|null,
      *     plan_code?: string|null,
      * }  $data
-     * @return array{tenant: Tenant, facility: Facility, subscription: \App\Models\Subscription|null, tenant_admin: User}
+     * @return array{tenant: Tenant, facility: Facility, subscription: Subscription|null, tenant_admin: User}
      */
     public function provision(array $data): array
     {

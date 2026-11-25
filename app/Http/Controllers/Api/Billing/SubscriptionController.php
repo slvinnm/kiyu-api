@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Api\Billing;
 
 use App\Enums\BillingInterval;
+use App\Enums\Feature;
 use App\Enums\SubscriptionStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Plan;
+use App\Models\Tenant;
 use App\Services\SubscriptionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -34,8 +36,89 @@ class SubscriptionController extends Controller
             'data' => [
                 'subscription' => $subscription?->load('plan.entitlements'),
                 'is_effective' => $subscription?->isEffective() ?? false,
+                'entitlements' => $this->entitlementMap($tenant),
             ],
         ]);
+    }
+
+    /**
+     * The tenant's resolved feature entitlements, for navigation and gating.
+     *
+     * A single map of `feature_code => bool` (toggles) and
+     * `feature_code => int` (limits). Advanced reporting implies basic
+     * reporting, so a tenant on an advanced plan is never denied the basic
+     * reports menu (PRD §10.6 hierarchy).
+     *
+     * @return array<string, bool|int>
+     */
+    public function entitlements(): JsonResponse
+    {
+        $tenant = $this->tenant();
+
+        return response()->json([
+            'data' => $this->entitlementMap($tenant),
+        ]);
+    }
+
+    /**
+     * The plan catalogue a tenant may subscribe to (PRD §8.2 Billing).
+     *
+     * Read-only: active plans with their active prices and entitlements, plus
+     * which one is the tenant's current plan. No tenant identifiers or secrets.
+     */
+    public function plans(): JsonResponse
+    {
+        $tenant = $this->tenant();
+        $current = $this->subscriptions->effectiveSubscription($tenant);
+
+        $plans = Plan::query()
+            ->where('is_active', true)
+            ->with([
+                'prices' => fn($q) => $q->where('is_active', true)->orderBy('amount'),
+                'entitlements',
+            ])
+            ->orderBy('name')
+            ->get()
+
+            ->map(fn(Plan $plan): array => [
+                'id' => $plan->id,
+                'code' => $plan->code,
+                'name' => $plan->name,
+                'description' => $plan->description,
+                'is_active' => $plan->is_active,
+                'is_current' => $current?->plan_id === $plan->id,
+                'prices' => $plan->prices,
+                'entitlements' => $plan->entitlements,
+            ]);
+
+        return response()->json([
+            'data' => [
+                'plans' => $plans,
+                'current_plan_id' => $current?->plan_id,
+                'subscription_status' => $current?->status?->value,
+            ],
+        ]);
+    }
+
+    /**
+     * @return array<string, bool|int>
+     */
+    private function entitlementMap(Tenant $tenant): array
+    {
+        $map = [];
+
+        foreach (Feature::cases() as $feature) {
+            $map[$feature->value] = $feature->isLimit()
+                ? $this->subscriptions->limit($tenant, $feature)
+                : $this->subscriptions->hasFeature($tenant, $feature);
+        }
+
+        // Advanced reporting implies the basic reports menu.
+        if (! empty($map[Feature::AdvancedReports->value])) {
+            $map[Feature::BasicReports->value] = true;
+        }
+
+        return $map;
     }
 
     /**

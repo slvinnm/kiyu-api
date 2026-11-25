@@ -57,7 +57,7 @@ class SupportAccessController extends Controller
         $validated = $request->validate([
             'tenant_id' => ['required', 'integer', 'exists:tenants,id'],
             'reason' => ['required', 'string', 'max:255'],
-            'hours' => ['nullable', 'integer', 'min:1', 'max:'.self::MAX_HOURS],
+            'hours' => ['nullable', 'integer', 'min:1', 'max:' . self::MAX_HOURS],
         ]);
 
         $tenant = Tenant::query()->findOrFail($validated['tenant_id']);

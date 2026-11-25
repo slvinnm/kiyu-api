@@ -40,7 +40,12 @@ class EnsurePlanFeature
         );
 
         abort_unless(
-            $this->subscriptions->hasFeature($tenant, $resolved),
+            $this->subscriptions->hasFeature($tenant, $resolved)
+                // Advanced reporting implies the basic reports menu, so a plan
+                // that grants only the advanced tier is never denied the basic
+                // one (PRD §10.6 hierarchy).
+                || ($resolved === Feature::BasicReports
+                    && $this->subscriptions->hasFeature($tenant, Feature::AdvancedReports)),
             403,
             "Your plan does not include the '{$feature}' feature.",
         );

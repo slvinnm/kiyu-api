@@ -14,7 +14,6 @@ uses(RefreshDatabase::class);
  * A role may only sign in to the frontend it belongs to, and an unknown tenant
  * label is a real 404 rather than a default tenant.
  */
-
 function contextTenant(): Tenant
 {
     $tenant = Tenant::query()->create([
@@ -34,7 +33,7 @@ function contextTenant(): Tenant
     return $tenant;
 }
 
-function contextUser(Tenant|null $tenant, string $role, string $email): User
+function contextUser(?Tenant $tenant, string $role, string $email): User
 {
     return User::factory()->create([
         'email' => $email,

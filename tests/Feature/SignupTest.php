@@ -5,7 +5,6 @@ use App\Enums\TenantStatus;
 use App\Models\Plan;
 use App\Models\Tenant;
 use App\Models\User;
-use App\Services\SubscriptionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);

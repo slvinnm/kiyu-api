@@ -286,3 +286,89 @@ test('a non-admin cannot create facilities or kiosk devices', function () {
         ->postJson('/api/kiosk-devices', ['name' => 'X'])
         ->assertForbidden();
 });
+
+test('revoking a kiosk device frees its quota slot', function () {
+    $tenant = capacityClinic([Feature::MaxKioskDevices->value => 1]);
+
+    $deviceId = $this->actingAs($tenant['admin'], 'sanctum')
+        ->postJson('/api/kiosk-devices', ['name' => 'Kiosk 1'])
+        ->assertCreated()
+        ->json('data.device.id');
+
+    // At the limit: a second device is refused.
+    $this->actingAs($tenant['admin'], 'sanctum')
+        ->postJson('/api/kiosk-devices', ['name' => 'Kiosk 2'])
+        ->assertStatus(409);
+
+    // Revoke the first, then the slot is free.
+    $this->actingAs($tenant['admin'], 'sanctum')
+        ->deleteJson("/api/kiosk-devices/{$deviceId}")
+        ->assertOk();
+
+    $this->actingAs($tenant['admin'], 'sanctum')
+        ->postJson('/api/kiosk-devices', ['name' => 'Kiosk 2'])
+        ->assertCreated();
+
+    // The revoked row is preserved for audit; only the active count dropped.
+    $this->assertDatabaseCount('kiosk_devices', 2);
+    $this->assertDatabaseHas('kiosk_devices', ['id' => $deviceId, 'is_active' => false]);
+});
+
+test('an expired kiosk device does not consume quota', function () {
+    $tenant = capacityClinic([Feature::MaxKioskDevices->value => 1]);
+
+    $this->actingAs($tenant['admin'], 'sanctum')
+        ->postJson('/api/kiosk-devices', [
+            'name' => 'Kiosk 1',
+            'expires_at' => now()->addMinute()->toIso8601String(),
+        ])
+        ->assertCreated();
+
+    // Fast-forward past its expiry.
+    $this->travel(2)->minutes();
+
+    $this->actingAs($tenant['admin'], 'sanctum')
+        ->postJson('/api/kiosk-devices', ['name' => 'Kiosk 2'])
+        ->assertCreated();
+});
+
+test('kiosk and display quotas are independent', function () {
+    $tenant = capacityClinic([
+        Feature::MaxKioskDevices->value => 1,
+        Feature::MaxDisplayDevices->value => 1,
+    ]);
+
+    $this->actingAs($tenant['admin'], 'sanctum')
+        ->postJson('/api/kiosk-devices', ['name' => 'Kiosk 1'])
+        ->assertCreated();
+
+    // The display limit is separate and still free.
+    $this->actingAs($tenant['admin'], 'sanctum')
+        ->postJson('/api/display-devices', ['name' => 'Display 1'])
+        ->assertCreated();
+
+    $this->actingAs($tenant['admin'], 'sanctum')
+        ->postJson('/api/display-devices', ['name' => 'Display 2'])
+        ->assertStatus(409);
+});
+
+test('revoking a display device frees its quota slot', function () {
+    $tenant = capacityClinic([Feature::MaxDisplayDevices->value => 1]);
+
+    $displayId = $this->actingAs($tenant['admin'], 'sanctum')
+        ->postJson('/api/display-devices', ['name' => 'Display 1'])
+        ->assertCreated()
+        ->json('data.device.id');
+
+    $this->actingAs($tenant['admin'], 'sanctum')
+        ->postJson('/api/display-devices', ['name' => 'Display 2'])
+        ->assertStatus(409);
+
+    $this->actingAs($tenant['admin'], 'sanctum')
+        ->deleteJson("/api/display-devices/{$displayId}")
+        ->assertOk();
+
+    $this->actingAs($tenant['admin'], 'sanctum')
+        ->postJson('/api/display-devices', ['name' => 'Display 2'])
+        ->assertCreated();
+});

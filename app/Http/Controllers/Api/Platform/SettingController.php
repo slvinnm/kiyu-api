@@ -73,9 +73,6 @@ class SettingController extends Controller
         return $this->show();
     }
 
-    /**
-     * @return mixed
-     */
     private function read(string $key, mixed $default): mixed
     {
         $row = DB::table('platform_settings')->where('key', $key)->first();

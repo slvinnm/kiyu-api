@@ -2,7 +2,6 @@
 
 use App\Enums\BillingInterval;
 use App\Enums\PaymentStatus;
-use App\Enums\PlanCode;
 use App\Enums\SubscriptionStatus;
 use App\Enums\TenantStatus;
 use App\Models\BillingWebhookEvent;
@@ -13,9 +12,7 @@ use App\Models\PlanPrice;
 use App\Models\Subscription;
 use App\Models\Tenant;
 use App\Models\User;
-use App\Services\TenantOnboardingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Hash;
 
 uses(RefreshDatabase::class);
 

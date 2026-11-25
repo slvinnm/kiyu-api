@@ -66,20 +66,24 @@ class KioskDeviceController extends Controller
 
         $tenant = $this->tenant();
 
-        $this->subscriptions->ensureCapacity($tenant, Feature::MaxKioskDevices);
-
         $pairingCode = $this->pairing->generateCode(KioskDevice::class);
 
-        $device = KioskDevice::query()->create([
-            'tenant_id' => $tenant->id,
-            'facility_id' => $this->resolveDeviceFacility($request, $validated['facility_id'] ?? null),
-            'name' => $validated['name'],
-            'credential_hash' => $this->pairing->placeholderCredentialHash(),
-            'pairing_code_hash' => hash('sha256', $pairingCode),
-            'pairing_expires_at' => now()->addMinutes(DevicePairingService::PAIRING_TTL_MINUTES),
-            'is_active' => true,
-            'expires_at' => $validated['expires_at'] ?? null,
-        ]);
+        // Reserve the slot atomically so two concurrent registrations cannot
+        // both pass the capacity check (PRD §15).
+        $device = $this->subscriptions->reserveDeviceSlot(
+            $tenant,
+            Feature::MaxKioskDevices,
+            fn(): KioskDevice => KioskDevice::query()->create([
+                'tenant_id' => $tenant->id,
+                'facility_id' => $this->resolveDeviceFacility($request, $validated['facility_id'] ?? null),
+                'name' => $validated['name'],
+                'credential_hash' => $this->pairing->placeholderCredentialHash(),
+                'pairing_code_hash' => hash('sha256', $pairingCode),
+                'pairing_expires_at' => now()->addMinutes(DevicePairingService::PAIRING_TTL_MINUTES),
+                'is_active' => true,
+                'expires_at' => $validated['expires_at'] ?? null,
+            ]),
+        );
 
         return response()->json([
             'message' => 'Kiosk device registered. Enter the pairing code on the device; it is shown only once.',

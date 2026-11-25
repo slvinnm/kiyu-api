@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Enums\TenantStatus;
 use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
+use App\Models\Facility;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -35,7 +36,7 @@ class AuthController extends Controller
         $validated = $request->validate([
             'email' => ['required', 'email'],
             'password' => ['required', 'string'],
-            'context' => ['nullable', 'string', 'in:'.self::CONTEXT_PLATFORM_PORTAL.','.self::CONTEXT_TENANT_WORKSPACE],
+            'context' => ['nullable', 'string', 'in:' . self::CONTEXT_PLATFORM_PORTAL . ',' . self::CONTEXT_TENANT_WORKSPACE],
         ]);
 
         $user = User::query()->where('email', $validated['email'])->first();
@@ -222,7 +223,7 @@ class AuthController extends Controller
 
         $facilities = $facilityQuery !== null
             ? $facilityQuery->get(['id', 'name', 'code'])
-            : \App\Models\Facility::query()
+            : Facility::query()
                 ->whereIn('id', $user->facilityAssignments()->select('facility_id'))
                 ->where('is_active', true)
                 ->orderBy('id')

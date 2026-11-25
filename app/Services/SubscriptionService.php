@@ -134,16 +134,40 @@ class SubscriptionService
 
     /**
      * Current usage of a limited resource for the tenant.
+     *
+     * Only resources that are actually in use count against the quota. A
+     * device that is inactive (revoked) or past its expiry no longer occupies a
+     * slot, so deactivating one frees the seat for a replacement (PRD §15).
      */
     public function usage(Tenant $tenant, Feature $feature): int
     {
         return match ($feature) {
             Feature::MaxFacilities => $tenant->facilities()->count(),
             Feature::MaxStaff => $tenant->users()->where('role', '!=', UserRole::Client->value)->count(),
-            Feature::MaxKioskDevices => $tenant->kioskDevices()->count(),
-            Feature::MaxDisplayDevices => $tenant->displayDevices()->count(),
+            Feature::MaxKioskDevices => $this->activeDeviceCount($tenant, 'kiosk'),
+            Feature::MaxDisplayDevices => $this->activeDeviceCount($tenant, 'display'),
             default => 0,
         };
+    }
+
+    /**
+     * Count devices that consume quota: active and not expired.
+     *
+     * A device mid-pairing (registered, not yet paired) still holds its slot so
+     * two people cannot both claim the last seat with pending codes.
+     */
+    private function activeDeviceCount(Tenant $tenant, string $kind): int
+    {
+        $query = $kind === 'kiosk'
+            ? $tenant->kioskDevices()
+            : $tenant->displayDevices();
+
+        return $query
+            ->where('is_active', true)
+            ->where(function ($q): void {
+                $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+            })
+            ->count();
     }
 
     /**
@@ -181,6 +205,28 @@ class SubscriptionService
                 ),
             );
         }
+    }
+
+    /**
+     * Reserve a device-slot atomically and run the creation inside the lock.
+     *
+     * Two operators registering the last kiosk at the same moment must not both
+     * pass the capacity check. The tenant row is locked for the duration of the
+     * callback, so the count and insert are serialised (PRD §15).
+     *
+     * @template T
+     *
+     * @param  callable(): T  $create
+     * @return T
+     */
+    public function reserveDeviceSlot(Tenant $tenant, Feature $feature, callable $create): mixed
+    {
+        return DB::transaction(function () use ($tenant, $feature, $create): mixed {
+            $this->lockTenant($tenant);
+            $this->ensureCapacity($tenant, $feature);
+
+            return $create();
+        });
     }
 
     /**

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Http\Controllers\Api\Platform\SupportAccessController;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -9,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * A time-boxed, reasoned grant for a platform operator to support one tenant.
  *
- * @see \App\Http\Controllers\Api\Platform\SupportAccessController
+ * @see SupportAccessController
  */
 class SupportAccess extends Model
 {

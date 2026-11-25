@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api\Platform;
 
 use App\Enums\PaymentStatus;
 use App\Enums\SubscriptionStatus;
-use App\Enums\TenantStatus;
 use App\Http\Controllers\Controller;
 use App\Models\BillingWebhookEvent;
 use App\Models\KioskDevice;

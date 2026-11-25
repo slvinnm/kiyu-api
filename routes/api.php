@@ -15,8 +15,6 @@ use App\Http\Controllers\Api\IntakeController;
 use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\KioskDeviceController;
 use App\Http\Controllers\Api\KioskPairingController;
-use App\Http\Controllers\Api\PublicController\SignupController;
-use App\Http\Controllers\Api\Portal\DashboardController as PortalDashboardController;
 use App\Http\Controllers\Api\Platform\AuditLogController as PlatformAuditLogController;
 use App\Http\Controllers\Api\Platform\DashboardController as PlatformDashboardController;
 use App\Http\Controllers\Api\Platform\PaymentController as PlatformPaymentController;
@@ -26,8 +24,10 @@ use App\Http\Controllers\Api\Platform\SettingController;
 use App\Http\Controllers\Api\Platform\SubscriptionController as PlatformSubscriptionController;
 use App\Http\Controllers\Api\Platform\SupportAccessController;
 use App\Http\Controllers\Api\Platform\TenantController;
-use App\Http\Controllers\Api\PublicQueueController;
+use App\Http\Controllers\Api\Portal\DashboardController as PortalDashboardController;
+use App\Http\Controllers\Api\PublicController\SignupController;
 use App\Http\Controllers\Api\PublicController\TenantResolutionController;
+use App\Http\Controllers\Api\PublicQueueController;
 use App\Http\Controllers\Api\QueueAcquisitionController;
 use App\Http\Controllers\Api\QueueController;
 use App\Http\Controllers\Api\QueueMonitorController;
@@ -376,6 +376,12 @@ Route::middleware(['auth:sanctum', 'tenant', 'context:tenant_workspace'])
                 Route::post('/cancel', 'cancel')->middleware('role:tenant_admin');
             });
 
+        // Resolved plan entitlements for the tenant. Readable by every tenant
+        // role: the sidebar needs it to show/hide feature menus. It exposes no
+        // billing detail, only which features the plan grants (PRD §8, §9).
+        Route::get('/billing/entitlements', [SubscriptionController::class, 'entitlements']);
+        Route::get('/billing/plans', [SubscriptionController::class, 'plans']);
+
         Route::post('/billing/pay', [PaymentController::class, 'charge'])
             ->middleware('role:tenant_admin');
 
@@ -563,6 +569,8 @@ Route::prefix('portal')
             Route::post('/', 'store');
             Route::post('/cancel', 'cancel');
         });
+        Route::get('/billing/entitlements', [SubscriptionController::class, 'entitlements']);
+        Route::get('/billing/plans', [SubscriptionController::class, 'plans']);
         Route::post('/billing/pay', [PaymentController::class, 'charge']);
     });
 

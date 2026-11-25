@@ -151,7 +151,7 @@ test('users can be listed filtered by department', function () {
         'station_id' => $this->serviceStation->id,
     ]);
 
-    $this->getJson('/api/users?department_id='.$this->department->id)
+    $this->getJson('/api/users?department_id=' . $this->department->id)
         ->assertOk()
         ->assertJsonPath('data.total', 1);
 });

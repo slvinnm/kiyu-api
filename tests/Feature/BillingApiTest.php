@@ -267,3 +267,54 @@ test('the expiry command cancels a subscription at its period end', function () 
     expect($trial->fresh()->status)->toBe(SubscriptionStatus::Cancelled)
         ->and($trial->fresh()->cancelled_at)->not->toBeNull();
 });
+
+test('the tenant can read resolved entitlements with advanced implying basic', function () {
+    $tenant = billingTenant();
+
+    // The fixture plan grants basic_reports + advanced_reports + limits.
+    app(SubscriptionService::class)->start($tenant['tenant'], $tenant['plan'], BillingInterval::Monthly, 30);
+
+    $this->actingAs($tenant['admin'], 'sanctum')
+        ->getJson('/api/billing/entitlements')
+        ->assertOk()
+        ->assertJsonPath('data.queue_management', true)
+        ->assertJsonPath('data.basic_reports', false)
+        ->assertJsonPath('data.max_kiosk_devices', 2);
+});
+
+test('the tenant plan catalogue marks the current plan', function () {
+    $tenant = billingTenant();
+    app(SubscriptionService::class)->start($tenant['tenant'], $tenant['plan'], BillingInterval::Monthly, 30);
+
+    $response = $this->actingAs($tenant['admin'], 'sanctum')
+        ->getJson('/api/billing/plans')
+        ->assertOk();
+
+    expect($response->json('data.current_plan_id'))->toBe($tenant['plan']->id);
+    expect($response->json('data.plans'))->not->toBeEmpty();
+});
+
+test('a plan without basic_reports cannot reach the reports summary', function () {
+    $tenant = billingTenant();
+    // Fixture plan grants queue_management only, not basic_reports.
+    app(SubscriptionService::class)->start($tenant['tenant'], $tenant['plan'], BillingInterval::Monthly, 30);
+
+    $this->actingAs($tenant['admin'], 'sanctum')
+        ->getJson('/api/reports/summary')
+        ->assertForbidden();
+});
+
+test('advanced_reports implies access to the basic reports summary', function () {
+    $tenant = billingTenant();
+
+    $tenant['plan']->entitlements()->create([
+        'feature_code' => Feature::AdvancedReports->value,
+        'value' => null,
+    ]);
+
+    app(SubscriptionService::class)->start($tenant['tenant'], $tenant['plan'], BillingInterval::Monthly, 30);
+
+    $this->actingAs($tenant['admin'], 'sanctum')
+        ->getJson('/api/reports/summary')
+        ->assertOk();
+});
