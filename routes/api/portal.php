@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Portal\AddonController;
 use App\Http\Controllers\Api\Portal\AuditLogController;
 use App\Http\Controllers\Api\Portal\DashboardController;
 use App\Http\Controllers\Api\Portal\FeatureController;
@@ -54,6 +55,15 @@ Route::middleware(['auth:sanctum', 'context:portal', 'role:platform_admin'])->gr
     Route::put('/plans/{id}', [PlanController::class, 'update'])->whereNumber('id');
     Route::post('/plans/{id}/prices', [PlanController::class, 'addPrice'])->whereNumber('id');
     Route::put('/plans/{id}/entitlements', [PlanController::class, 'updateEntitlements'])->whereNumber('id');
+
+    // Add-on catalogue administration.
+    Route::get('/addons', [AddonController::class, 'index']);
+    Route::post('/addons', [AddonController::class, 'store']);
+    Route::get('/addons/{id}', [AddonController::class, 'show'])->whereNumber('id');
+    Route::put('/addons/{id}', [AddonController::class, 'update'])->whereNumber('id');
+    Route::post('/addons/{id}/prices', [AddonController::class, 'addPrice'])->whereNumber('id');
+    Route::put('/addons/{id}/entitlements', [AddonController::class, 'updateEntitlements'])->whereNumber('id');
+    Route::put('/addons/{id}/eligibilities', [AddonController::class, 'updateEligibilities'])->whereNumber('id');
 
     Route::get('/reports/revenue', [ReportController::class, 'revenue']);
     Route::get('/reports/growth', [ReportController::class, 'growth']);

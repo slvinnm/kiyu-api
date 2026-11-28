@@ -47,7 +47,7 @@ class EntitlementResolver
             return [];
         }
 
-        $key = $this->cacheKey($tenant, $subscription);
+        $key = $this->cacheKey($tenant);
 
         $cached = Cache::get($key);
 
@@ -67,7 +67,7 @@ class EntitlementResolver
      */
     public function forget(Tenant $tenant): void
     {
-        Cache::forget('kiyu:tenant:' . $tenant->id . ':entitlements');
+        Cache::forget($this->cacheKey($tenant));
     }
 
     /**
@@ -151,12 +151,15 @@ class EntitlementResolver
         return is_numeric($value) ? (int) $value : 0;
     }
 
-    private function cacheKey(Tenant $tenant, Subscription $subscription): string
+    /**
+     * Cache key for a tenant's resolved entitlements.
+     *
+     * Keyed by tenant only (not by a subscription version) so activation of an
+     * add-on or a subscription change is reflected as soon as the cache is
+     * forgotten; every mutation that changes entitlements calls {@see self::forget()}.
+     */
+    private function cacheKey(Tenant $tenant): string
     {
-        // The version includes the subscription id and its update time so a
-        // re-activation or add-on change yields a fresh key.
-        $version = $subscription->id . '.' . ($subscription->updated_at?->timestamp ?? 0);
-
-        return 'kiyu:tenant:' . $tenant->id . ':entitlements:' . $version;
+        return 'kiyu:tenant:' . $tenant->id . ':entitlements';
     }
 }

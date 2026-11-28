@@ -10,6 +10,7 @@ use App\Models\BillingWebhookEvent;
 use App\Models\Payment;
 use App\Models\Subscription;
 use App\Models\Tenant;
+use App\Services\Billing\AddonPurchaseService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -55,7 +56,7 @@ class PaymentService
 
         $charge = $this->gateway->createCharge($subscription, $price->amount, $price->currency);
 
-        Payment::query()->create([
+        $payment = Payment::query()->create([
             'subscription_id' => $subscription->id,
             'provider' => $this->gateway->name(),
             'provider_transaction_id' => $charge['transaction_id'],
@@ -66,6 +67,17 @@ class PaymentService
                 'redirect_url' => $charge['redirect_url'],
                 'token' => $charge['token'],
             ],
+        ]);
+
+        // Line item for the plan price, with a snapshot so a later catalogue edit
+        // cannot rewrite this payment.
+        $payment->items()->create([
+            'plan_price_id' => $price->id,
+            'name_snapshot' => $subscription->plan->name . ' (' . $subscription->billing_interval->value . ')',
+            'unit_amount' => $price->amount,
+            'quantity' => 1,
+            'total_amount' => $price->amount,
+            'currency' => $price->currency,
         ]);
 
         return $charge;
@@ -161,5 +173,13 @@ class PaymentService
         }
 
         app(SubscriptionService::class)->activate($subscription);
+
+        // Activate any add-ons bought in the same checkout and snapshot grants.
+        $addons = app(AddonPurchaseService::class);
+
+        $subscription->addons()
+            ->where('status', 'PENDING_PAYMENT')
+            ->get()
+            ->each(fn($addon) => $addons->activate($addon));
     }
 }

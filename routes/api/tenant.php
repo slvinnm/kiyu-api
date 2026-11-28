@@ -230,6 +230,31 @@ Route::middleware(['auth:sanctum', 'context:tenant', 'tenant.bind', 'tenant', 'r
             ->group(function () {
                 Route::get('/summary', 'summary')
                     ->middleware(['role:facility_admin,operator', 'feature:report_queue_overview']);
+
+                // Individual report modules — one entitlement each (PRD §12).
+                Route::get('/queue-overview', 'queueOverview')
+                    ->middleware(['role:facility_admin,operator', 'feature:report_queue_overview']);
+                Route::get('/daily-queue', 'dailyQueue')
+                    ->middleware(['role:facility_admin,operator', 'feature:report_daily_queue']);
+                Route::get('/visit-details', 'visitDetails')
+                    ->middleware(['role:facility_admin,operator', 'feature:report_visit_details']);
+                Route::get('/department-performance', 'departmentPerformance')
+                    ->middleware(['role:facility_admin,operator', 'feature:report_department_performance']);
+                Route::get('/waiting-time', 'waitingTime')
+                    ->middleware(['role:facility_admin,operator', 'feature:report_waiting_time']);
+                Route::get('/service-duration', 'serviceDuration')
+                    ->middleware(['role:facility_admin,operator', 'feature:report_service_duration']);
+                Route::get('/queue-trends', 'queueTrends')
+                    ->middleware(['role:facility_admin,operator', 'feature:report_queue_trends']);
+                Route::get('/peak-hours', 'peakHours')
+                    ->middleware(['role:facility_admin,operator', 'feature:report_peak_hours']);
+                Route::get('/cancellation-no-show', 'cancellationNoShow')
+                    ->middleware(['role:facility_admin,operator', 'feature:report_cancellation_no_show']);
+                Route::get('/staff-performance', 'staffPerformance')
+                    ->middleware(['role:facility_admin', 'feature:report_staff_performance']);
+                Route::get('/facility-comparison', 'facilityComparison')
+                    ->middleware(['role:facility_admin', 'feature:report_facility_comparison']);
+
                 Route::get('/queue-sessions/export', 'exportQueueSessions')
                     ->middleware(['role:facility_admin', 'feature:report_queue_overview', 'feature:report_export']);
                 Route::post('/queue-sessions/export-file', 'exportFile')

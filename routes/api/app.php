@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\App\AppAuthController;
 use App\Http\Controllers\Api\App\AuditLogController;
+use App\Http\Controllers\Api\App\Billing\AddonController;
 use App\Http\Controllers\Api\App\Billing\PaymentController;
 use App\Http\Controllers\Api\App\Billing\SubscriptionController;
 use App\Http\Controllers\Api\App\Configuration\DepartmentController;
@@ -114,6 +115,31 @@ Route::middleware(['auth:sanctum', 'context:app', 'role:tenant_admin', 'app.tena
 
     Route::get('/reports/summary', [ReportController::class, 'summary'])
         ->middleware('feature:report_queue_overview');
+
+    // Individual report modules — one entitlement each (PRD §12/§13).
+    Route::get('/reports/queue-overview', [ReportController::class, 'queueOverview'])
+        ->middleware('feature:report_queue_overview');
+    Route::get('/reports/daily-queue', [ReportController::class, 'dailyQueue'])
+        ->middleware('feature:report_daily_queue');
+    Route::get('/reports/visit-details', [ReportController::class, 'visitDetails'])
+        ->middleware('feature:report_visit_details');
+    Route::get('/reports/department-performance', [ReportController::class, 'departmentPerformance'])
+        ->middleware('feature:report_department_performance');
+    Route::get('/reports/waiting-time', [ReportController::class, 'waitingTime'])
+        ->middleware('feature:report_waiting_time');
+    Route::get('/reports/service-duration', [ReportController::class, 'serviceDuration'])
+        ->middleware('feature:report_service_duration');
+    Route::get('/reports/queue-trends', [ReportController::class, 'queueTrends'])
+        ->middleware('feature:report_queue_trends');
+    Route::get('/reports/peak-hours', [ReportController::class, 'peakHours'])
+        ->middleware('feature:report_peak_hours');
+    Route::get('/reports/cancellation-no-show', [ReportController::class, 'cancellationNoShow'])
+        ->middleware('feature:report_cancellation_no_show');
+    Route::get('/reports/staff-performance', [ReportController::class, 'staffPerformance'])
+        ->middleware('feature:report_staff_performance');
+    Route::get('/reports/facility-comparison', [ReportController::class, 'facilityComparison'])
+        ->middleware('feature:report_facility_comparison');
+
     Route::get('/reports/queue-sessions/export', [ReportController::class, 'exportQueueSessions'])
         ->middleware(['feature:report_queue_overview', 'feature:report_export']);
     Route::post('/reports/queue-sessions/export-file', [ReportController::class, 'exportFile'])
@@ -145,4 +171,15 @@ Route::middleware(['auth:sanctum', 'context:app', 'role:tenant_admin', 'app.tena
     Route::get('/billing/entitlements', [SubscriptionController::class, 'entitlements']);
     Route::get('/billing/plans', [SubscriptionController::class, 'plans']);
     Route::post('/billing/pay', [PaymentController::class, 'charge']);
+
+    // Payment history (tenant's own only).
+    Route::get('/billing/payments', [PaymentController::class, 'index']);
+    Route::get('/billing/payments/{id}', [PaymentController::class, 'show'])->whereNumber('id');
+
+    // Add-ons for the tenant's effective subscription.
+    Route::prefix('billing/addons')->controller(AddonController::class)->group(function () {
+        Route::get('/', 'index');
+        Route::post('/', 'store');
+        Route::post('/{id}/cancel', 'cancel')->whereNumber('id');
+    });
 });

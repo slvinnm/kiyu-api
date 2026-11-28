@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\Api\App\Reports;
 
+use App\Http\Controllers\Api\Concerns\HandlesReports;
 use App\Http\Controllers\Controller;
-use App\Models\Facility;
 use App\Services\ExportService;
 use App\Services\ReportService;
 use App\Support\ReportRange;
@@ -15,30 +15,28 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 /**
  * Reports for the TenantAdmin App.
  *
- * Reports are organization-wide; a facility is selected with `X-Facility-Id`
- * (authorized by the facility middleware) or the tenant's single active
- * facility is used. The route gates each report entitlement and export.
+ * Reports are organization-wide; a facility is selected with `facility_id`
+ * (query/body) or the tenant's single active facility is used. The route gates
+ * each report entitlement and export. Individual report endpoints live in the
+ * shared {@see HandlesReports} trait.
  */
 class ReportController extends Controller
 {
+    use HandlesReports;
+
     public function __construct(
         private readonly ReportService $reports,
         private readonly ExportService $exports,
     ) {}
 
+    protected function reports(): ReportService
+    {
+        return $this->reports;
+    }
+
     public function summary(Request $request): JsonResponse
     {
-        $range = ReportRange::resolve($request, $this->tenant());
-        $tenantId = $this->tenantId();
-        $facilityId = $this->reportFacilityId($request);
-        $period = ['from' => $range['from'], 'to' => $range['to']];
-
-        return response()->json([
-            'data' => [
-                'queue_sessions' => $this->reports->sessionSummary($tenantId, $facilityId, $range['start'], $range['end'], $period),
-                'queue' => $this->reports->queueSummary($tenantId, $facilityId, $range['start'], $range['end'], $period),
-            ],
-        ]);
+        return $this->queueOverview($request);
     }
 
     public function exportQueueSessions(Request $request): StreamedResponse
@@ -113,7 +111,7 @@ class ReportController extends Controller
      * tenant's single active facility. The tenant admin is not facility-scoped,
      * so a multi-facility tenant must pass `facility_id`.
      */
-    private function reportFacilityId(Request $request): int
+    protected function reportFacilityId(Request $request): int
     {
         $request->validate([
             'facility_id' => ['nullable', 'integer', 'exists:facilities,id'],

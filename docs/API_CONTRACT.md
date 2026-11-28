@@ -3,7 +3,7 @@
 Base: `http://api.kiyu.test/api` locally (the frontend `API_BASE_URL` includes
 `/api`). JSON everywhere. Authenticated requests send
 `Authorization: Bearer <sanctum-token>`. Facility-scoped routes accept
-`X-Facility-Id` when the account can reach more than one facility.
+`facility_id` (in the body or query) when the account can reach more than one facility. There is no facility header/middleware: the facility is taken from the request or resolved implicitly when the caller reaches exactly one active facility.
 
 Errors are JSON `{ "message": string, "error_type"?: string }` with a matching
 HTTP status (`401` unauthenticated, `403` forbidden/wrong-context, `404` not
@@ -70,9 +70,10 @@ Own data only (the `customers.id` is taken from the authenticated account).
 Organization-wide management. Tenant is the authenticated account's tenant.
 
 - `GET /api/app/dashboard`; `facilities` (`GET/POST/GET{id}/PUT{id}`); `users` + `users/{id}/facilities` + `invitations`.
-- Facility-scoped config via `X-Facility-Id`: `departments`, `stations`, `workflows`, `workflow-steps`.
+- Facility-scoped config: `departments`, `stations`, `workflows`, `workflow-steps` (pass `facility_id`).
 - Monitoring: `GET /api/app/queue/monitor`, `/queue-sessions*`, `/customers*`, `/audit-logs`.
-- Reports: `GET /api/app/reports/summary` (`feature:report_queue_overview`); exports and `download` also require `feature:report_export`.
+- Reports, one endpoint per entitlement under `/api/app/reports/*`: `queue-overview` (`report_queue_overview`), `daily-queue` (`report_daily_queue`), `visit-details` (`report_visit_details`), `department-performance` (`report_department_performance`), `waiting-time` (`report_waiting_time`), `service-duration` (`report_service_duration`), `queue-trends` (`report_queue_trends`), `peak-hours` (`report_peak_hours`), `cancellation-no-show` (`report_cancellation_no_show`), `staff-performance` (`report_staff_performance`), `facility-comparison` (`report_facility_comparison`). Exports + `download` also require `feature:report_export`.
+- Billing extras: `GET /api/app/billing/payments`, `GET /api/app/billing/payments/{id}`; `GET/POST /api/app/billing/addons`, `POST /api/app/billing/addons/{id}/cancel`.
 - Billing: `GET/POST /api/app/billing/subscription`, `POST /api/app/billing/subscription/cancel`, `GET /api/app/billing/entitlements`, `GET /api/app/billing/plans`, `POST /api/app/billing/pay`.
 
 ## Tenant — `ctx:tenant`, roles `facility_admin|operator|staff`, tenant-origin bound
@@ -94,7 +95,7 @@ Authenticated:
 - Queue: `POST /queue/call-next`; `POST /tickets/{id}/start|hold|resume|recall|complete|skip|no-show|cancel`; `POST /tickets/{id}/transfer` (staff).
 - Service transfers, queue sessions, customers, departments/stations/workflows, users/facility assignments/invitations: as before, roles enforced per route.
 - Devices: `kiosk-devices`, `display-devices` (facility_admin; quota-gated).
-- Reports: `GET /reports/summary` (facility_admin/operator); exports + `download` require `report_queue_overview` **and** `report_export`.
+- Reports: the same per-report endpoints under `/api/tenant/reports/*` (each gated by its own `report_*`); exports + `download` require `report_queue_overview` **and** `report_export`.
 - WhatsApp: `POST /api/tenant/whatsapp/messages` (`feature:whatsapp_notifications`).
 
 ## Portal — `ctx:portal`, `role:platform_admin`, `tenant_id = NULL`
@@ -108,6 +109,8 @@ Base `/api/portal`. Platform administration only; no tenant impersonation.
 | Subscriptions | `GET /portal/subscriptions`, `GET /{id}` |
 | Payments | `GET /portal/payments`, `GET /{id}`, `GET /portal/payments-webhooks` |
 | Plans | `GET/POST /portal/plans`, `GET/PUT /{id}`, `POST /{id}/prices`, `PUT /{id}/entitlements` |
+| Add-ons | `GET/POST /portal/addons`, `GET/PUT /{id}`, `POST /{id}/prices`, `PUT /{id}/entitlements`, `PUT /{id}/eligibilities` |
+| Features | `GET /portal/features`, `PATCH /portal/features/{code}/release` |
 | Reports | `GET /portal/reports/revenue`, `/growth`, `/subscriptions` |
 | Audit / Settings | `GET /portal/audit-logs`; `GET/PUT /portal/settings` |
 

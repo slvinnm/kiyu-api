@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Tenant\Reports;
 
+use App\Http\Controllers\Api\Concerns\HandlesReports;
 use App\Http\Controllers\Controller;
 use App\Services\ExportService;
 use App\Services\ReportService;
@@ -16,28 +17,31 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  *
  * Only staff roles reach this controller. The route decides which report
  * entitlement and `report_export` gate each endpoint; the controller owns the
- * query and the response shape.
+ * query and the response shape. The individual report endpoints live in the
+ * shared {@see HandlesReports} trait.
  */
 class ReportController extends Controller
 {
+    use HandlesReports;
+
     public function __construct(
         private readonly ReportService $reports,
         private readonly ExportService $exports,
     ) {}
 
+    protected function reports(): ReportService
+    {
+        return $this->reports;
+    }
+
+    protected function reportFacilityId(Request $request): int
+    {
+        return $this->facilityId();
+    }
+
     public function summary(Request $request): JsonResponse
     {
-        $range = ReportRange::resolve($request, $this->tenant());
-        $tenantId = $this->tenantId();
-        $facilityId = $this->facilityId();
-        $period = ['from' => $range['from'], 'to' => $range['to']];
-
-        return response()->json([
-            'data' => [
-                'queue_sessions' => $this->reports->sessionSummary($tenantId, $facilityId, $range['start'], $range['end'], $period),
-                'queue' => $this->reports->queueSummary($tenantId, $facilityId, $range['start'], $range['end'], $period),
-            ],
-        ]);
+        return $this->queueOverview($request);
     }
 
     public function exportQueueSessions(Request $request): StreamedResponse
