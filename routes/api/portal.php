@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\Portal\AuditLogController;
 use App\Http\Controllers\Api\Portal\DashboardController;
+use App\Http\Controllers\Api\Portal\FeatureController;
 use App\Http\Controllers\Api\Portal\PaymentController;
 use App\Http\Controllers\Api\Portal\PlanController;
 use App\Http\Controllers\Api\Portal\PortalAuthController;
@@ -57,6 +58,10 @@ Route::middleware(['auth:sanctum', 'context:portal', 'role:platform_admin'])->gr
     Route::get('/reports/revenue', [ReportController::class, 'revenue']);
     Route::get('/reports/growth', [ReportController::class, 'growth']);
     Route::get('/reports/subscriptions', [ReportController::class, 'subscriptions']);
+
+    // Feature registry and global release switch.
+    Route::get('/features', [FeatureController::class, 'index']);
+    Route::patch('/features/{code}/release', [FeatureController::class, 'release']);
 
     Route::get('/audit-logs', [AuditLogController::class, 'index']);
     Route::get('/settings', [SettingController::class, 'show']);
