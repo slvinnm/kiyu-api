@@ -40,6 +40,8 @@ class ReportService
         $total = (clone $sessions)->count();
         $completed = (int) ($byStatus['COMPLETED'] ?? 0);
 
+        $wait = $this->averageWaitMinutes($tenantId, $facilityId, $from, $to);
+
         return [
             'period' => $period ?? ['from' => $from->toDateString(), 'to' => $to->toDateString()],
             'total_sessions' => $total,
@@ -47,7 +49,11 @@ class ReportService
             'completion_rate' => $total > 0 ? round($completed / $total * 100, 1) : 0.0,
             'by_status' => $byStatus,
             'by_channel' => $byChannel,
-            'average_wait_minutes' => $this->averageWaitMinutes($tenantId, $facilityId, $from, $to),
+            // Waiting time is ticket-created → first-called. Tickets never called
+            // are excluded from the average and counted separately.
+            'average_wait_minutes' => $wait['average_minutes'],
+            'served_tickets' => $wait['served_tickets'],
+            'never_called_tickets' => $wait['never_called'],
         ];
     }
 
@@ -108,20 +114,33 @@ class ReportService
     }
 
     /**
-     * Mean minutes between visit creation and check-in, where known.
+     * Mean waiting time: ticket created until it was first called.
+     *
+     * This is the real queue wait — time a customer spent waiting to be served,
+     * not the check-in latency. Tickets that were never called are excluded from
+     * the average; their count is reported separately so a long tail of never-
+     * served tickets is not hidden inside a small average.
+     *
+     * @return array{average_minutes: float|null, served_tickets: int, never_called: int}
      */
-    private function averageWaitMinutes(int $tenantId, int $facilityId, Carbon $from, Carbon $to): ?float
+    private function averageWaitMinutes(int $tenantId, int $facilityId, Carbon $from, Carbon $to): array
     {
-        // Aggregated in SQL: loading every visit just to average two columns
-        // grows linearly with the reporting range.
-        $average = QueueSession::query()
-            ->where('tenant_id', $tenantId)
-            ->where('facility_id', $facilityId)
-            ->whereNotNull('checked_in_at')
-            ->whereBetween('created_at', [$from, $to])
-            ->selectRaw('AVG(TIMESTAMPDIFF(MINUTE, created_at, checked_in_at)) AS minutes')
+        $tickets = QueueTicket::query()
+            ->whereHas('queueSession', fn($query) => $query
+                ->where('tenant_id', $tenantId)
+                ->where('facility_id', $facilityId))
+            ->whereBetween('created_at', [$from, $to]);
+
+        $called = (clone $tickets)->whereNotNull('called_at');
+
+        $average = (clone $called)
+            ->selectRaw('AVG(TIMESTAMPDIFF(MINUTE, created_at, called_at)) AS minutes')
             ->value('minutes');
 
-        return $average === null ? null : round((float) $average, 1);
+        return [
+            'average_minutes' => $average === null ? null : round((float) $average, 1),
+            'served_tickets' => (clone $called)->count(),
+            'never_called' => (clone $tickets)->whereNull('called_at')->count(),
+        ];
     }
 }
