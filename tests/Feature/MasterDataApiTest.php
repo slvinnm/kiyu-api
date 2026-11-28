@@ -12,7 +12,7 @@ beforeEach(function () {
 
 test('department and station crud works correctly', function () {
     // Create Department
-    $deptRes = $this->postJson('/api/departments', [
+    $deptRes = $this->postJson('/api/tenant/departments', [
         'code' => 'POLI_MATA',
         'name' => 'Poli Mata',
     ]);
@@ -23,7 +23,7 @@ test('department and station crud works correctly', function () {
     $deptId = $deptRes->json('data.id');
 
     // Create Station
-    $stationRes = $this->postJson('/api/stations', [
+    $stationRes = $this->postJson('/api/tenant/stations', [
         'department_id' => $deptId,
         'name' => 'Ruang Periksa Mata',
         'code' => 'EYE-01',
@@ -35,14 +35,14 @@ test('department and station crud works correctly', function () {
         ->assertJsonPath('data.code', 'EYE-01');
 
     // List Stations for department
-    $this->getJson("/api/departments/{$deptId}/stations")
+    $this->getJson("/api/tenant/departments/{$deptId}/stations")
         ->assertStatus(200)
         ->assertJsonCount(1, 'data');
 });
 
 test('workflow step creation and management', function () {
     // Add a step to general workflow
-    $stepRes = $this->postJson("/api/workflows/{$this->generalWorkflow->id}/steps", [
+    $stepRes = $this->postJson("/api/tenant/workflows/{$this->generalWorkflow->id}/steps", [
         'station_id' => $this->serviceStation2->id,
         'name' => 'Second Opinion Dokter',
         'sequence' => 10,
@@ -54,13 +54,13 @@ test('workflow step creation and management', function () {
     $stepId = $stepRes->json('data.id');
 
     // Update step
-    $this->putJson("/api/workflow-steps/{$stepId}", [
+    $this->putJson("/api/tenant/workflow-steps/{$stepId}", [
         'name' => 'Second Opinion Updated',
     ])->assertStatus(200)
         ->assertJsonPath('data.name', 'Second Opinion Updated');
 
     // Delete step
-    $this->deleteJson("/api/workflow-steps/{$stepId}")
+    $this->deleteJson("/api/tenant/workflow-steps/{$stepId}")
         ->assertStatus(200);
 
     $this->assertDatabaseMissing('workflow_steps', ['id' => $stepId]);
@@ -68,13 +68,13 @@ test('workflow step creation and management', function () {
 
 test('client directory search and retrieval', function () {
     // Search by name
-    $searchRes = $this->getJson('/api/customers?search=Budi');
+    $searchRes = $this->getJson('/api/tenant/customers?search=Budi');
     $searchRes->assertStatus(200)
         ->assertJsonCount(1, 'data.data')
         ->assertJsonPath('data.data.0.name', 'Budi Santoso');
 
     // Show client with visits
-    $this->getJson("/api/customers/{$this->sampleCustomer->id}")
+    $this->getJson("/api/tenant/customers/{$this->sampleCustomer->id}")
         ->assertStatus(200)
         ->assertJsonPath('data.mrn', $this->sampleCustomer->mrn);
 });

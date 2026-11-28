@@ -19,11 +19,11 @@ test('queue monitor requires authentication', function () {
     // Drop the Sanctum user the fixture installed; the kiosk headers remain.
     $this->app['auth']->forgetGuards();
 
-    $this->getJson('/api/queue/monitor')->assertStatus(401);
+    $this->getJson('/api/tenant/queue/monitor')->assertStatus(401);
 });
 
 test('queue monitor lists active stations with the public read model', function () {
-    $response = $this->getJson('/api/queue/monitor');
+    $response = $this->getJson('/api/tenant/queue/monitor');
 
     $response->assertOk()
         ->assertJsonStructure([
@@ -47,25 +47,25 @@ test('queue monitor lists active stations with the public read model', function 
 });
 
 test('queue monitor reports the called ticket and waiting count', function () {
-    $intake = $this->postJson('/api/intake/kiosk', [
+    $intake = $this->postJson('/api/tenant/intake/kiosk', [
         'department_id' => $this->generalDepartment->id,
     ])->json('data');
 
-    $this->postJson('/api/reception/call-next', [
+    $this->postJson('/api/tenant/reception/call-next', [
         'department_id' => $this->generalDepartment->id,
     ]);
 
-    $this->postJson('/api/reception/complete-registration', [
+    $this->postJson('/api/tenant/reception/complete-registration', [
         'acquisition_id' => $intake['acquisition']['id'],
         'customer_id' => $this->sampleCustomer->id,
     ]);
 
-    $this->postJson('/api/queue/call-next', [
+    $this->postJson('/api/tenant/queue/call-next', [
         'station_id' => $this->serviceStation1->id,
         'assigned_to_user_id' => $this->adminUser->id,
     ])->assertOk();
 
-    $station = collect($this->getJson('/api/queue/monitor')->json('data'))
+    $station = collect($this->getJson('/api/tenant/queue/monitor')->json('data'))
         ->firstWhere('station_id', $this->serviceStation1->id);
 
     expect($station)->not->toBeNull()
@@ -74,7 +74,7 @@ test('queue monitor reports the called ticket and waiting count', function () {
 });
 
 test('queue monitor filters by department and station', function () {
-    $byDepartment = $this->getJson('/api/queue/monitor?department_id=' . $this->generalDepartment->id)
+    $byDepartment = $this->getJson('/api/tenant/queue/monitor?department_id=' . $this->generalDepartment->id)
         ->assertOk()
         ->json('data');
 
@@ -82,7 +82,7 @@ test('queue monitor filters by department and station', function () {
     expect(collect($byDepartment)->pluck('department_id')->unique()->all())
         ->toBe([$this->generalDepartment->id]);
 
-    $byStation = $this->getJson('/api/queue/monitor?station_id=' . $this->serviceStation1->id)
+    $byStation = $this->getJson('/api/tenant/queue/monitor?station_id=' . $this->serviceStation1->id)
         ->assertOk()
         ->json('data');
 
@@ -109,7 +109,7 @@ test('queue monitor does not leak another tenant stations', function () {
         'is_active' => true,
     ]);
 
-    $stationIds = collect($this->getJson('/api/queue/monitor')->assertOk()->json('data'))
+    $stationIds = collect($this->getJson('/api/tenant/queue/monitor')->assertOk()->json('data'))
         ->pluck('station_id');
 
     expect($stationIds)->not->toContain($otherStation->id);

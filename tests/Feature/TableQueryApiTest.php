@@ -27,7 +27,7 @@ test('master data table endpoints paginate by default', function () {
     Department::create(['facility_id' => $this->facility->id, 'code' => 'DEPT_SARAF', 'name' => 'Neuro Service', 'is_active' => true]);
     Department::create(['facility_id' => $this->facility->id, 'code' => 'DEPT_JANTUNG', 'name' => 'Heart Service', 'is_active' => true]);
 
-    $this->getJson('/api/departments?per_page=2&page=1')
+    $this->getJson('/api/tenant/departments?per_page=2&page=1')
         ->assertOk()
         ->assertJsonPath('data.total', 5)
         ->assertJsonPath('data.per_page', 2)
@@ -37,7 +37,7 @@ test('master data table endpoints paginate by default', function () {
 
     $stationCount = Station::query()->count();
 
-    $this->getJson('/api/stations?per_page=2&page=1')
+    $this->getJson('/api/tenant/stations?per_page=2&page=1')
         ->assertOk()
         ->assertJsonPath('data.total', $stationCount)
         ->assertJsonPath('data.per_page', 2)
@@ -51,7 +51,7 @@ test('master data table endpoints paginate by default', function () {
         'is_active' => true,
     ]);
 
-    $this->getJson('/api/workflows?per_page=2&page=1')
+    $this->getJson('/api/tenant/workflows?per_page=2&page=1')
         ->assertOk()
         ->assertJsonPath('data.total', 3)
         ->assertJsonPath('data.per_page', 2)
@@ -61,21 +61,21 @@ test('master data table endpoints paginate by default', function () {
 });
 
 test('master data options endpoints return the full lightweight list', function () {
-    $this->getJson('/api/departments/options')
+    $this->getJson('/api/tenant/departments/options')
         ->assertOk()
         ->assertJsonCount(2, 'data')
         ->assertJsonStructure(['data' => [['id', 'code', 'name', 'is_active', 'display_in_kiosk']]]);
 
-    $this->getJson('/api/stations/options')
+    $this->getJson('/api/tenant/stations/options')
         ->assertOk()
         ->assertJsonCount(Station::query()->count(), 'data')
         ->assertJsonStructure(['data' => [['id', 'department_id', 'code', 'name', 'type', 'is_active']]]);
 
-    $this->getJson("/api/stations/options?department_id={$this->supportDepartment->id}")
+    $this->getJson("/api/tenant/stations/options?department_id={$this->supportDepartment->id}")
         ->assertOk()
         ->assertJsonCount(2, 'data');
 
-    $this->getJson('/api/stations/options?type=CASHIER')
+    $this->getJson('/api/tenant/stations/options?type=CASHIER')
         ->assertOk()
         ->assertJsonCount(1, 'data')
         ->assertJsonPath('data.0.code', 'CSH-01');
@@ -93,19 +93,19 @@ test('statistics endpoints return aggregate counts', function () {
         'tracking_token' => (string) Str::uuid(),
     ]);
 
-    $this->getJson('/api/workflows/statistics')
+    $this->getJson('/api/tenant/workflows/statistics')
         ->assertOk()
         ->assertJsonPath('data.total', 2);
 
-    $this->getJson('/api/customers/statistics')
+    $this->getJson('/api/tenant/customers/statistics')
         ->assertOk()
         ->assertJsonPath('data.total', 4);
 
-    $this->getJson('/api/queue-sessions/statistics')
+    $this->getJson('/api/tenant/queue-sessions/statistics')
         ->assertOk()
         ->assertJsonPath('data.total', 1);
 
-    $this->getJson('/api/queue-sessions/statistics?status=CANCELLED')
+    $this->getJson('/api/tenant/queue-sessions/statistics?status=CANCELLED')
         ->assertOk()
         ->assertJsonPath('data.total', 0);
 
@@ -116,59 +116,59 @@ test('statistics endpoints return aggregate counts', function () {
         'status' => QueueTicketStatus::Created,
     ]);
 
-    $this->getJson('/api/tickets/statistics?status=CREATED')
+    $this->getJson('/api/tenant/tickets/statistics?status=CREATED')
         ->assertOk()
         ->assertJsonPath('data.total', 1);
 });
 
 test('per page is clamped between one and one hundred', function () {
-    $this->getJson('/api/departments?per_page=999')
+    $this->getJson('/api/tenant/departments?per_page=999')
         ->assertOk()
         ->assertJsonPath('data.per_page', 100);
 
-    $this->getJson('/api/departments?per_page=0')
+    $this->getJson('/api/tenant/departments?per_page=0')
         ->assertOk()
         ->assertJsonPath('data.per_page', 1);
 
-    $this->getJson('/api/audit-logs?per_page=999')
+    $this->actAsTenantAdmin()->getJson('/api/app/audit-logs?per_page=999')
         ->assertOk()
         ->assertJsonPath('data.per_page', 100);
 });
 
 test('department search matches code and name', function () {
-    $this->getJson('/api/departments?search=Support')
+    $this->getJson('/api/tenant/departments?search=Support')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
         ->assertJsonPath('data.data.0.code', 'SUP');
 
-    $this->getJson('/api/departments?search=General')
+    $this->getJson('/api/tenant/departments?search=General')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
         ->assertJsonPath('data.data.0.code', 'GEN');
 
-    $this->getJson('/api/departments?search=%20%20')
+    $this->getJson('/api/tenant/departments?search=%20%20')
         ->assertOk()
         ->assertJsonPath('data.total', 2);
 });
 
 test('station search matches own columns and related department name', function () {
-    $this->getJson('/api/stations?search=Cashier')
+    $this->getJson('/api/tenant/stations?search=Cashier')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
         ->assertJsonPath('data.data.0.code', 'CSH-01');
 
-    $this->getJson('/api/stations?search=Support')
+    $this->getJson('/api/tenant/stations?search=Support')
         ->assertOk()
         ->assertJsonPath('data.total', 2);
 });
 
 test('workflow search matches name and related department name', function () {
-    $this->getJson('/api/workflows?search=Support')
+    $this->getJson('/api/tenant/workflows?search=Support')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
         ->assertJsonPath('data.data.0.name', 'Support Flow');
 
-    $this->getJson('/api/workflows?search=General')
+    $this->getJson('/api/tenant/workflows?search=General')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
         ->assertJsonPath('data.data.0.name', 'General Flow');
@@ -193,17 +193,17 @@ test('visit search matches visit number and client identity', function () {
         'tracking_token' => (string) Str::uuid(),
     ]);
 
-    $this->getJson('/api/queue-sessions?search=V-TEST-0001')
+    $this->getJson('/api/tenant/queue-sessions?search=V-TEST-0001')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
         ->assertJsonPath('data.data.0.id', $budiVisit->id);
 
-    $this->getJson('/api/queue-sessions?search=Budi')
+    $this->getJson('/api/tenant/queue-sessions?search=Budi')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
         ->assertJsonPath('data.data.0.id', $budiVisit->id);
 
-    $this->getJson('/api/queue-sessions?search=081200000002')
+    $this->getJson('/api/tenant/queue-sessions?search=081200000002')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
         ->assertJsonPath('data.data.0.customer_id', $otherCustomer->id);
@@ -241,12 +241,12 @@ test('ticket search matches queue number and client name', function () {
         'status' => QueueTicketStatus::Created,
     ]);
 
-    $this->getJson('/api/tickets?search=R900')
+    $this->getJson('/api/tenant/tickets?search=R900')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
         ->assertJsonPath('data.data.0.queue_number', 'R900');
 
-    $this->getJson('/api/tickets?search=Budi')
+    $this->getJson('/api/tenant/tickets?search=Budi')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
         ->assertJsonPath('data.data.0.queue_number', 'R900');
@@ -283,17 +283,17 @@ test('service transfer search matches reason and source client identity', functi
         'reason' => 'Routine cleaning',
     ]);
 
-    $this->getJson('/api/service-transfers?search=support')
+    $this->getJson('/api/tenant/service-transfers?search=support')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
         ->assertJsonPath('data.data.0.reason', 'Customer needs support');
 
-    $this->getJson('/api/service-transfers?search=Budi')
+    $this->getJson('/api/tenant/service-transfers?search=Budi')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
         ->assertJsonPath('data.data.0.reason', 'Customer needs support');
 
-    $this->getJson('/api/service-transfers?search=081200000002')
+    $this->getJson('/api/tenant/service-transfers?search=081200000002')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
         ->assertJsonPath('data.data.0.reason', 'Routine cleaning');
@@ -327,34 +327,34 @@ test('audit log search matches action entity user and ip', function () {
         'ip_address' => '192.168.1.5',
     ]);
 
-    $this->getJson('/api/audit-logs?search=QUEUE_SESSION_PRIORITY')
+    $this->actAsTenantAdmin()->getJson('/api/app/audit-logs?search=QUEUE_SESSION_PRIORITY')
         ->assertOk()
         ->assertJsonPath('data.total', 1);
 
-    $this->getJson('/api/audit-logs?search=queue_ticket')
+    $this->actAsTenantAdmin()->getJson('/api/app/audit-logs?search=queue_ticket')
         ->assertOk()
         ->assertJsonPath('data.total', 1);
 
-    $this->getJson('/api/audit-logs?search=QUEUE_SESSION_PRIORITY')
+    $this->actAsTenantAdmin()->getJson('/api/app/audit-logs?search=QUEUE_SESSION_PRIORITY')
         ->assertOk()
         ->assertJsonPath('data.total', 1);
 
-    $this->getJson('/api/audit-logs?search=192.168.1')
+    $this->actAsTenantAdmin()->getJson('/api/app/audit-logs?search=192.168.1')
         ->assertOk()
         ->assertJsonPath('data.total', 1);
 });
 
 test('allowed sort columns order results descending', function () {
-    $this->getJson('/api/departments?sort=name&direction=desc')
+    $this->getJson('/api/tenant/departments?sort=name&direction=desc')
         ->assertOk()
         ->assertJsonPath('data.data.0.name', 'Support Service')
         ->assertJsonPath('data.data.1.name', 'General Service');
 
-    $this->getJson('/api/stations?sort=code&direction=desc')
+    $this->getJson('/api/tenant/stations?sort=code&direction=desc')
         ->assertOk()
         ->assertJsonPath('data.data.0.code', 'SVC-02');
 
-    $this->getJson('/api/workflows?sort=name&direction=desc')
+    $this->getJson('/api/tenant/workflows?sort=name&direction=desc')
         ->assertOk()
         ->assertJsonPath('data.data.0.name', 'Support Flow')
         ->assertJsonPath('data.data.1.name', 'General Flow');
@@ -376,7 +376,7 @@ test('allowed sort columns order results descending', function () {
         'tracking_token' => (string) Str::uuid(),
     ]);
 
-    $this->getJson('/api/queue-sessions?sort=session_number&direction=desc')
+    $this->getJson('/api/tenant/queue-sessions?sort=session_number&direction=desc')
         ->assertOk()
         ->assertJsonPath('data.data.0.id', $sessionB->id)
         ->assertJsonPath('data.data.1.id', $sessionA->id);
@@ -392,7 +392,7 @@ test('allowed sort columns order results descending', function () {
         'reason' => 'Second',
     ]);
 
-    $this->getJson('/api/service-transfers?sort=id&direction=desc')
+    $this->getJson('/api/tenant/service-transfers?sort=id&direction=desc')
         ->assertOk()
         ->assertJsonPath('data.data.0.id', $transferB->id)
         ->assertJsonPath('data.data.1.id', $transferA->id);
@@ -410,13 +410,13 @@ test('allowed sort columns order results descending', function () {
         'entity_id' => '2',
     ]);
 
-    $this->getJson('/api/audit-logs?sort=action&direction=desc')
+    $this->actAsTenantAdmin()->getJson('/api/app/audit-logs?sort=action&direction=desc')
         ->assertOk()
         ->assertJsonPath('data.data.0.id', $lastLog->id);
 });
 
 test('unknown sort columns are ignored instead of failing', function () {
-    foreach (['/api/departments', '/api/stations', '/api/workflows', '/api/queue-sessions', '/api/tickets', '/api/service-transfers', '/api/audit-logs'] as $endpoint) {
+    foreach (['/api/tenant/departments', '/api/tenant/stations', '/api/tenant/workflows', '/api/tenant/queue-sessions', '/api/tenant/tickets', '/api/tenant/service-transfers'] as $endpoint) {
         $this->getJson("{$endpoint}?sort=bogus&direction=desc")
             ->assertOk();
     }
@@ -427,20 +427,17 @@ test('array valued query params are rejected with a validation error', function 
         ->assertUnprocessable()
         ->assertJsonValidationErrors($param);
 })->with([
-    ['/api/customers', 'search'],
-    ['/api/queue-sessions', 'search'],
-    ['/api/queue-sessions', 'status'],
-    ['/api/queue-sessions', 'date'],
-    ['/api/tickets', 'search'],
-    ['/api/tickets', 'status'],
-    ['/api/tickets', 'date'],
-    ['/api/service-transfers', 'status'],
-    ['/api/audit-logs', 'search'],
-    ['/api/audit-logs', 'user_id'],
-    ['/api/departments', 'search'],
-    ['/api/stations', 'type'],
-    ['/api/workflows', 'search'],
-    ['/api/users', 'role'],
+    ['/api/tenant/customers', 'search'],
+    ['/api/tenant/queue-sessions', 'search'],
+    ['/api/tenant/queue-sessions', 'status'],
+    ['/api/tenant/queue-sessions', 'date'],
+    ['/api/tenant/tickets', 'search'],
+    ['/api/tenant/tickets', 'status'],
+    ['/api/tenant/tickets', 'date'],
+    ['/api/tenant/service-transfers', 'status'],
+    ['/api/tenant/departments', 'search'],
+    ['/api/tenant/stations', 'type'],
+    ['/api/tenant/workflows', 'search'],
 ]);
 
 test('invalid enum and date filters return a validation error', function (string $uri, string $param) {
@@ -448,13 +445,12 @@ test('invalid enum and date filters return a validation error', function (string
         ->assertUnprocessable()
         ->assertJsonValidationErrors($param);
 })->with([
-    ['/api/queue-sessions?status=BOGUS', 'status'],
-    ['/api/queue-sessions?date=not-a-date', 'date'],
-    ['/api/tickets?status=BOGUS', 'status'],
-    ['/api/tickets?priority=9', 'priority'],
-    ['/api/service-transfers?status=BOGUS', 'status'],
-    ['/api/stations?type=BOGUS', 'type'],
-    ['/api/users?role=BOGUS', 'role'],
+    ['/api/tenant/queue-sessions?status=BOGUS', 'status'],
+    ['/api/tenant/queue-sessions?date=not-a-date', 'date'],
+    ['/api/tenant/tickets?status=BOGUS', 'status'],
+    ['/api/tenant/tickets?priority=9', 'priority'],
+    ['/api/tenant/service-transfers?status=BOGUS', 'status'],
+    ['/api/tenant/stations?type=BOGUS', 'type'],
 ]);
 
 test('queue acquisitions paginate by default', function () {
@@ -475,7 +471,7 @@ test('queue acquisitions paginate by default', function () {
         'status' => QueueAcquisitionStatus::Acquired,
     ]);
 
-    $this->getJson('/api/queue-acquisitions?per_page=1')
+    $this->getJson('/api/tenant/queue-acquisitions?per_page=1')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
         ->assertJsonPath('data.per_page', 1)
@@ -500,13 +496,13 @@ test('a visit exposes its active acquisition through a dedicated endpoint', func
         'status' => QueueAcquisitionStatus::Acquired,
     ]);
 
-    $this->getJson("/api/queue-sessions/{$visit->id}/acquisition")
+    $this->getJson("/api/tenant/queue-sessions/{$visit->id}/acquisition")
         ->assertOk()
         ->assertJsonPath('data.id', $acquisition->id);
 
     $acquisition->update(['status' => QueueAcquisitionStatus::Registered]);
 
-    $this->getJson("/api/queue-sessions/{$visit->id}/acquisition")
+    $this->getJson("/api/tenant/queue-sessions/{$visit->id}/acquisition")
         ->assertOk()
         ->assertJsonPath('data', null);
 });
@@ -530,13 +526,13 @@ test('client visit history and station queue are paginated', function () {
         ]);
     }
 
-    $this->getJson("/api/customers/{$client->id}/queue-sessions?per_page=2")
+    $this->getJson("/api/tenant/customers/{$client->id}/queue-sessions?per_page=2")
         ->assertOk()
         ->assertJsonPath('data.total', 3)
         ->assertJsonPath('data.per_page', 2)
         ->assertJsonCount(2, 'data.data');
 
-    $this->getJson("/api/stations/{$this->registrationStation->id}/queue?per_page=1")
+    $this->getJson("/api/tenant/stations/{$this->registrationStation->id}/queue?per_page=1")
         ->assertOk()
         ->assertJsonStructure(['station', 'data' => ['data', 'per_page', 'total']]);
 });

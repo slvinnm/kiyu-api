@@ -143,7 +143,7 @@ class SubscriptionService
     {
         return match ($feature) {
             Feature::MaxFacilities => $tenant->facilities()->count(),
-            Feature::MaxStaff => $tenant->users()->where('role', '!=', UserRole::Client->value)->count(),
+            Feature::MaxStaff => $tenant->users()->where('role', '!=', UserRole::Customer->value)->count(),
             Feature::MaxKioskDevices => $this->activeDeviceCount($tenant, 'kiosk'),
             Feature::MaxDisplayDevices => $this->activeDeviceCount($tenant, 'display'),
             default => 0,

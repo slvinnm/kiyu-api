@@ -10,9 +10,9 @@ use Illuminate\Support\Facades\Hash;
 uses(RefreshDatabase::class);
 
 /**
- * PRD §6.1, §6.2, §7: the two frontends are separate application contexts.
- * A role may only sign in to the frontend it belongs to, and an unknown tenant
- * label is a real 404 rather than a default tenant.
+ * The four application contexts (Public, App, Tenant, Portal) plus the
+ * self-service Customer context: a role may only sign in to the context it
+ * belongs to, and each login issues a context-scoped token.
  */
 function contextTenant(): Tenant
 {
@@ -43,42 +43,39 @@ function contextUser(?Tenant $tenant, string $role, string $email): User
     ]);
 }
 
-test('a tenant_admin signs in to the platform portal', function () {
+test('a tenant_admin signs in to the app context', function () {
     $tenant = contextTenant();
     contextUser($tenant, 'tenant_admin', 'owner@kiyu.test');
 
-    $this->postJson('/api/auth/login', [
+    $this->asContext('app')->postJson('/api/app/auth/login', [
         'email' => 'owner@kiyu.test',
         'password' => 'password',
-        'context' => 'platform_portal',
     ])->assertOk()
-        ->assertJsonPath('data.context', 'platform_portal')
+        ->assertJsonPath('data.context', 'app')
         ->assertJsonPath('data.user.role', 'tenant_admin')
         ->assertJsonPath('data.user.tenant.slug', 'context-org');
 });
 
-test('an operator is refused the platform portal', function () {
+test('an operator is refused the app context', function () {
     $tenant = contextTenant();
     contextUser($tenant, 'operator', 'operator@kiyu.test');
 
-    $this->postJson('/api/auth/login', [
+    $this->asContext('app')->postJson('/api/app/auth/login', [
         'email' => 'operator@kiyu.test',
         'password' => 'password',
-        'context' => 'platform_portal',
-    ])->assertForbidden()
-        ->assertJsonPath('error_type', 'WRONG_APPLICATION_CONTEXT');
+    ])->assertStatus(422)
+        ->assertJsonPath('error_type', 'INVALID_CREDENTIALS');
 });
 
 test('a tenant_admin is refused the tenant workspace', function () {
     $tenant = contextTenant();
     contextUser($tenant, 'tenant_admin', 'owner@kiyu.test');
 
-    $this->postJson('/api/auth/login', [
+    $this->withTenantOrigin('context-org')->postJson('/api/tenant/auth/login', [
         'email' => 'owner@kiyu.test',
         'password' => 'password',
-        'context' => 'tenant_workspace',
-    ])->assertForbidden()
-        ->assertJsonPath('error_type', 'WRONG_APPLICATION_CONTEXT');
+    ])->assertStatus(422)
+        ->assertJsonPath('error_type', 'INVALID_CREDENTIALS');
 });
 
 test('a facility_admin operator and staff sign in to the tenant workspace', function () {
@@ -87,45 +84,42 @@ test('a facility_admin operator and staff sign in to the tenant workspace', func
     foreach (['facility_admin', 'operator', 'staff'] as $role) {
         contextUser($tenant, $role, "{$role}@kiyu.test");
 
-        $this->postJson('/api/auth/login', [
+        $this->withTenantOrigin('context-org')->postJson('/api/tenant/auth/login', [
             'email' => "{$role}@kiyu.test",
             'password' => 'password',
-            'context' => 'tenant_workspace',
         ])->assertOk()
-            ->assertJsonPath('data.context', 'tenant_workspace')
+            ->assertJsonPath('data.context', 'tenant')
             ->assertJsonPath('data.user.role', $role);
     }
 });
 
-test('a token issued for one context cannot be used in the other', function () {
+test('a token issued for one context cannot be used in another', function () {
     $tenant = contextTenant();
     $admin = contextUser($tenant, 'tenant_admin', 'owner@kiyu.test');
 
-    // Token minted by the tenant workspace frontend.
+    // A token minted by the Tenant workspace cannot reach the Portal.
     $admin->tokens()->delete();
-    $tenantToken = $admin->createToken('web', ['ctx:tenant_workspace'])->plainTextToken;
+    $tenantToken = $admin->createToken('web', ['ctx:tenant'])->plainTextToken;
 
-    // Platform routes require a platform-portal token.
-    $this->withToken($tenantToken)
-        ->getJson('/api/platform/tenants')
+    $this->asContext('portal')->withToken($tenantToken)
+        ->getJson('/api/portal/tenants')
         ->assertForbidden();
 });
 
 test('a platform_admin cannot sign in to a tenant workspace', function () {
     contextUser(null, 'platform_admin', 'root@kiyu.test');
 
-    $this->postJson('/api/auth/login', [
+    $this->withTenantOrigin('context-org')->postJson('/api/tenant/auth/login', [
         'email' => 'root@kiyu.test',
         'password' => 'password',
-        'context' => 'tenant_workspace',
-    ])->assertForbidden()
-        ->assertJsonPath('error_type', 'WRONG_APPLICATION_CONTEXT');
+    ])->assertStatus(422)
+        ->assertJsonPath('error_type', 'INVALID_CREDENTIALS');
 });
 
 test('public tenant resolution returns only public fields for an active tenant', function () {
     contextTenant();
 
-    $this->getJson('/api/public/tenant/context-org')
+    $this->getJson('/api/public/tenants/context-org')
         ->assertOk()
         ->assertJsonPath('data.slug', 'context-org')
         ->assertJsonPath('data.name', 'Context Org')
@@ -134,7 +128,7 @@ test('public tenant resolution returns only public fields for an active tenant',
 });
 
 test('an unknown tenant slug is a 404', function () {
-    $this->getJson('/api/public/tenant/does-not-exist')->assertNotFound();
+    $this->getJson('/api/public/tenants/does-not-exist')->assertNotFound();
 });
 
 test('a suspended tenant resolves as unavailable, not active', function () {
@@ -144,7 +138,7 @@ test('a suspended tenant resolves as unavailable, not active', function () {
         'status' => TenantStatus::Suspended,
     ]);
 
-    $this->getJson('/api/public/tenant/suspended-org')
+    $this->getJson('/api/public/tenants/suspended-org')
         ->assertForbidden()
         ->assertJsonPath('data.status', 'SUSPENDED');
 });

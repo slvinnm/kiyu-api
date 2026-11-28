@@ -2,13 +2,13 @@
 
 use App\Http\Middleware\EnsureApplicationContext;
 use App\Http\Middleware\EnsurePlanFeature;
-use App\Http\Middleware\EnsurePlatformAccount;
+use App\Http\Middleware\EnsureTenantOriginBinding;
 use App\Http\Middleware\EnsureUserRole;
+use App\Http\Middleware\ResolveAppTenant;
 use App\Http\Middleware\ResolveFacility;
 use App\Http\Middleware\ResolveKioskDevice;
-use App\Http\Middleware\ResolvePlatformTenant;
-use App\Http\Middleware\ResolvePublicTenant;
 use App\Http\Middleware\ResolveTenant;
+use App\Http\Middleware\ResolveTenantFromOrigin;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -26,11 +26,11 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'role' => EnsureUserRole::class,
             'tenant' => ResolveTenant::class,
+            'app.tenant' => ResolveAppTenant::class,
+            'tenant.origin' => ResolveTenantFromOrigin::class,
+            'tenant.bind' => EnsureTenantOriginBinding::class,
             'facility' => ResolveFacility::class,
             'kiosk' => ResolveKioskDevice::class,
-            'public-tenant' => ResolvePublicTenant::class,
-            'platform' => EnsurePlatformAccount::class,
-            'platform-tenant' => ResolvePlatformTenant::class,
             'feature' => EnsurePlanFeature::class,
             'context' => EnsureApplicationContext::class,
         ]);

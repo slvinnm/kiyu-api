@@ -53,10 +53,10 @@ function reportClinic(bool $advanced = false): array
     ]);
 
     $plan = Plan::query()->create(['code' => 'P-' . Str::random(6), 'name' => 'P', 'is_active' => true]);
-    $plan->entitlements()->create(['feature_code' => Feature::BasicReports->value, 'value' => null]);
+    $plan->entitlements()->create(['feature_code' => Feature::ReportQueueOverview->value, 'value' => null]);
 
     if ($advanced) {
-        $plan->entitlements()->create(['feature_code' => Feature::AdvancedReports->value, 'value' => null]);
+        $plan->entitlements()->create(['feature_code' => Feature::ReportExport->value, 'value' => null]);
     }
 
     app(SubscriptionService::class)->start($tenant, $plan, BillingInterval::Monthly, 30);
@@ -96,7 +96,7 @@ test('report summary returns session and queue totals', function () {
     reportVisit($tenant, 'WAITING');
 
     $this->actingAs($tenant['admin'], 'sanctum')
-        ->getJson('/api/reports/summary')
+        ->getJson('/api/app/reports/summary')
         ->assertOk()
         ->assertJsonPath('data.queue_sessions.total_sessions', 2)
         ->assertJsonPath('data.queue_sessions.completed_sessions', 1)
@@ -109,7 +109,7 @@ test('report summary requires the basic_reports feature', function () {
     $admin = User::factory()->create(['role' => 'tenant_admin', 'tenant_id' => $tenant->id]);
 
     $this->actingAs($admin, 'sanctum')
-        ->getJson('/api/reports/summary')
+        ->getJson('/api/app/reports/summary')
         ->assertForbidden();
 });
 
@@ -117,14 +117,14 @@ test('csv export is gated by the advanced_reports feature', function () {
     $basic = reportClinic(advanced: false);
 
     $this->actingAs($basic['admin'], 'sanctum')
-        ->getJson('/api/reports/queue-sessions/export')
+        ->getJson('/api/app/reports/queue-sessions/export')
         ->assertForbidden();
 
     $advanced = reportClinic(advanced: true);
     reportVisit($advanced);
 
     $response = $this->actingAs($advanced['admin'], 'sanctum')
-        ->get('/api/reports/queue-sessions/export');
+        ->get('/api/app/reports/queue-sessions/export');
 
     $response->assertOk();
     expect($response->headers->get('content-type'))->toContain('text/csv');

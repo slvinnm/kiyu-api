@@ -36,8 +36,9 @@ enum UserRole: string
 
     /**
      * Self-service end user. May only read their own record and queue data.
+     * The account is linked to a `customers` row through `customers.user_id`.
      */
-    case Client = 'client';
+    case Customer = 'customer';
 
     /**
      * The roles that operate inside a tenant.
@@ -51,7 +52,7 @@ enum UserRole: string
             self::FacilityAdmin,
             self::Operator,
             self::Staff,
-            self::Client,
+            self::Customer,
         ];
     }
 
@@ -110,5 +111,33 @@ enum UserRole: string
     public function hasTenantWideAccess(): bool
     {
         return $this === self::TenantAdmin;
+    }
+
+    /**
+     * The roles allowed to authenticate into a given application context.
+     *
+     * Public and webhook traffic is unauthenticated; only the four authenticated
+     * contexts appear here. TenantAdmin is deliberately absent from the Tenant
+     * workspace: it manages its organization from the App context instead.
+     *
+     * @return list<self>
+     */
+    public static function forContext(ApplicationContext $context): array
+    {
+        return match ($context) {
+            ApplicationContext::Public => [],
+            ApplicationContext::Customer => [self::Customer],
+            ApplicationContext::App => [self::TenantAdmin],
+            ApplicationContext::Tenant => [self::FacilityAdmin, self::Operator, self::Staff],
+            ApplicationContext::Portal => [self::PlatformAdmin],
+        };
+    }
+
+    /**
+     * Whether this role may sign in to the given context.
+     */
+    public function allowedIn(ApplicationContext $context): bool
+    {
+        return in_array($this, self::forContext($context), true);
     }
 }

@@ -23,7 +23,7 @@ uses(RefreshDatabase::class);
  * Provision a complete, isolated clinic: tenant, facility, admin, department,
  * registration station and workflow.
  *
- * @return array{tenant: Tenant, facility: Facility, admin: User, department: Department, station: Station, workflow: Workflow}
+ * @return array{tenant: Tenant, facility: Facility, admin: User, ops: User, department: Department, station: Station, workflow: Workflow}
  */
 function provisionClinic(string $slug, string $departmentCode): array
 {
@@ -43,6 +43,18 @@ function provisionClinic(string $slug, string $departmentCode): array
     $admin = User::factory()->create([
         'role' => 'tenant_admin',
         'tenant_id' => $tenant->id,
+    ]);
+
+    // A facility admin for the Tenant workspace (tenant_admin manages from App).
+    $ops = User::factory()->create([
+        'role' => 'facility_admin',
+        'tenant_id' => $tenant->id,
+    ]);
+
+    UserFacilityAssignment::query()->create([
+        'tenant_id' => $tenant->id,
+        'user_id' => $ops->id,
+        'facility_id' => $facility->id,
     ]);
 
     $department = Department::create([
@@ -76,7 +88,7 @@ function provisionClinic(string $slug, string $departmentCode): array
         'is_active' => true,
     ]);
 
-    return compact('tenant', 'facility', 'admin', 'department', 'station', 'workflow');
+    return compact('tenant', 'facility', 'admin', 'ops', 'department', 'station', 'workflow');
 }
 
 beforeEach(function () {
@@ -105,29 +117,29 @@ test('two facilities may use the same department and station code', function () 
 });
 
 test('an authenticated user cannot read another tenant\'s client', function () {
-    $this->actingAs($this->a['admin'], 'sanctum')
-        ->getJson("/api/customers/{$this->clientB->id}")
+    $this->actingAs($this->a['ops'], 'sanctum')
+        ->getJson("/api/tenant/customers/{$this->clientB->id}")
         ->assertNotFound();
 });
 
 test('an authenticated user can read their own tenant\'s client', function () {
-    $this->actingAs($this->a['admin'], 'sanctum')
-        ->getJson("/api/customers/{$this->clientA->id}")
+    $this->actingAs($this->a['ops'], 'sanctum')
+        ->getJson("/api/tenant/customers/{$this->clientA->id}")
         ->assertOk()
         ->assertJsonPath('data.id', $this->clientA->id);
 });
 
 test('a request body tenant_id cannot switch the authenticated tenant', function () {
-    $this->actingAs($this->a['admin'], 'sanctum')
-        ->getJson("/api/customers/{$this->clientB->id}?tenant_id={$this->b['tenant']->id}")
+    $this->actingAs($this->a['ops'], 'sanctum')
+        ->getJson("/api/tenant/customers/{$this->clientB->id}?tenant_id={$this->b['tenant']->id}")
         ->assertNotFound();
 });
 
 test('a suspended tenant blocks operational access', function () {
     $this->a['tenant']->update(['status' => TenantStatus::Suspended]);
 
-    $this->actingAs($this->a['admin'], 'sanctum')
-        ->getJson('/api/customers')
+    $this->actingAs($this->a['ops'], 'sanctum')
+        ->getJson('/api/tenant/customers')
         ->assertForbidden();
 });
 
@@ -138,13 +150,13 @@ test('a platform account is rejected from clinic endpoints', function () {
     ]);
 
     $this->actingAs($platform, 'sanctum')
-        ->getJson('/api/customers')
+        ->getJson('/api/tenant/customers')
         ->assertForbidden();
 });
 
 test('a client user cannot be linked to a client profile from another tenant', function () {
     $clientUser = User::factory()->create([
-        'role' => 'client',
+        'role' => 'customer',
         'tenant_id' => $this->a['tenant']->id,
     ]);
 
@@ -176,8 +188,8 @@ test('visit numbering is independent per facility', function () {
 
 test('a manual intake cannot target a department from another tenant', function () {
     // The scoped exists rule rejects it before the service runs.
-    $this->actingAs($this->a['admin'], 'sanctum')
-        ->postJson('/api/intake/manual', [
+    $this->actingAs($this->a['ops'], 'sanctum')
+        ->postJson('/api/tenant/intake/manual', [
             'department_id' => $this->b['department']->id,
         ])
         ->assertUnprocessable()
@@ -185,8 +197,8 @@ test('a manual intake cannot target a department from another tenant', function 
 });
 
 test('a manual intake accepts a department from the current tenant', function () {
-    $this->actingAs($this->a['admin'], 'sanctum')
-        ->postJson('/api/intake/manual', [
+    $this->actingAs($this->a['ops'], 'sanctum')
+        ->postJson('/api/tenant/intake/manual', [
             'department_id' => $this->a['department']->id,
         ])
         ->assertCreated()
@@ -201,13 +213,13 @@ test('a kiosk device credential resolves its own facility', function () {
         ->create(['credential_hash' => hash('sha256', $rawToken)]);
 
     $this->withHeader('X-Kiosk-Token', $rawToken)
-        ->postJson('/api/intake/kiosk', [
+        ->postJson('/api/tenant/intake/kiosk', [
             'department_id' => $this->a['department']->id,
         ])
         ->assertCreated();
 
     $this->withHeader('X-Kiosk-Token', $rawToken)
-        ->postJson('/api/intake/kiosk', [
+        ->postJson('/api/tenant/intake/kiosk', [
             'department_id' => $this->b['department']->id,
         ])
         ->assertUnprocessable()
@@ -215,14 +227,17 @@ test('a kiosk device credential resolves its own facility', function () {
 });
 
 test('a missing kiosk credential is rejected', function () {
-    $this->postJson('/api/intake/kiosk', [
-        'department_id' => $this->a['department']->id,
-    ])->assertForbidden();
+    // A tenant locator is present, but the device credential the kiosk route
+    // requires is not.
+    $this->withHeader('X-Tenant-Slug', $this->a['tenant']->slug)
+        ->postJson('/api/tenant/intake/kiosk', [
+            'department_id' => $this->a['department']->id,
+        ])->assertForbidden();
 });
 
 test('a workflow step cannot reference a station from another tenant', function () {
-    $this->actingAs($this->a['admin'], 'sanctum')
-        ->postJson("/api/workflows/{$this->a['workflow']->id}/steps", [
+    $this->actingAs($this->a['ops'], 'sanctum')
+        ->postJson("/api/tenant/workflows/{$this->a['workflow']->id}/steps", [
             'station_id' => $this->b['station']->id,
             'name' => 'Leaked Step',
             'sequence' => 2,
@@ -239,16 +254,16 @@ test('a workflow step cannot reference a station from another tenant', function 
 test('a workflow step can be updated to a station inside the same facility', function () {
     $step = $this->a['workflow']->steps()->firstOrFail();
 
-    $this->actingAs($this->a['admin'], 'sanctum')
-        ->putJson("/api/workflow-steps/{$step->id}", [
+    $this->actingAs($this->a['ops'], 'sanctum')
+        ->putJson("/api/tenant/workflow-steps/{$step->id}", [
             'station_id' => $this->a['station']->id,
         ])
         ->assertOk();
 });
 
 test('a station cannot be moved into another tenant department', function () {
-    $this->actingAs($this->a['admin'], 'sanctum')
-        ->putJson("/api/stations/{$this->a['station']->id}", [
+    $this->actingAs($this->a['ops'], 'sanctum')
+        ->putJson("/api/tenant/stations/{$this->a['station']->id}", [
             'department_id' => $this->b['department']->id,
         ])
         ->assertNotFound();
@@ -264,8 +279,8 @@ test('a station can be moved inside its own facility', function () {
         'is_active' => true,
     ]);
 
-    $this->actingAs($this->a['admin'], 'sanctum')
-        ->putJson("/api/stations/{$this->a['station']->id}", [
+    $this->actingAs($this->a['ops'], 'sanctum')
+        ->putJson("/api/tenant/stations/{$this->a['station']->id}", [
             'department_id' => $extra->id,
         ])
         ->assertOk();
@@ -275,18 +290,18 @@ test('a station can be moved inside its own facility', function () {
 
 test('a client account cannot read organisational master data', function () {
     $clientUser = User::factory()->create([
-        'role' => 'client',
+        'role' => 'customer',
         'tenant_id' => $this->a['tenant']->id,
     ]);
 
     foreach ([
-        '/api/departments',
-        '/api/departments/options',
-        "/api/departments/{$this->a['department']->id}",
-        '/api/stations',
-        '/api/stations/options',
-        '/api/workflows',
-        '/api/workflows/statistics',
+        '/api/tenant/departments',
+        '/api/tenant/departments/options',
+        "/api/tenant/departments/{$this->a['department']->id}",
+        '/api/tenant/stations',
+        '/api/tenant/stations/options',
+        '/api/tenant/workflows',
+        '/api/tenant/workflows/statistics',
     ] as $uri) {
         $this->actingAs($clientUser, 'sanctum')
             ->getJson($uri)
@@ -308,6 +323,6 @@ test('staff can still read organisational master data', function () {
     ]);
 
     $this->actingAs($staff, 'sanctum')
-        ->getJson('/api/departments')
+        ->getJson('/api/tenant/departments')
         ->assertOk();
 });

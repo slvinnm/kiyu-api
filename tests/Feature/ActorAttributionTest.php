@@ -13,17 +13,17 @@ beforeEach(function () {
 });
 
 test('the actor on a queue transition comes from the authenticated user', function () {
-    $intake = $this->postJson('/api/intake/kiosk', [
+    $intake = $this->postJson('/api/tenant/intake/kiosk', [
         'department_id' => $this->generalDepartment->id,
     ])->json('data');
 
-    $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
-    $this->postJson('/api/reception/complete-registration', [
+    $this->postJson('/api/tenant/reception/call-next', ['department_id' => $this->generalDepartment->id]);
+    $this->postJson('/api/tenant/reception/complete-registration', [
         'acquisition_id' => $intake['acquisition']['id'],
         'customer_id' => $this->sampleCustomer->id,
     ]);
 
-    $ticket = $this->postJson('/api/queue/call-next', [
+    $ticket = $this->postJson('/api/tenant/queue/call-next', [
         'station_id' => $this->serviceStation1->id,
         // A caller cannot attribute the call to someone else.
         'assigned_to_user_id' => 999999,
@@ -37,7 +37,7 @@ test('the actor on a queue transition comes from the authenticated user', functi
         'user_id' => $this->adminUser->id,
     ]);
 
-    $this->postJson("/api/tickets/{$ticket['id']}/start", [
+    $this->postJson("/api/tenant/tickets/{$ticket['id']}/start", [
         'user_id' => 'somebody-else@example.com',
     ])->assertOk();
 

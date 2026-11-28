@@ -54,10 +54,10 @@ function exportClinic(bool $advanced = true): array
     ]);
 
     $plan = Plan::query()->create(['code' => 'E-' . uniqid(), 'name' => 'E', 'is_active' => true]);
-    $plan->entitlements()->create(['feature_code' => Feature::BasicReports->value, 'value' => null]);
+    $plan->entitlements()->create(['feature_code' => Feature::ReportQueueOverview->value, 'value' => null]);
 
     if ($advanced) {
-        $plan->entitlements()->create(['feature_code' => Feature::AdvancedReports->value, 'value' => null]);
+        $plan->entitlements()->create(['feature_code' => Feature::ReportExport->value, 'value' => null]);
     }
 
     app(SubscriptionService::class)->start($tenant, $plan, BillingInterval::Monthly, 30);
@@ -100,7 +100,7 @@ test('generating an excel export stores the file and returns a download url', fu
     exportVisit($tenant);
 
     $response = $this->actingAs($tenant['admin'], 'sanctum')
-        ->postJson('/api/reports/queue-sessions/export-file', ['format' => 'xlsx'])
+        ->postJson('/api/app/reports/queue-sessions/export-file', ['format' => 'xlsx'])
         ->assertCreated()
         ->assertJsonPath('data.format', 'xlsx');
 
@@ -115,7 +115,7 @@ test('generating a pdf export stores the file', function () {
     exportVisit($tenant);
 
     $path = $this->actingAs($tenant['admin'], 'sanctum')
-        ->postJson('/api/reports/queue-sessions/export-file', ['format' => 'pdf'])
+        ->postJson('/api/app/reports/queue-sessions/export-file', ['format' => 'pdf'])
         ->assertCreated()
         ->json('data.path');
 
@@ -128,11 +128,11 @@ test('a stored export can be downloaded by its own tenant', function () {
     exportVisit($tenant);
 
     $path = $this->actingAs($tenant['admin'], 'sanctum')
-        ->postJson('/api/reports/queue-sessions/export-file', ['format' => 'pdf'])
+        ->postJson('/api/app/reports/queue-sessions/export-file', ['format' => 'pdf'])
         ->json('data.path');
 
     $this->actingAs($tenant['admin'], 'sanctum')
-        ->get("/api/reports/download?path={$path}")
+        ->get("/api/app/reports/download?path={$path}")
         ->assertOk();
 });
 
@@ -140,13 +140,13 @@ test('a tenant cannot download another tenant export', function () {
     $a = exportClinic();
     exportVisit($a);
     $path = $this->actingAs($a['admin'], 'sanctum')
-        ->postJson('/api/reports/queue-sessions/export-file', ['format' => 'pdf'])
+        ->postJson('/api/app/reports/queue-sessions/export-file', ['format' => 'pdf'])
         ->json('data.path');
 
     $b = exportClinic();
 
     $this->actingAs($b['admin'], 'sanctum')
-        ->get("/api/reports/download?path={$path}")
+        ->get("/api/app/reports/download?path={$path}")
         ->assertForbidden();
 });
 
@@ -172,7 +172,7 @@ test('the export file endpoint requires advanced_reports', function () {
     $tenant = exportClinic(advanced: false);
 
     $this->actingAs($tenant['admin'], 'sanctum')
-        ->postJson('/api/reports/queue-sessions/export-file', ['format' => 'xlsx'])
+        ->postJson('/api/app/reports/queue-sessions/export-file', ['format' => 'xlsx'])
         ->assertForbidden();
 });
 

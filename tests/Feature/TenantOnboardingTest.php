@@ -55,16 +55,16 @@ test('provisioning creates a tenant, facility, admin and default template', func
 test('a provisioned admin can authenticate and read their own tenant', function () {
     $result = app(TenantOnboardingService::class)->provision(provisionPayload());
 
-    $token = $this->postJson('/api/auth/login', [
+    $token = $this->asContext('app')->postJson('/api/app/auth/login', [
         'email' => 'admin@sehat.test',
         'password' => 'password123',
     ])->assertOk()->json('data.token');
 
     $this->withToken($token)
-        ->getJson('/api/departments')
+        ->asContext('app')
+        ->getJson('/api/app/facilities')
         ->assertOk()
-        ->assertJsonPath('data.total', 1)
-        ->assertJsonPath('data.data.0.code', 'GEN');
+        ->assertJsonPath('data.0.code', 'MAIN');
 
     expect($result['tenant'])->not->toBeNull();
 });
@@ -84,7 +84,7 @@ test('a provisioned admin can create staff scoped to their tenant', function () 
     ]);
 
     $this->actingAs($result['tenant_admin'], 'sanctum')
-        ->postJson('/api/users', [
+        ->postJson('/api/app/users', [
             'name' => 'Nurse One',
             'email' => 'nurse@sehat.test',
             'password' => 'password123',
@@ -121,7 +121,7 @@ test('the platform tenant endpoint provisions and requires a platform account', 
     ]);
 
     $this->actingAs($platform, 'sanctum')
-        ->postJson('/api/platform/tenants', provisionPayload())
+        ->postJson('/api/portal/tenants', provisionPayload())
         ->assertCreated()
         ->assertJsonPath('data.tenant.slug', 'sehat-selalu-organization')
         ->assertJsonPath('data.tenant_admin.email', 'admin@sehat.test');
@@ -131,7 +131,7 @@ test('a tenant admin cannot reach platform routes', function () {
     $result = app(TenantOnboardingService::class)->provision(provisionPayload());
 
     $this->actingAs($result['tenant_admin'], 'sanctum')
-        ->getJson('/api/platform/tenants')
+        ->getJson('/api/portal/tenants')
         ->assertForbidden();
 });
 
@@ -144,6 +144,6 @@ test('an account with a null tenant but a tenant role is not granted platform ac
     ]);
 
     $this->actingAs($user, 'sanctum')
-        ->getJson('/api/platform/tenants')
+        ->getJson('/api/portal/tenants')
         ->assertForbidden();
 });

@@ -14,42 +14,42 @@ beforeEach(function () {
 
 test('queue acquisitions can be listed with filters', function () {
     // 1. Create kiosk intake
-    $this->postJson('/api/intake/kiosk', [
+    $this->postJson('/api/tenant/intake/kiosk', [
         'department_id' => $this->generalDepartment->id,
     ])->assertStatus(201);
 
     // 2. Create online booking
-    $this->postJson('/api/intake/online', [
+    $this->postJson('/api/tenant/intake/online', [
         'customer_id' => $this->sampleCustomer->id,
         'department_id' => $this->generalDepartment->id,
     ])->assertStatus(201);
 
     // List all
-    $response = $this->getJson('/api/queue-acquisitions');
+    $response = $this->getJson('/api/tenant/queue-acquisitions');
     $response->assertStatus(200)
         ->assertJsonCount(2, 'data.data');
 
     // Filter by channel = ONLINE
-    $onlineResponse = $this->getJson('/api/queue-acquisitions?channel=ONLINE');
+    $onlineResponse = $this->getJson('/api/tenant/queue-acquisitions?channel=ONLINE');
     $onlineResponse->assertStatus(200)
         ->assertJsonCount(1, 'data.data')
         ->assertJsonPath('data.data.0.channel', IntakeChannel::Online->value);
 
     // Filter by channel = KIOSK
-    $kioskResponse = $this->getJson('/api/queue-acquisitions?channel=KIOSK');
+    $kioskResponse = $this->getJson('/api/tenant/queue-acquisitions?channel=KIOSK');
     $kioskResponse->assertStatus(200)
         ->assertJsonCount(1, 'data.data')
         ->assertJsonPath('data.data.0.channel', IntakeChannel::Kiosk->value);
 });
 
 test('queue acquisition can be fetched by ID with full details', function () {
-    $intake = $this->postJson('/api/intake/kiosk', [
+    $intake = $this->postJson('/api/tenant/intake/kiosk', [
         'department_id' => $this->generalDepartment->id,
     ])->json('data');
 
     $acqId = $intake['acquisition']['id'];
 
-    $response = $this->getJson("/api/queue-acquisitions/{$acqId}");
+    $response = $this->getJson("/api/tenant/queue-acquisitions/{$acqId}");
     $response->assertStatus(200)
         ->assertJsonPath('message', 'Queue acquisition retrieved.')
         ->assertJsonPath('data.id', $acqId)
@@ -58,14 +58,14 @@ test('queue acquisition can be fetched by ID with full details', function () {
 });
 
 test('queue acquisition can be cancelled and transitions visit to CANCELLED', function () {
-    $intake = $this->postJson('/api/intake/kiosk', [
+    $intake = $this->postJson('/api/tenant/intake/kiosk', [
         'department_id' => $this->generalDepartment->id,
     ])->json('data');
 
     $acqId = $intake['acquisition']['id'];
     $sessionId = $intake['queue_session']['id'];
 
-    $cancelRes = $this->postJson("/api/queue-acquisitions/{$acqId}/cancel", [
+    $cancelRes = $this->postJson("/api/tenant/queue-acquisitions/{$acqId}/cancel", [
         'reason' => 'Client decided not to wait',
         'user_id' => 'kiosk-admin',
     ]);
@@ -93,23 +93,23 @@ test('queue acquisition can be cancelled and transitions visit to CANCELLED', fu
 });
 
 test('cannot cancel an acquisition that has already completed registration', function () {
-    $intake = $this->postJson('/api/intake/kiosk', [
+    $intake = $this->postJson('/api/tenant/intake/kiosk', [
         'department_id' => $this->generalDepartment->id,
     ])->json('data');
 
     $acqId = $intake['acquisition']['id'];
 
-    $this->postJson('/api/reception/call-next', [
+    $this->postJson('/api/tenant/reception/call-next', [
         'department_id' => $this->generalDepartment->id,
     ])->assertStatus(200);
 
-    $this->postJson('/api/reception/complete-registration', [
+    $this->postJson('/api/tenant/reception/complete-registration', [
         'acquisition_id' => $acqId,
         'customer_id' => $this->sampleCustomer->id,
     ])->assertStatus(200);
 
     // Now try cancelling acquisition
-    $cancelRes = $this->postJson("/api/queue-acquisitions/{$acqId}/cancel", [
+    $cancelRes = $this->postJson("/api/tenant/queue-acquisitions/{$acqId}/cancel", [
         'reason' => 'Too late',
     ]);
 

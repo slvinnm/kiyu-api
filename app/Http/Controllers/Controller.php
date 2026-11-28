@@ -20,9 +20,9 @@ abstract class Controller
      * roles are handled by their own operational rules and are not restricted
      * by this check.
      */
-    protected function isClient(Request $request): bool
+    protected function isCustomer(Request $request): bool
     {
-        return $request->user()?->role === UserRole::Client;
+        return $request->user()?->role === UserRole::Customer;
     }
 
     /**
@@ -31,7 +31,7 @@ abstract class Controller
      */
     protected function customerId(Request $request): ?int
     {
-        if (! $this->isClient($request)) {
+        if (! $this->isCustomer($request)) {
             return null;
         }
 

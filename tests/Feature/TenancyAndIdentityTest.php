@@ -106,22 +106,22 @@ test('public registration is refused unless the tenant allows it', function () {
     ];
 
     $this->withHeader('X-Tenant-Slug', $tenant->slug)
-        ->postJson('/api/auth/register', $payload)
+        ->postJson('/api/customer/auth/register', $payload)
         ->assertForbidden();
 
     $tenant->update(['allow_public_registration' => true]);
 
     $this->withHeader('X-Tenant-Slug', $tenant->slug)
-        ->postJson('/api/auth/register', $payload + ['role' => 'tenant_admin'])
+        ->postJson('/api/customer/auth/register', $payload + ['role' => 'tenant_admin'])
         ->assertCreated()
-        ->assertJsonPath('data.user.role', 'client');
+        ->assertJsonPath('data.user.role', 'customer');
 });
 
 test('an invitation is single-use, tenant-scoped and carries its facility grant', function () {
     ['tenant' => $tenant, 'facility' => $facility, 'owner' => $owner] = tenancyFixture();
 
     $created = $this->actingAs($owner, 'sanctum')
-        ->postJson('/api/invitations', [
+        ->postJson('/api/app/invitations', [
             'email' => 'invited@operator.test',
             'role' => 'operator',
             'facility_ids' => [$facility->id],
@@ -135,7 +135,7 @@ test('an invitation is single-use, tenant-scoped and carries its facility grant'
     $invitation = TenantInvitation::query()->firstOrFail();
     expect($invitation->token_hash)->not->toBe($token);
 
-    $this->postJson('/api/auth/register/invitation', [
+    $this->postJson('/api/tenant/auth/invitations/accept', [
         'token' => $token,
         'name' => 'Invited Operator',
         'password' => 'password123',
@@ -148,7 +148,7 @@ test('an invitation is single-use, tenant-scoped and carries its facility grant'
         ->and($user->canAccessFacility($facility->id))->toBeTrue();
 
     // Replaying the same token is refused.
-    $this->postJson('/api/auth/register/invitation', [
+    $this->postJson('/api/tenant/auth/invitations/accept', [
         'token' => $token,
         'name' => 'Replay',
         'password' => 'password123',
@@ -171,14 +171,14 @@ test('a facility admin cannot invite a privileged role', function () {
     ]);
 
     $this->actingAs($facilityAdmin, 'sanctum')
-        ->postJson('/api/invitations', [
+        ->postJson('/api/app/invitations', [
             'email' => 'escalate@tenant.test',
             'role' => 'tenant_admin',
         ])
         ->assertForbidden();
 });
 
-test('the platform support context is audited with the acting platform user', function () {
+test('platform tenant impersonation routes are removed', function () {
     ['tenant' => $tenant] = tenancyFixture();
 
     $platform = User::factory()->create([
@@ -186,15 +186,15 @@ test('the platform support context is audited with the acting platform user', fu
         'tenant_id' => null,
     ]);
 
+    // PlatformAdmin no longer acts as a tenant user: the old manage group is
+    // gone, so both the platform portal path and the legacy path 404.
+    $this->actingAs($platform, 'sanctum')
+        ->getJson("/api/portal/tenants/{$tenant->id}/manage/users")
+        ->assertNotFound();
+
     $this->actingAs($platform, 'sanctum')
         ->getJson("/api/platform/tenants/{$tenant->id}/manage/users")
-        ->assertOk();
-
-    $this->assertDatabaseHas('audit_logs', [
-        'tenant_id' => $tenant->id,
-        'action' => 'PLATFORM_SUPPORT_ACCESS',
-        'platform_user_id' => $platform->id,
-    ]);
+        ->assertNotFound();
 });
 
 test('a customer record never requires medical identifiers', function () {

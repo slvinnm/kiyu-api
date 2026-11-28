@@ -8,6 +8,7 @@ use App\Models\Facility;
 use App\Models\Plan;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Models\UserFacilityAssignment;
 use App\Services\SubscriptionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -32,7 +33,12 @@ function whatsappClinic(bool $grantWhatsApp = true): array
         'is_active' => true,
     ]);
 
-    $admin = User::factory()->create(['role' => 'tenant_admin', 'tenant_id' => $tenant->id]);
+    $admin = User::factory()->create(['role' => 'facility_admin', 'tenant_id' => $tenant->id]);
+    UserFacilityAssignment::query()->create([
+        'tenant_id' => $tenant->id,
+        'user_id' => $admin->id,
+        'facility_id' => $facility->id,
+    ]);
 
     $plan = Plan::query()->create(['code' => 'WA-' . uniqid(), 'name' => 'WA', 'is_active' => true]);
 
@@ -65,7 +71,7 @@ test('a text message is sent through the configured provider', function () {
     $tenant = whatsappClinic();
 
     $this->actingAs($tenant['admin'], 'sanctum')
-        ->postJson('/api/whatsapp/messages', [
+        ->postJson('/api/tenant/whatsapp/messages', [
             'to' => '628123',
             'type' => 'text',
             'body' => 'Your queue number is A012',
@@ -87,7 +93,7 @@ test('a media message includes the media url', function () {
     $tenant = whatsappClinic();
 
     $this->actingAs($tenant['admin'], 'sanctum')
-        ->postJson('/api/whatsapp/messages', [
+        ->postJson('/api/tenant/whatsapp/messages', [
             'to' => '628999',
             'type' => 'document',
             'media_url' => 'https://cdn.example.test/report.pdf',
@@ -104,7 +110,7 @@ test('sending requires the whatsapp feature', function () {
     $tenant = whatsappClinic(grantWhatsApp: false);
 
     $this->actingAs($tenant['admin'], 'sanctum')
-        ->postJson('/api/whatsapp/messages', [
+        ->postJson('/api/tenant/whatsapp/messages', [
             'to' => '628123',
             'type' => 'text',
             'body' => 'hi',
@@ -125,7 +131,7 @@ test('the gateway is provider-neutral: changing config changes the call', functi
     $tenant = whatsappClinic();
 
     $this->actingAs($tenant['admin'], 'sanctum')
-        ->postJson('/api/whatsapp/messages', [
+        ->postJson('/api/tenant/whatsapp/messages', [
             'to' => '628777',
             'type' => 'text',
             'body' => 'Hello',

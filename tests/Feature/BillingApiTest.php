@@ -149,12 +149,12 @@ test('a tenant admin can view and start a subscription over the API', function (
     $tenant = billingTenant();
 
     $this->actingAs($tenant['admin'], 'sanctum')
-        ->getJson('/api/billing/subscription')
+        ->getJson('/api/app/billing/subscription')
         ->assertOk()
         ->assertJsonPath('data.subscription', null);
 
     $this->actingAs($tenant['admin'], 'sanctum')
-        ->postJson('/api/billing/subscription', [
+        ->postJson('/api/app/billing/subscription', [
             'plan_code' => 'STANDARD',
             'billing_interval' => 'MONTHLY',
             'trial_days' => 14,
@@ -164,7 +164,7 @@ test('a tenant admin can view and start a subscription over the API', function (
         ->assertJsonPath('data.plan.code', 'STANDARD');
 
     $this->actingAs($tenant['admin'], 'sanctum')
-        ->getJson('/api/billing/subscription')
+        ->getJson('/api/app/billing/subscription')
         ->assertOk()
         ->assertJsonPath('data.is_effective', true);
 });
@@ -173,7 +173,7 @@ test('starting a paid plan over the API does not activate it without payment', f
     $tenant = billingTenant();
 
     $this->actingAs($tenant['admin'], 'sanctum')
-        ->postJson('/api/billing/subscription', [
+        ->postJson('/api/app/billing/subscription', [
             'plan_code' => 'STANDARD',
             'billing_interval' => 'MONTHLY',
         ])
@@ -195,7 +195,7 @@ test('a non-admin tenant user cannot start a subscription', function () {
     ]);
 
     $this->actingAs($staff, 'sanctum')
-        ->postJson('/api/billing/subscription', [
+        ->postJson('/api/app/billing/subscription', [
             'plan_code' => 'STANDARD',
             'billing_interval' => 'MONTHLY',
         ])
@@ -209,7 +209,7 @@ test('the platform can list and create plans', function () {
     ]);
 
     $this->actingAs($platform, 'sanctum')
-        ->postJson('/api/platform/plans', [
+        ->postJson('/api/portal/plans', [
             'code' => 'PRO',
             'name' => 'Pro',
             'prices' => [
@@ -231,7 +231,7 @@ test('the platform can list and create plans', function () {
         ->and($plan->entitlements()->where('feature_code', 'queue_management')->firstOrFail()->value)->toBeNull();
 
     $this->actingAs($platform, 'sanctum')
-        ->getJson('/api/platform/plans')
+        ->getJson('/api/portal/plans')
         ->assertOk()
         ->assertJsonPath('data.0.code', 'PRO');
 });
@@ -275,7 +275,7 @@ test('the tenant can read resolved entitlements with advanced implying basic', f
     app(SubscriptionService::class)->start($tenant['tenant'], $tenant['plan'], BillingInterval::Monthly, 30);
 
     $this->actingAs($tenant['admin'], 'sanctum')
-        ->getJson('/api/billing/entitlements')
+        ->getJson('/api/app/billing/entitlements')
         ->assertOk()
         ->assertJsonPath('data.queue_management', true)
         ->assertJsonPath('data.basic_reports', false)
@@ -287,7 +287,7 @@ test('the tenant plan catalogue marks the current plan', function () {
     app(SubscriptionService::class)->start($tenant['tenant'], $tenant['plan'], BillingInterval::Monthly, 30);
 
     $response = $this->actingAs($tenant['admin'], 'sanctum')
-        ->getJson('/api/billing/plans')
+        ->getJson('/api/app/billing/plans')
         ->assertOk();
 
     expect($response->json('data.current_plan_id'))->toBe($tenant['plan']->id);
@@ -300,21 +300,23 @@ test('a plan without basic_reports cannot reach the reports summary', function (
     app(SubscriptionService::class)->start($tenant['tenant'], $tenant['plan'], BillingInterval::Monthly, 30);
 
     $this->actingAs($tenant['admin'], 'sanctum')
-        ->getJson('/api/reports/summary')
+        ->getJson('/api/tenant/reports/summary')
         ->assertForbidden();
 });
 
-test('advanced_reports implies access to the basic reports summary', function () {
+test('report_export alone does not grant access to the queue overview report', function () {
     $tenant = billingTenant();
 
+    // Per-report gates replace the old "advanced implies basic" shortcut:
+    // holding only the export entitlement must not expose report data.
     $tenant['plan']->entitlements()->create([
-        'feature_code' => Feature::AdvancedReports->value,
+        'feature_code' => Feature::ReportExport->value,
         'value' => null,
     ]);
 
     app(SubscriptionService::class)->start($tenant['tenant'], $tenant['plan'], BillingInterval::Monthly, 30);
 
-    $this->actingAs($tenant['admin'], 'sanctum')
-        ->getJson('/api/reports/summary')
-        ->assertOk();
+    $this->actingAs($tenant['admin'], 'sanctum')->asContext('app')
+        ->getJson('/api/app/reports/summary')
+        ->assertForbidden();
 });

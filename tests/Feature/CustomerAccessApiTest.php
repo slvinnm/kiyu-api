@@ -14,9 +14,9 @@ uses(RefreshDatabase::class, SetupKiyuHospital::class);
 beforeEach(function () {
     $this->setupHospital();
 
-    // Client A signs in; their profile is linked to their user account.
+    // The customer account is linked to their own `customers` row.
     $this->clientUser = User::factory()->create([
-        'role' => 'client',
+        'role' => 'customer',
         'tenant_id' => $this->tenant->id,
     ]);
 
@@ -48,120 +48,90 @@ beforeEach(function () {
     ]);
 });
 
-test('a client cannot enumerate the client directory', function () {
+test('a customer cannot enumerate the customer directory', function () {
     $this->actingAs($this->clientUser, 'sanctum')
-        ->getJson('/api/customers')
+        ->getJson('/api/tenant/customers')
         ->assertForbidden();
 });
 
-test('a client can read only their own client record', function () {
+test('a customer can read only their own profile', function () {
     $this->actingAs($this->clientUser, 'sanctum')
-        ->getJson("/api/customers/{$this->ownCustomer->id}")
+        ->getJson('/api/customer/profile')
         ->assertOk()
         ->assertJsonPath('data.id', $this->ownCustomer->id);
+});
+
+test('a customer cannot update another customer record', function () {
+    $this->actingAs($this->clientUser, 'sanctum')
+        ->putJson("/api/tenant/customers/{$this->otherCustomer->id}", ['name' => 'Hacked'])
+        ->assertForbidden();
 
     $this->actingAs($this->clientUser, 'sanctum')
-        ->getJson("/api/customers/{$this->otherCustomer->id}")
+        ->getJson("/api/tenant/customers/{$this->otherCustomer->id}/queue-sessions")
         ->assertForbidden();
 });
 
-test('a client cannot update or list visits of another client', function () {
+test('a customer visit list is scoped to their own record', function () {
     $this->actingAs($this->clientUser, 'sanctum')
-        ->putJson("/api/customers/{$this->otherCustomer->id}", ['name' => 'Hacked'])
-        ->assertForbidden();
-
-    $this->actingAs($this->clientUser, 'sanctum')
-        ->getJson("/api/customers/{$this->otherCustomer->id}/queue-sessions")
-        ->assertForbidden();
-});
-
-test('a client visit list is scoped to their own record', function () {
-    $this->actingAs($this->clientUser, 'sanctum')
-        ->getJson('/api/queue-sessions')
+        ->getJson('/api/customer/queue-sessions')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
         ->assertJsonPath('data.data.0.id', $this->ownVisit->id);
-
-    $this->actingAs($this->clientUser, 'sanctum')
-        ->getJson("/api/queue-sessions?customer_id={$this->otherCustomer->id}")
-        ->assertForbidden();
 });
 
-test('a client cannot open another client visit detail', function () {
+test('a customer cannot open another customer visit detail', function () {
     $this->actingAs($this->clientUser, 'sanctum')
-        ->getJson("/api/queue-sessions/{$this->ownVisit->id}")
+        ->getJson("/api/customer/queue-sessions/{$this->ownVisit->id}")
         ->assertOk();
 
     $this->actingAs($this->clientUser, 'sanctum')
-        ->getJson("/api/queue-sessions/{$this->otherVisit->id}")
-        ->assertForbidden();
+        ->getJson("/api/customer/queue-sessions/{$this->otherVisit->id}")
+        ->assertNotFound();
 });
 
-test('a client cannot book an appointment for another client', function () {
-    // The body client_id is ignored for a client account: the booking is
-    // always created against the caller's own profile.
+test('a customer booking is always created for their own profile', function () {
     $response = $this->actingAs($this->clientUser, 'sanctum')
-        ->postJson('/api/intake/online', [
+        ->postJson('/api/customer/bookings', [
             'customer_id' => $this->otherCustomer->id,
             'department_id' => $this->generalDepartment->id,
         ])
         ->assertCreated();
 
     expect($response->json('data.queue_session.customer_id'))->toBe($this->ownCustomer->id);
-
-    $this->actingAs($this->clientUser, 'sanctum')
-        ->postJson('/api/intake/online', [
-            'customer_id' => $this->ownCustomer->id,
-            'department_id' => $this->generalDepartment->id,
-        ])
-        ->assertCreated();
 });
 
 test('online booking requires authentication', function () {
-    // The setup authenticates an admin for the other tests; drop the guard so
-    // this request is genuinely unauthenticated.
     $this->app['auth']->forgetGuards();
 
-    $this->postJson('/api/intake/online', [
-        'customer_id' => $this->otherCustomer->id,
+    $this->postJson('/api/customer/bookings', [
         'department_id' => $this->generalDepartment->id,
     ])->assertUnauthorized();
 });
 
-test('a client cannot attach a profile to another user', function () {
-    $this->actingAs($this->clientUser, 'sanctum')
-        ->postJson('/api/customers', [
-            'name' => 'Impostor',
-            'user_id' => $this->sampleCustomer->user_id ?? User::factory()->create()->id,
-        ])
-        ->assertForbidden();
-});
-
-test('staff access to client records is unchanged', function () {
-    // The setup authenticates an admin; staff read paths keep working.
-    $this->getJson("/api/customers/{$this->otherCustomer->id}")
+test('staff access to customer records is unchanged', function () {
+    $this->getJson("/api/tenant/customers/{$this->otherCustomer->id}")
         ->assertOk();
 
-    $this->getJson('/api/queue-sessions')
+    $this->getJson('/api/tenant/queue-sessions')
         ->assertOk()
         ->assertJsonPath('data.total', 2);
 });
 
-test('staff can link a client to a user in the same tenant', function () {
+test('staff can link a customer to a user in the same tenant', function () {
     $member = User::factory()->create([
-        'role' => 'client',
+        'role' => 'customer',
         'tenant_id' => $this->tenant->id,
     ]);
 
-    $this->postJson('/api/customers', [
-        'name' => 'Linked Client',
+    $this->postJson('/api/tenant/customers', [
+        'name' => 'Linked Customer',
         'user_id' => $member->id,
     ])
         ->assertCreated()
         ->assertJsonPath('data.user_id', $member->id);
 });
 
-test('staff cannot link a client to a user from another tenant', function () {
+test('staff cannot link a customer to a user from another tenant', function () {
     $foreignTenant = Tenant::query()->create([
         'name' => 'Foreign Clinic',
         'slug' => 'foreign-clinic',
@@ -169,11 +139,11 @@ test('staff cannot link a client to a user from another tenant', function () {
     ]);
 
     $foreignUser = User::factory()->create([
-        'role' => 'client',
+        'role' => 'customer',
         'tenant_id' => $foreignTenant->id,
     ]);
 
-    $this->postJson('/api/customers', [
+    $this->postJson('/api/tenant/customers', [
         'name' => 'Impostor Target',
         'user_id' => $foreignUser->id,
     ])
@@ -182,7 +152,7 @@ test('staff cannot link a client to a user from another tenant', function () {
     $this->assertDatabaseMissing('customers', ['user_id' => $foreignUser->id]);
 });
 
-test('deleting a client keeps the row as a soft delete', function () {
+test('deleting a customer keeps the row as a soft delete', function () {
     $this->ownCustomer->delete();
 
     expect(Customer::query()->whereKey($this->ownCustomer->id)->exists())->toBeFalse()

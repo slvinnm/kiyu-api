@@ -3,7 +3,6 @@
 use App\Enums\TenantStatus;
 use App\Enums\UserRole;
 use App\Models\Facility;
-use App\Models\KioskDevice;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -11,6 +10,9 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 uses(RefreshDatabase::class);
 
 /**
+ * PlatformAdmin no longer impersonates a tenant. These tests assert the
+ * impersonation routes are gone and that platform isolation still holds.
+ *
  * @return array{tenant: Tenant, facility: Facility, admin: User}
  */
 function managedClinic(): array
@@ -41,118 +43,75 @@ function platformOperator(): User
     ]);
 }
 
-test('a platform operator can list a tenant staff, clients, kiosk devices and facilities', function () {
+test('the platform tenant impersonation routes are removed', function () {
     $tenant = managedClinic();
     $operator = platformOperator();
 
-    KioskDevice::query()->create([
-        'tenant_id' => $tenant['tenant']->id,
-        'facility_id' => $tenant['facility']->id,
-        'name' => 'Kiosk',
-        'credential_hash' => hash('sha256', 'token'),
-        'is_active' => true,
-    ]);
+    $base = "/api/portal/tenants/{$tenant['tenant']->id}/manage";
 
-    $base = "/api/platform/tenants/{$tenant['tenant']->id}/manage";
-
-    $this->actingAs($operator, 'sanctum')->getJson("{$base}/users")->assertOk();
-    $this->actingAs($operator, 'sanctum')->getJson("{$base}/customers")->assertOk();
-    $this->actingAs($operator, 'sanctum')->getJson("{$base}/facilities")
-        ->assertOk()->assertJsonPath('data.0.code', 'MAIN');
-    $this->actingAs($operator, 'sanctum')->getJson("{$base}/kiosk-devices")
-        ->assertOk()->assertJsonCount(1, 'data');
-});
-
-test('a platform operator can create staff in the managed tenant', function () {
-    $tenant = managedClinic();
-    $operator = platformOperator();
+    foreach (['users', 'customers', 'facilities', 'kiosk-devices'] as $segment) {
+        $this->asContext('portal')
+            ->actingAs($operator, 'sanctum')
+            ->getJson("{$base}/{$segment}")
+            ->assertNotFound();
+    }
 
     $this->actingAs($operator, 'sanctum')
-        ->postJson("/api/platform/tenants/{$tenant['tenant']->id}/manage/users", [
+        ->getJson("/api/platform/tenants/{$tenant['tenant']->id}/manage/users")
+        ->assertNotFound();
+});
+
+test('a platform operator cannot create tenant staff or devices', function () {
+    $tenant = managedClinic();
+    $operator = platformOperator();
+
+    $this->asContext('portal')
+        ->actingAs($operator, 'sanctum')
+        ->postJson("/api/portal/tenants/{$tenant['tenant']->id}/manage/users", [
             'name' => 'Support Added',
             'email' => 'support-added@managed.test',
             'password' => 'password123',
             'role' => 'staff',
         ])
-        ->assertCreated()
-        ->assertJsonPath('data.tenant_id', $tenant['tenant']->id);
-});
-
-test('a platform operator can delete a kiosk device and a staff user', function () {
-    $tenant = managedClinic();
-    $operator = platformOperator();
-
-    $device = KioskDevice::query()->create([
-        'tenant_id' => $tenant['tenant']->id,
-        'facility_id' => $tenant['facility']->id,
-        'name' => 'Kiosk',
-        'credential_hash' => hash('sha256', 'token'),
-        'is_active' => true,
-    ]);
-    $staff = User::factory()->create(['role' => 'staff', 'tenant_id' => $tenant['tenant']->id]);
-
-    $base = "/api/platform/tenants/{$tenant['tenant']->id}/manage";
-
-    $this->actingAs($operator, 'sanctum')
-        ->deleteJson("{$base}/kiosk-devices/{$device->id}")
-        ->assertOk();
-
-    expect($device->fresh()->is_active)->toBeFalse();
-
-    $this->actingAs($operator, 'sanctum')
-        ->deleteJson("{$base}/users/{$staff->id}")
-        ->assertOk();
-
-    $this->assertDatabaseMissing('users', ['id' => $staff->id]);
-});
-
-test('a platform operator only ever touches the tenant named in the route', function () {
-    $a = managedClinic();
-    $b = managedClinic();
-    $operator = platformOperator();
-
-    // The target tenant has no staff besides its admin; the other tenant does.
-    User::factory()->create(['role' => 'staff', 'tenant_id' => $b['tenant']->id]);
-
-    $response = $this->actingAs($operator, 'sanctum')
-        ->getJson("/api/platform/tenants/{$a['tenant']->id}/manage/users")
-        ->assertOk();
-
-    // Only tenant A's own users are present, never tenant B's.
-    $ids = collect($response->json('data.data'))->pluck('tenant_id')->unique();
-    expect($ids->all())->toBe([$a['tenant']->id]);
-});
-
-test('an unknown tenant id is a 404', function () {
-    $operator = platformOperator();
-
-    $this->actingAs($operator, 'sanctum')
-        ->getJson('/api/platform/tenants/999999/manage/users')
         ->assertNotFound();
+
+    $this->assertDatabaseMissing('users', ['email' => 'support-added@managed.test']);
 });
 
-test('a tenant admin cannot use the platform manage routes', function () {
-    $tenant = managedClinic();
+test('a platform operator cannot reach tenant operational controllers', function () {
+    $operator = platformOperator();
 
-    $this->actingAs($tenant['admin'], 'sanctum')
-        ->getJson("/api/platform/tenants/{$tenant['tenant']->id}/manage/users")
+    $this->asContext('app')
+        ->actingAs($operator, 'sanctum')
+        ->getJson('/api/app/users')
+        ->assertForbidden();
+
+    $this->actingAs($operator, 'sanctum')
+        ->getJson('/api/tenant/customers')
         ->assertForbidden();
 });
 
-test('a platform operator cannot use normal tenant routes', function () {
-    $operator = platformOperator();
+test('a tenant admin cannot use the platform portal', function () {
+    $tenant = managedClinic();
 
-    $this->actingAs($operator, 'sanctum')
-        ->getJson('/api/users')
+    $this->asContext('portal')
+        ->actingAs($tenant['admin'], 'sanctum')
+        ->getJson('/api/portal/tenants')
         ->assertForbidden();
 });
 
-test('managing a suspended tenant is still allowed for support', function () {
+test('the platform still administers tenant metadata through the portal', function () {
     $tenant = managedClinic();
-    $tenant['tenant']->update(['status' => TenantStatus::Suspended]);
     $operator = platformOperator();
 
-    $this->actingAs($operator, 'sanctum')
-        ->getJson("/api/platform/tenants/{$tenant['tenant']->id}/manage/users")
+    $this->asContext('portal')->actingAs($operator, 'sanctum')
+        ->getJson('/api/portal/tenants')
+        ->assertOk()
+        ->assertJsonFragment(['slug' => $tenant['tenant']->slug]);
+
+    $this->asContext('portal')->actingAs($operator, 'sanctum')
+        ->postJson("/api/portal/tenants/{$tenant['tenant']->id}/suspend", [
+            'reason' => 'Non-payment investigation',
+        ])
         ->assertOk();
 });

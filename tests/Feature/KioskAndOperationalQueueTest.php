@@ -22,7 +22,7 @@ class KioskAndOperationalQueueTest extends TestCase
 
     public function test_can_list_active_departments_for_kiosk(): void
     {
-        $response = $this->getJson('/api/departments/active');
+        $response = $this->getJson('/api/tenant/public/departments/active');
 
         $response->assertStatus(200)
             ->assertJsonStructure(['data' => [['id', 'code', 'name', 'is_active']]]);
@@ -32,7 +32,7 @@ class KioskAndOperationalQueueTest extends TestCase
 
     public function test_can_lookup_online_booking_preview_at_kiosk(): void
     {
-        $onlineBooking = $this->postJson('/api/intake/online', [
+        $onlineBooking = $this->postJson('/api/tenant/intake/online', [
             'customer_id' => $this->sampleCustomer->id,
             'department_id' => $this->generalDepartment->id,
             'priority' => Priority::Normal->value,
@@ -40,7 +40,7 @@ class KioskAndOperationalQueueTest extends TestCase
 
         $activeKey = $onlineBooking['queue_session']['online_active_key'];
 
-        $response = $this->getJson("/api/intake/online-lookup/{$activeKey}");
+        $response = $this->getJson("/api/tenant/intake/online-lookup/{$activeKey}");
 
         $response->assertStatus(200)
             ->assertJsonPath('data.is_eligible_checkin', true)
@@ -53,18 +53,18 @@ class KioskAndOperationalQueueTest extends TestCase
 
     public function test_can_recall_reception_ticket(): void
     {
-        $intake = $this->postJson('/api/intake/kiosk', [
+        $intake = $this->postJson('/api/tenant/intake/kiosk', [
             'department_id' => $this->generalDepartment->id,
         ])->json('data');
 
-        $callNext = $this->postJson('/api/reception/call-next', [
+        $callNext = $this->postJson('/api/tenant/reception/call-next', [
             'department_id' => $this->generalDepartment->id,
             'assigned_to_user_id' => 'receptionist_1',
         ])->json('data');
 
         $ticketId = $callNext['id'];
 
-        $response = $this->postJson("/api/reception/{$ticketId}/recall", [
+        $response = $this->postJson("/api/tenant/reception/{$ticketId}/recall", [
             'assigned_to_user_id' => 'receptionist_1',
         ]);
 
@@ -79,18 +79,18 @@ class KioskAndOperationalQueueTest extends TestCase
 
     public function test_can_skip_and_no_show_reception_ticket(): void
     {
-        $intake = $this->postJson('/api/intake/kiosk', [
+        $intake = $this->postJson('/api/tenant/intake/kiosk', [
             'department_id' => $this->generalDepartment->id,
         ])->json('data');
 
-        $callNext = $this->postJson('/api/reception/call-next', [
+        $callNext = $this->postJson('/api/tenant/reception/call-next', [
             'department_id' => $this->generalDepartment->id,
             'assigned_to_user_id' => 'receptionist_1',
         ])->json('data');
 
         $ticketId = $callNext['id'];
 
-        $response = $this->postJson("/api/reception/{$ticketId}/skip", [
+        $response = $this->postJson("/api/tenant/reception/{$ticketId}/skip", [
             'reason' => 'Client went to the restroom',
             'user_id' => 'receptionist_1',
         ]);
@@ -108,27 +108,27 @@ class KioskAndOperationalQueueTest extends TestCase
     public function test_can_recall_queue_ticket(): void
     {
         // Setup a full walkin until queue station
-        $intake = $this->postJson('/api/intake/kiosk', [
+        $intake = $this->postJson('/api/tenant/intake/kiosk', [
             'department_id' => $this->generalDepartment->id,
         ])->json('data');
 
-        $callNext = $this->postJson('/api/reception/call-next', [
+        $callNext = $this->postJson('/api/tenant/reception/call-next', [
             'department_id' => $this->generalDepartment->id,
         ])->json('data');
 
-        $reg = $this->postJson('/api/reception/complete-registration', [
+        $reg = $this->postJson('/api/tenant/reception/complete-registration', [
             'acquisition_id' => $intake['acquisition']['id'],
             'customer_id' => $this->sampleCustomer->id,
         ])->json('data');
 
         $queueTicket = $reg['next_ticket'];
 
-        $called = $this->postJson('/api/queue/call-next', [
+        $called = $this->postJson('/api/tenant/queue/call-next', [
             'station_id' => $queueTicket['station_id'],
             'assigned_to_user_id' => 'nurse_1',
         ])->json('data');
 
-        $response = $this->postJson("/api/tickets/{$called['id']}/recall", [
+        $response = $this->postJson("/api/tenant/tickets/{$called['id']}/recall", [
             'user_id' => 'nurse_1',
         ]);
 
@@ -143,11 +143,11 @@ class KioskAndOperationalQueueTest extends TestCase
 
     public function test_registration_creates_a_customer_without_identity_documents(): void
     {
-        $intake = $this->postJson('/api/intake/kiosk', [
+        $intake = $this->postJson('/api/tenant/intake/kiosk', [
             'department_id' => $this->generalDepartment->id,
         ])->json('data');
 
-        $response = $this->postJson('/api/reception/complete-registration', [
+        $response = $this->postJson('/api/tenant/reception/complete-registration', [
             'acquisition_id' => $intake['acquisition']['id'],
             'customer_data' => [
                 'name' => 'Budi Duplikat',

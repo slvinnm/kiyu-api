@@ -97,13 +97,13 @@ function scopedUserPayload(array $overrides = []): array
 }
 
 test('an operator must be an INTAKE station in the department', function () {
-    $this->postJson('/api/users', scopedUserPayload([
+    $this->postJson('/api/app/users', scopedUserPayload([
         'role' => 'operator',
         'department_id' => $this->department->id,
         'station_id' => $this->serviceStation->id,
     ]))->assertStatus(422)->assertJsonValidationErrors('station_id');
 
-    $this->postJson('/api/users', scopedUserPayload([
+    $this->postJson('/api/app/users', scopedUserPayload([
         'email' => 'op@scoped.test',
         'role' => 'operator',
         'department_id' => $this->department->id,
@@ -112,13 +112,13 @@ test('an operator must be an INTAKE station in the department', function () {
 });
 
 test('a staff member must be a SERVICE CASHIER or COUNTER station', function () {
-    $this->postJson('/api/users', scopedUserPayload([
+    $this->postJson('/api/app/users', scopedUserPayload([
         'role' => 'staff',
         'department_id' => $this->department->id,
         'station_id' => $this->intakeStation->id,
     ]))->assertStatus(422)->assertJsonValidationErrors('station_id');
 
-    $this->postJson('/api/users', scopedUserPayload([
+    $this->postJson('/api/app/users', scopedUserPayload([
         'email' => 'staff@scoped.test',
         'role' => 'staff',
         'department_id' => $this->department->id,
@@ -127,7 +127,7 @@ test('a staff member must be a SERVICE CASHIER or COUNTER station', function () 
 });
 
 test('a station from another department is rejected', function () {
-    $this->postJson('/api/users', scopedUserPayload([
+    $this->postJson('/api/app/users', scopedUserPayload([
         'role' => 'staff',
         'department_id' => $this->department->id,
         'station_id' => $this->otherServiceStation->id,
@@ -135,8 +135,8 @@ test('a station from another department is rejected', function () {
 });
 
 test('privileged roles are rejected inside a department', function () {
-    foreach (['facility_admin', 'tenant_admin', 'client'] as $role) {
-        $this->postJson('/api/users', scopedUserPayload([
+    foreach (['facility_admin', 'tenant_admin', 'customer'] as $role) {
+        $this->postJson('/api/app/users', scopedUserPayload([
             'email' => "x-{$role}@scoped.test",
             'role' => $role,
             'department_id' => $this->department->id,
@@ -151,7 +151,7 @@ test('users can be listed filtered by department', function () {
         'station_id' => $this->serviceStation->id,
     ]);
 
-    $this->getJson('/api/users?department_id=' . $this->department->id)
+    $this->getJson('/api/app/users?department_id=' . $this->department->id)
         ->assertOk()
         ->assertJsonPath('data.total', 1);
 });

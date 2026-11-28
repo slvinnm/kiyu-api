@@ -65,7 +65,7 @@ function seedTenantWithSubscription(Plan $plan): array
 }
 
 test('platform dashboard requires a platform account', function () {
-    $this->getJson('/api/platform/dashboard')->assertUnauthorized();
+    $this->getJson('/api/portal/dashboard')->assertUnauthorized();
 });
 
 test('platform dashboard reports real tenant and subscription counts', function () {
@@ -84,7 +84,7 @@ test('platform dashboard reports real tenant and subscription counts', function 
     ]);
 
     $this->actingAs(platformAdmin(), 'sanctum')
-        ->getJson('/api/platform/dashboard')
+        ->getJson('/api/portal/dashboard')
         ->assertOk()
         ->assertJsonPath('data.tenants.total', 1)
         ->assertJsonPath('data.collection_in_range', 150_000)
@@ -98,17 +98,17 @@ test('platform tenant list, detail, suspend and reactivate are audited', functio
     $admin = platformAdmin();
 
     $this->actingAs($admin, 'sanctum')
-        ->getJson('/api/platform/tenants')
+        ->getJson('/api/portal/tenants')
         ->assertOk()
         ->assertJsonPath('data.total', 1);
 
     $this->actingAs($admin, 'sanctum')
-        ->getJson("/api/platform/tenants/{$tenant->id}")
+        ->getJson("/api/portal/tenants/{$tenant->id}")
         ->assertOk()
         ->assertJsonPath('data.id', $tenant->id);
 
     $this->actingAs($admin, 'sanctum')
-        ->postJson("/api/platform/tenants/{$tenant->id}/suspend", ['reason' => 'Payment fraud'])
+        ->postJson("/api/portal/tenants/{$tenant->id}/suspend", ['reason' => 'Payment fraud'])
         ->assertOk()
         ->assertJsonPath('data.status', 'SUSPENDED');
 
@@ -119,7 +119,7 @@ test('platform tenant list, detail, suspend and reactivate are audited', functio
     ]);
 
     $this->actingAs($admin, 'sanctum')
-        ->postJson("/api/platform/tenants/{$tenant->id}/reactivate")
+        ->postJson("/api/portal/tenants/{$tenant->id}/reactivate")
         ->assertOk()
         ->assertJsonPath('data.status', 'ACTIVE');
 });
@@ -141,22 +141,22 @@ test('platform subscription and payment listings work', function () {
     $admin = platformAdmin();
 
     $this->actingAs($admin, 'sanctum')
-        ->getJson('/api/platform/subscriptions')
+        ->getJson('/api/portal/subscriptions')
         ->assertOk()
         ->assertJsonPath('data.total', 1);
 
     $this->actingAs($admin, 'sanctum')
-        ->getJson("/api/platform/subscriptions/{$subscription->id}")
+        ->getJson("/api/portal/subscriptions/{$subscription->id}")
         ->assertOk()
         ->assertJsonPath('data.id', $subscription->id);
 
     $this->actingAs($admin, 'sanctum')
-        ->getJson('/api/platform/payments')
+        ->getJson('/api/portal/payments')
         ->assertOk()
         ->assertJsonPath('data.total', 1);
 
     $this->actingAs($admin, 'sanctum')
-        ->getJson("/api/platform/payments/{$payment->id}")
+        ->getJson("/api/portal/payments/{$payment->id}")
         ->assertOk()
         ->assertJsonPath('data.amount', 150_000);
 });
@@ -171,7 +171,7 @@ test('platform webhook history shows processing status', function () {
     ]);
 
     $this->actingAs(platformAdmin(), 'sanctum')
-        ->getJson('/api/platform/payments-webhooks')
+        ->getJson('/api/portal/payments-webhooks')
         ->assertOk()
         ->assertJsonPath('data.total', 1)
         ->assertJsonPath('data.data.0.status', 'FAILED');
@@ -181,7 +181,7 @@ test('platform can create a plan, add a price and set entitlements', function ()
     $admin = platformAdmin();
 
     $planId = $this->actingAs($admin, 'sanctum')
-        ->postJson('/api/platform/plans', [
+        ->postJson('/api/portal/plans', [
             'code' => 'growth',
             'name' => 'Growth',
             'prices' => [
@@ -197,7 +197,7 @@ test('platform can create a plan, add a price and set entitlements', function ()
 
     // A new price for the same interval deactivates the old row (history kept).
     $this->actingAs($admin, 'sanctum')
-        ->postJson("/api/platform/plans/{$planId}/prices", [
+        ->postJson("/api/portal/plans/{$planId}/prices", [
             'billing_interval' => 'MONTHLY',
             'amount' => 300_000,
             'currency' => 'IDR',
@@ -208,7 +208,7 @@ test('platform can create a plan, add a price and set entitlements', function ()
     expect(PlanPrice::query()->where('plan_id', $planId)->count())->toBe(2);
 
     $this->actingAs($admin, 'sanctum')
-        ->putJson("/api/platform/plans/{$planId}/entitlements", [
+        ->putJson("/api/portal/plans/{$planId}/entitlements", [
             'entitlements' => [['feature_code' => 'max_kiosk_devices', 'limit' => 3]],
         ])
         ->assertOk()
@@ -232,59 +232,51 @@ test('platform SaaS reports aggregate real data', function () {
     $admin = platformAdmin();
 
     $this->actingAs($admin, 'sanctum')
-        ->getJson('/api/platform/reports/revenue')
+        ->getJson('/api/portal/reports/revenue')
         ->assertOk()
         ->assertJsonPath('data.total', 150_000);
 
     $this->actingAs($admin, 'sanctum')
-        ->getJson('/api/platform/reports/growth')
+        ->getJson('/api/portal/reports/growth')
         ->assertOk()
         ->assertJsonPath('data.total_tenants', 1);
 
     $this->actingAs($admin, 'sanctum')
-        ->getJson('/api/platform/reports/subscriptions')
+        ->getJson('/api/portal/reports/subscriptions')
         ->assertOk()
         ->assertJsonPath('data.by_plan.0.code', 'starter');
 });
 
-test('support access requires a reason and is audited', function () {
+test('support access grant routes are removed', function () {
     $plan = seedPlanWithPrice();
     [$tenant] = seedTenantWithSubscription($plan);
     $admin = platformAdmin();
 
-    $this->actingAs($admin, 'sanctum')
-        ->postJson('/api/platform/support-access', ['tenant_id' => $tenant->id])
-        ->assertUnprocessable();
+    // Impersonation is out of scope; the grant endpoints are gone (404) while
+    // historical support records remain in the database.
+    $this->asContext('portal')->actingAs($admin, 'sanctum')
+        ->getJson('/api/portal/support-access')
+        ->assertNotFound();
 
-    $id = $this->actingAs($admin, 'sanctum')
-        ->postJson('/api/platform/support-access', [
+    $this->asContext('portal')->actingAs($admin, 'sanctum')
+        ->postJson('/api/portal/support-access', [
             'tenant_id' => $tenant->id,
             'reason' => 'Investigating failed payment',
             'hours' => 2,
         ])
-        ->assertCreated()
-        ->json('data.id');
-
-    $this->assertDatabaseHas('audit_logs', [
-        'action' => 'platform.support_access.started',
-        'platform_user_id' => $admin->id,
-    ]);
-
-    $this->actingAs($admin, 'sanctum')
-        ->postJson("/api/platform/support-access/{$id}/end")
-        ->assertOk();
+        ->assertNotFound();
 });
 
 test('platform settings persist registration policy and reserved subdomains', function () {
     $admin = platformAdmin();
 
     $this->actingAs($admin, 'sanctum')
-        ->getJson('/api/platform/settings')
+        ->getJson('/api/portal/settings')
         ->assertOk()
         ->assertJsonPath('data.allow_public_signup', true);
 
     $this->actingAs($admin, 'sanctum')
-        ->putJson('/api/platform/settings', [
+        ->putJson('/api/portal/settings', [
             'allow_public_signup' => false,
             'reserved_subdomains' => ['kiyu', 'app', 'api', 'custom'],
         ])
@@ -303,7 +295,7 @@ test('a tenant admin cannot reach platform routes', function () {
     $owner = User::factory()->create(['role' => 'tenant_admin', 'tenant_id' => $tenant->id]);
 
     $this->actingAs($owner, 'sanctum')
-        ->getJson('/api/platform/dashboard')
+        ->getJson('/api/portal/dashboard')
         ->assertForbidden();
 });
 
@@ -319,7 +311,7 @@ test('the tenant admin portal serves the organization dashboard', function () {
     ]);
 
     $this->actingAs($owner, 'sanctum')
-        ->getJson('/api/portal/dashboard')
+        ->getJson('/api/app/dashboard')
         ->assertOk()
         ->assertJsonPath('data.tenant.id', $tenant->id)
         ->assertJsonPath('data.counts.facilities', 1)

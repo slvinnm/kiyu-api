@@ -80,7 +80,7 @@ beforeEach(function () {
 });
 
 test('admin can list users with role and station relations', function () {
-    $response = $this->getJson('/api/users');
+    $response = $this->getJson('/api/app/users');
 
     $response->assertOk()
         ->assertJsonPath('data.total', 2)
@@ -94,7 +94,7 @@ test('admin can list users with role and station relations', function () {
 });
 
 test('admin can create a staff user with a hashed password', function () {
-    $response = $this->postJson('/api/users', [
+    $response = $this->postJson('/api/app/users', [
         'name' => 'New Nurse',
         'email' => 'new.nurse@kiyu.test',
         'password' => 'secret123',
@@ -118,9 +118,9 @@ test('admin can create a staff user with a hashed password', function () {
 test('non-admin cannot list or create users', function () {
     $this->actingAs($this->nurse, 'sanctum');
 
-    $this->getJson('/api/users')->assertForbidden();
+    $this->getJson('/api/app/users')->assertForbidden();
 
-    $this->postJson('/api/users', [
+    $this->postJson('/api/app/users', [
         'name' => 'Forbidden User',
         'email' => 'forbidden@kiyu.test',
         'password' => 'secret123',
@@ -131,7 +131,7 @@ test('non-admin cannot list or create users', function () {
 test('admin can update a user and leave the password unchanged', function () {
     $originalHash = $this->nurse->password;
 
-    $response = $this->putJson("/api/users/{$this->nurse->id}", [
+    $response = $this->putJson("/api/app/users/{$this->nurse->id}", [
         'name' => 'Nurse Updated',
         'role' => 'staff',
         'station_id' => $this->station->id,
@@ -148,7 +148,7 @@ test('admin can update a user and leave the password unchanged', function () {
 });
 
 test('admin can delete another user', function () {
-    $this->deleteJson("/api/users/{$this->nurse->id}")
+    $this->deleteJson("/api/app/users/{$this->nurse->id}")
         ->assertOk()
         ->assertJsonPath('message', 'User deleted successfully.');
 
@@ -156,7 +156,7 @@ test('admin can delete another user', function () {
 });
 
 test('admin cannot delete their own account', function () {
-    $this->deleteJson("/api/users/{$this->admin->id}")
+    $this->deleteJson("/api/app/users/{$this->admin->id}")
         ->assertStatus(422)
         ->assertJsonPath('error_type', 'INVALID_STATE');
 });
@@ -171,7 +171,7 @@ test('a facility admin cannot grant a facility outside their scope', function ()
     ]);
 
     $this->actingAs($facilityAdmin, 'sanctum')
-        ->postJson('/api/users', [
+        ->postJson('/api/app/users', [
             'name' => 'Out Of Scope',
             'email' => 'out-of-scope@kiyu.test',
             'password' => 'secret123',
@@ -181,7 +181,7 @@ test('a facility admin cannot grant a facility outside their scope', function ()
 });
 
 test('email must be unique', function () {
-    $this->postJson('/api/users', [
+    $this->postJson('/api/app/users', [
         'name' => 'Duplicate Email',
         'email' => 'nurse@kiyu.test',
         'password' => 'secret123',

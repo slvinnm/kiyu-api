@@ -2,94 +2,139 @@
 
 namespace App\Http\Controllers\Api\Portal;
 
-use App\Enums\Feature;
-use App\Enums\QueueSessionStatus;
+use App\Enums\PaymentStatus;
+use App\Enums\SubscriptionStatus;
 use App\Http\Controllers\Controller;
-use App\Models\Customer;
-use App\Models\Department;
-use App\Models\Facility;
-use App\Models\QueueSession;
-use App\Models\Station;
-use App\Services\SubscriptionService;
+use App\Models\BillingWebhookEvent;
+use App\Models\KioskDevice;
+use App\Models\Payment;
+use App\Models\Plan;
+use App\Models\Subscription;
+use App\Models\Tenant;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * TenantAdmin organization overview in the Platform Portal (PRD §8.2).
+ * Platform dashboard metrics (PRD §10.1).
  *
- * Organization-wide monitoring, not queue calling: TenantAdmin watches every
- * Facility of its Tenant with Facility filters. Operational calling stays in the
- * tenant workspace.
+ * Every figure is computed from real rows with a documented definition. MRR is
+ * derived from effective recurring subscriptions normalised to a monthly value;
+ * it is deliberately NOT cash collected (that is `collection`).
  */
 class DashboardController extends Controller
 {
-    public function __construct(private readonly SubscriptionService $subscriptions) {}
-
     public function __invoke(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'facility_id' => ['nullable', 'integer', 'exists:facilities,id'],
-            'date' => ['nullable', 'date'],
+        $request->validate([
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date', 'after_or_equal:from'],
         ]);
 
-        $tenant = $this->tenant();
-        $date = $validated['date'] ?? now()->toDateString();
+        $from = $request->date('from')?->startOfDay() ?? now()->subDays(29)->startOfDay();
+        $to = $request->date('to')?->endOfDay() ?? now()->endOfDay();
 
-        $facilityQuery = Facility::query()->where('tenant_id', $tenant->id);
-        if (! empty($validated['facility_id'])) {
-            $facilityQuery->whereKey($validated['facility_id']);
-        }
-        $facilityIds = $facilityQuery->pluck('id');
-
-        $sessionsToday = QueueSession::query()
-            ->whereIn('facility_id', $facilityIds)
-            ->whereDate('created_at', $date);
-
-        $statusCounts = (clone $sessionsToday)
+        $tenantCounts = Tenant::query()
             ->selectRaw('status, COUNT(*) as total')
             ->groupBy('status')
             ->pluck('total', 'status');
 
-        $subscription = $this->subscriptions->effectiveSubscription($tenant);
+        $newTenants = Tenant::query()
+            ->whereBetween('created_at', [$from, $to])
+            ->count();
+
+        $subscriptionsByStatus = Subscription::query()
+            ->selectRaw('status, COUNT(*) as total')
+            ->groupBy('status')
+            ->pluck('total', 'status');
+
+        $mrr = $this->monthlyRecurringRevenue();
+
+        $collection = (int) Payment::query()
+            ->where('status', PaymentStatus::Paid->value)
+            ->whereBetween('paid_at', [$from, $to])
+            ->sum('amount');
+
+        $failedPayments = Payment::query()
+            ->where('status', PaymentStatus::Failed->value)
+            ->whereBetween('created_at', [$from, $to])
+            ->count();
+
+        $webhookFailures = BillingWebhookEvent::query()
+            ->where('status', 'FAILED')
+            ->whereBetween('received_at', [$from, $to])
+            ->count();
+
+        $deviceUsage = KioskDevice::query()
+            ->selectRaw('tenant_id, COUNT(*) as total')
+            ->where('is_active', true)
+            ->groupBy('tenant_id')
+            ->with('tenant:id,name,slug')
+            ->get()
+            ->map(fn($row): array => [
+                'tenant_id' => $row->tenant_id,
+                'tenant' => $row->tenant?->name,
+                'slug' => $row->tenant?->slug,
+                'kiosk_devices' => (int) $row->total,
+            ]);
 
         return response()->json([
             'data' => [
-                'tenant' => [
-                    'id' => $tenant->id,
-                    'name' => $tenant->name,
-                    'slug' => $tenant->slug,
-                    'status' => $tenant->status?->value,
+                'range' => ['from' => $from->toIso8601String(), 'to' => $to->toIso8601String()],
+                'tenants' => [
+                    'total' => (int) $tenantCounts->sum(),
+                    'by_status' => $tenantCounts,
+                    'new_in_range' => $newTenants,
                 ],
-                'counts' => [
-                    'facilities' => $facilityIds->count(),
-                    'departments' => Department::query()->whereIn('facility_id', $facilityIds)->count(),
-                    'stations' => Station::query()
-                        ->whereIn('department_id', Department::query()->whereIn('facility_id', $facilityIds)->select('id'))
-                        ->count(),
-                    'customers' => Customer::query()->where('tenant_id', $tenant->id)->count(),
-                    'sessions_today' => (clone $sessionsToday)->count(),
-                    'waiting' => (int) ($statusCounts[QueueSessionStatus::Waiting->value] ?? 0),
-                    'in_progress' => (int) ($statusCounts[QueueSessionStatus::InProgress->value] ?? 0),
-                    'completed' => (int) ($statusCounts[QueueSessionStatus::Completed->value] ?? 0),
+                'subscriptions' => [
+                    'by_status' => $subscriptionsByStatus,
+                    'effective' => (int) $subscriptionsByStatus->only(SubscriptionStatus::effectiveValues())->sum(),
                 ],
-                'channels' => (clone $sessionsToday)
-                    ->selectRaw('intake_channel, COUNT(*) as total')
-                    ->groupBy('intake_channel')
-                    ->pluck('total', 'intake_channel'),
-                'subscription' => $subscription === null ? null : [
-                    'id' => $subscription->id,
-                    'status' => $subscription->status?->value,
-                    'plan' => $subscription->plan?->only(['id', 'code', 'name']),
-                    'current_period_end' => $subscription->current_period_end?->toIso8601String(),
-                    'is_effective' => $subscription->isEffective(),
-                ],
-                'usage' => [
-                    'facilities' => $facilityIds->count(),
-                    'max_facilities' => $this->subscriptions->limit($tenant, Feature::MaxFacilities),
-                    'kiosk_devices' => $this->subscriptions->usage($tenant, Feature::MaxKioskDevices),
-                    'max_kiosk_devices' => $this->subscriptions->limit($tenant, Feature::MaxKioskDevices),
-                ],
+                // Monthly recurring revenue in the platform's minor currency
+                // unit, normalised per billing interval.
+                'mrr' => $mrr,
+                'collection_in_range' => $collection,
+                'failed_payments_in_range' => $failedPayments,
+                'failed_webhooks_in_range' => $webhookFailures,
+                'active_plans' => Plan::query()->where('is_active', true)->count(),
+                'device_usage' => $deviceUsage,
             ],
         ]);
+    }
+
+    /**
+     * MRR: each effective subscription's plan price normalised to a month.
+     *
+     * @return array{amount: int, currency: string|null, subscriptions: int}
+     */
+    private function monthlyRecurringRevenue(): array
+    {
+        $subscriptions = Subscription::query()
+            ->with(['planPrice'])
+            ->whereIn('status', [SubscriptionStatus::Active->value])
+            ->get();
+
+        $amount = 0;
+        $currency = null;
+
+        foreach ($subscriptions as $subscription) {
+            $price = $subscription->planPrice;
+
+            if ($price === null) {
+                continue;
+            }
+
+            $monthly = $price->billing_interval->value === 'YEARLY'
+                ? intdiv($price->amount, 12)
+                : $price->amount;
+
+            $amount += $monthly;
+            $currency ??= $price->currency;
+        }
+
+        return [
+            'amount' => $amount,
+            'currency' => $currency,
+            'subscriptions' => $subscriptions->count(),
+        ];
     }
 }

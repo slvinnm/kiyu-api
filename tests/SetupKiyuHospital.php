@@ -61,6 +61,8 @@ trait SetupKiyuHospital
 
     protected User $staffUser;
 
+    protected User $tenantAdminUser;
+
     protected function setupHospital(): void
     {
         $this->tenant = Tenant::query()->create([
@@ -226,16 +228,18 @@ trait SetupKiyuHospital
         ]);
 
         // Every request presents the device credential and the public tenant
-        // locator, mirroring the deployed kiosk client.
+        // locator, mirroring the deployed kiosk client. The tenant Origin binds
+        // an authenticated session to this tenant.
         $this->withHeaders([
             'X-Kiosk-Token' => $this->kioskToken,
             'X-Tenant-Slug' => $this->tenant->slug,
+            'Origin' => $this->tenantOrigin($this->tenant->slug),
         ]);
 
-        // Authenticate a tenant admin for protected API routes. Exposed so
-        // tests can assert the actor recorded on queue operations.
+        // Authenticate a facility admin for protected workspace routes.
+        // Exposed so tests can assert the actor recorded on queue operations.
         $this->adminUser = User::factory()->create([
-            'role' => 'tenant_admin',
+            'role' => 'facility_admin',
             'tenant_id' => $this->tenant->id,
         ]);
 
@@ -248,6 +252,12 @@ trait SetupKiyuHospital
         // Service Transfer and ticket reassignment are Staff-only (PRD §14.5).
         $this->staffUser = User::factory()->create([
             'role' => 'staff',
+            'tenant_id' => $this->tenant->id,
+        ]);
+
+        // A TenantAdmin for the App (organization) context.
+        $this->tenantAdminUser = User::factory()->create([
+            'role' => 'tenant_admin',
             'tenant_id' => $this->tenant->id,
         ]);
 
@@ -268,5 +278,26 @@ trait SetupKiyuHospital
         $this->actingAs($this->staffUser, 'sanctum');
 
         return $this;
+    }
+
+    /**
+     * Authenticate the fixture's TenantAdmin for App-context operations.
+     */
+    protected function actAsTenantAdmin(): static
+    {
+        $this->actingAs($this->tenantAdminUser, 'sanctum')->asContext('app');
+
+        return $this;
+    }
+
+    /**
+     * The tenant Origin for a slug, matching the configured suffix.
+     */
+    protected function tenantOrigin(string $slug): string
+    {
+        $scheme = parse_url((string) config('kiyu.origins.app'), PHP_URL_SCHEME) ?: 'http';
+        $suffix = (string) config('kiyu.tenant_domain_suffix', 'kiyu.test');
+
+        return "{$scheme}://{$slug}.{$suffix}";
     }
 }

@@ -46,6 +46,21 @@ function facilityContextFixture(): array
 
     $tenant->forceFill(['owner_user_id' => $owner->id])->save();
 
+    // A facility admin assigned to both facilities, for Tenant-workspace
+    // facility selection (tenant_admin now manages from the App context).
+    $supervisor = User::factory()->create([
+        'role' => UserRole::FacilityAdmin,
+        'tenant_id' => $tenant->id,
+    ]);
+
+    foreach ([$facility, $otherFacility] as $f) {
+        UserFacilityAssignment::query()->create([
+            'tenant_id' => $tenant->id,
+            'user_id' => $supervisor->id,
+            'facility_id' => $f->id,
+        ]);
+    }
+
     $operator = User::factory()->create([
         'role' => UserRole::Operator,
         'tenant_id' => $tenant->id,
@@ -81,14 +96,14 @@ function facilityContextFixture(): array
         'display_in_kiosk' => true,
     ]);
 
-    return compact('tenant', 'facility', 'otherFacility', 'owner', 'operator');
+    return compact('tenant', 'facility', 'otherFacility', 'owner', 'supervisor', 'operator');
 }
 
 test('a multi-facility operator must name a facility with X-Facility-Id', function () {
     ['operator' => $operator] = facilityContextFixture();
 
     $this->actingAs($operator, 'sanctum')
-        ->getJson('/api/departments')
+        ->getJson('/api/tenant/departments')
         ->assertStatus(400)
         ->assertJsonPath('message', 'This tenant has several facilities. Send X-Facility-Id to choose one.');
 });
@@ -98,7 +113,7 @@ test('an operator sees only the departments of the facility they select', functi
         facilityContextFixture();
 
     $own = $this->actingAs($operator, 'sanctum')
-        ->getJson('/api/departments/options', ['X-Facility-Id' => (string) $facility->id])
+        ->getJson('/api/tenant/departments/options', ['X-Facility-Id' => (string) $facility->id])
         ->assertOk()
         ->json('data');
 
@@ -114,17 +129,17 @@ test('an operator sees only the departments of the facility they select', functi
     ]);
 
     $this->actingAs($operator, 'sanctum')
-        ->getJson('/api/departments/options', ['X-Facility-Id' => (string) $unassigned->id])
+        ->getJson('/api/tenant/departments/options', ['X-Facility-Id' => (string) $unassigned->id])
         ->assertForbidden();
 });
 
-test('a tenant admin may select any active facility of the tenant', function () {
-    ['facility' => $facility, 'otherFacility' => $otherFacility, 'owner' => $owner] =
+test('a facility admin may select any facility it is assigned to', function () {
+    ['facility' => $facility, 'otherFacility' => $otherFacility, 'supervisor' => $supervisor] =
         facilityContextFixture();
 
     foreach ([$facility, $otherFacility] as $target) {
-        $this->actingAs($owner, 'sanctum')
-            ->getJson('/api/departments/options', ['X-Facility-Id' => (string) $target->id])
+        $this->actingAs($supervisor, 'sanctum')
+            ->getJson('/api/tenant/departments/options', ['X-Facility-Id' => (string) $target->id])
             ->assertOk();
     }
 });
@@ -146,7 +161,7 @@ test('a facility id from another tenant is not found', function () {
     ]);
 
     $this->actingAs($operator, 'sanctum')
-        ->getJson('/api/departments/options', ['X-Facility-Id' => (string) $foreignFacility->id])
+        ->getJson('/api/tenant/departments/options', ['X-Facility-Id' => (string) $foreignFacility->id])
         ->assertNotFound();
 });
 
@@ -155,18 +170,18 @@ test('a malformed X-Facility-Id is a bad request', function () {
 
     foreach (['abc', '-1', '1.5'] as $value) {
         $this->actingAs($operator, 'sanctum')
-            ->getJson('/api/departments/options', ['X-Facility-Id' => $value])
+            ->getJson('/api/tenant/departments/options', ['X-Facility-Id' => $value])
             ->assertStatus(400);
     }
 });
 
 test('an inactive facility cannot be selected', function () {
-    ['otherFacility' => $otherFacility, 'owner' => $owner] = facilityContextFixture();
+    ['otherFacility' => $otherFacility, 'supervisor' => $supervisor] = facilityContextFixture();
 
     $otherFacility->update(['is_active' => false]);
 
-    $this->actingAs($owner, 'sanctum')
-        ->getJson('/api/departments/options', ['X-Facility-Id' => (string) $otherFacility->id])
+    $this->actingAs($supervisor, 'sanctum')
+        ->getJson('/api/tenant/departments/options', ['X-Facility-Id' => (string) $otherFacility->id])
         ->assertNotFound();
 });
 
@@ -179,7 +194,7 @@ test('a user with no reachable facility is forbidden rather than asked for a hea
     ]);
 
     $this->actingAs($orphan, 'sanctum')
-        ->getJson('/api/departments')
+        ->getJson('/api/tenant/departments')
         ->assertForbidden();
 });
 
@@ -204,6 +219,19 @@ test('a single-facility tenant needs no header at all', function () {
 
     $tenant->forceFill(['owner_user_id' => $owner->id])->save();
 
+    // A facility admin assigned to the only facility (tenant_admin manages from
+    // the App context now).
+    $supervisor = User::factory()->create([
+        'role' => UserRole::FacilityAdmin,
+        'tenant_id' => $tenant->id,
+    ]);
+
+    UserFacilityAssignment::query()->create([
+        'tenant_id' => $tenant->id,
+        'user_id' => $supervisor->id,
+        'facility_id' => $facility->id,
+    ]);
+
     Department::query()->create([
         'tenant_id' => $tenant->id,
         'facility_id' => $facility->id,
@@ -213,26 +241,26 @@ test('a single-facility tenant needs no header at all', function () {
         'display_in_kiosk' => true,
     ]);
 
-    $this->actingAs($owner, 'sanctum')
-        ->getJson('/api/departments/options')
+    $this->actingAs($supervisor, 'sanctum')
+        ->getJson('/api/tenant/departments/options')
         ->assertOk()
         ->assertJsonCount(1, 'data');
 });
 
 test('device creation accepts an explicit facility the caller administers', function () {
-    ['facility' => $facility, 'otherFacility' => $otherFacility, 'owner' => $owner] =
+    ['facility' => $facility, 'otherFacility' => $otherFacility, 'supervisor' => $supervisor] =
         facilityContextFixture();
 
-    $this->actingAs($owner, 'sanctum')
-        ->postJson('/api/kiosk-devices', [
+    $this->actingAs($supervisor, 'sanctum')
+        ->postJson('/api/tenant/kiosk-devices', [
             'name' => 'Branch Kiosk',
             'facility_id' => $otherFacility->id,
         ])
         ->assertCreated()
         ->assertJsonPath('data.device.facility_id', $otherFacility->id);
 
-    $this->actingAs($owner, 'sanctum')
-        ->postJson('/api/kiosk-devices', [
+    $this->actingAs($supervisor, 'sanctum')
+        ->postJson('/api/tenant/kiosk-devices', [
             'name' => 'Main Kiosk',
             'facility_id' => $facility->id,
         ])
@@ -241,10 +269,10 @@ test('device creation accepts an explicit facility the caller administers', func
 });
 
 test('a multi-facility tenant must name the device facility explicitly', function () {
-    ['owner' => $owner] = facilityContextFixture();
+    ['supervisor' => $supervisor] = facilityContextFixture();
 
-    $this->actingAs($owner, 'sanctum')
-        ->postJson('/api/kiosk-devices', ['name' => 'Homeless Kiosk'])
+    $this->actingAs($supervisor, 'sanctum')
+        ->postJson('/api/tenant/kiosk-devices', ['name' => 'Homeless Kiosk'])
         ->assertStatus(422)
         ->assertJsonValidationErrors('facility_id');
 });
@@ -253,7 +281,7 @@ test('device creation refuses a facility the operator is not assigned to', funct
     ['otherFacility' => $otherFacility, 'operator' => $operator] = facilityContextFixture();
 
     $this->actingAs($operator, 'sanctum')
-        ->postJson('/api/kiosk-devices', [
+        ->postJson('/api/tenant/kiosk-devices', [
             'name' => 'Sneaky Kiosk',
             'facility_id' => $otherFacility->id,
         ])

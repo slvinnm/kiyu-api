@@ -9,74 +9,117 @@ Errors are JSON `{ "message": string, "error_type"?: string }` with a matching
 HTTP status (`401` unauthenticated, `403` forbidden/wrong-context, `404` not
 found, `409` business conflict, `422` validation, `429` throttled).
 
-## Authentication — `/auth`
+## Application contexts
 
-| Method | Path | Notes |
-|---|---|---|
-| POST | `/auth/login` | body `{email, password, context?}`; `context` ∈ `platform_portal`/`tenant_workspace`; wrong role for context → `403 WRONG_APPLICATION_CONTEXT` |
-| POST | `/auth/signup` | Public SaaS signup: `{organization_name, slug?, timezone?, plan_code?, owner_name, owner_email, owner_password}`; creates tenant + owner + facility + TRIALING subscription. Throttled 3/60. |
-| POST | `/auth/register` | Tenant-scoped client self-registration (`public-tenant`); only creates `client` |
-| POST | `/auth/register/invitation` | Redeem an invitation token |
-| GET | `/auth/me` | Current user (includes `tenant` block, `facility_ids`) |
-| POST | `/auth/logout` | Revoke current token |
+The API is served from one central host. Every route belongs to exactly one
+frontend application context, mounted under its own prefix:
+
+| Context | Prefix | Origin | Role(s) | Token ability |
+|---|---|---|---|---|
+| Public | `/api/public` | `kiyu.test` | none | — |
+| Customer | `/api/customer` | `{tenant}.kiyu.test` | `customer` | `ctx:customer` |
+| App | `/api/app` | `app.kiyu.test` | `tenant_admin` | `ctx:app` |
+| Tenant | `/api/tenant` | `{tenant}.kiyu.test` | `facility_admin`, `operator`, `staff` | `ctx:tenant` |
+| Portal | `/api/portal` | `portal.kiyu.test` | `platform_admin` (`tenant_id = NULL`) | `ctx:portal` |
+| Webhooks | `/api/webhooks` | — | provider signature | — |
+
+`Origin` is a context **selector**, not authentication. A protected request must
+carry a `ctx:*` token for its route's context (a wildcard `*` or ability-less
+token is rejected) **and** arrive from the matching browser `Origin`, **and**
+pass the role, tenant-membership, facility and policy checks. For the Tenant and
+Customer contexts the validated `Origin` slug must equal the authenticated
+user's tenant slug (or the device's registered tenant).
 
 `data.user` shape: `{id, name, email, role, tenant_id, tenant:{id,name,slug,status,timezone}|null, facility_ids, station_id, profile}`.
+
+## Authentication
+
+Login is per context; each returns a context-scoped token.
+
+| Context | Endpoints |
+|---|---|
+| App | `POST /api/app/auth/signup` (SaaS signup), `POST /api/app/auth/login`, `GET /api/app/auth/me`, `POST /api/app/auth/logout` |
+| Tenant | `POST /api/tenant/auth/login`, `POST /api/tenant/auth/invitations/accept` (guest, tenant-origin bound), `GET /api/tenant/auth/me`, `POST /api/tenant/auth/logout` |
+| Portal | `POST /api/portal/auth/login`, `GET /api/portal/auth/me`, `POST /api/portal/auth/logout` (no signup) |
+| Customer | `POST /api/customer/auth/register`, `POST /api/customer/auth/login`, `GET /api/customer/auth/me`, `POST /api/customer/auth/logout` |
+
+Invalid credentials, wrong account status and wrong role/context all return
+`422 INVALID_CREDENTIALS`. A valid account signing into the wrong tenant origin
+returns `403 WRONG_TENANT_ORIGIN`.
 
 ## Public — no auth
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/public/tenant/{slug}` | 200 active (public fields only), 403 unavailable, 404 unknown |
-| GET | `/public/queue` | Signage read model (`public-tenant` locator) |
-| GET | `/departments/active` | Active departments for kiosk |
-| GET | `/queue-sessions/{token}/track` | Public tracking by token |
-| POST | `/kiosk/pair`, `/display/pair` | Device pairing (code → credential) |
-| POST | `/webhooks/payments/{provider}` | Payment provider webhook (idempotent) |
+| GET | `/api/public/tenants/{slug}` | 200 active (public fields only), 403 unavailable, 404 unknown |
 
-## Tenant workspace — `auth:sanctum` + `tenant` + `context:tenant_workspace`
+## Customer — `ctx:customer`, `role:customer`, tenant-origin bound
 
-Roles shown per endpoint. All queries tenant-scoped.
+Own data only (the `customers.id` is taken from the authenticated account).
 
-- Intake: `POST /intake/manual` (tenant_admin/facility_admin/operator); `POST /intake/kiosk`, `/intake/online*` (device/public).
-- Reception: `GET /reception/queue`, `POST /reception/call-next`, `/complete-registration`, `/{ticket}/recall|skip|no-show` (operator, facility_admin, tenant_admin).
-- Queue processing: `POST /queue/call-next`; `POST /tickets/{id}/start|hold|resume|recall|complete|skip|no-show|cancel` (operator/staff/admin). `POST /tickets/{id}/transfer` → **staff only**.
-- Service transfers: `GET /service-transfers`, `GET /service-transfers/{id}` (tenant_admin/facility_admin/staff); `POST /service-transfers` → **staff only**.
-- Queue sessions: `GET /queue-sessions`, `/statistics`, `/{id}`, `PATCH /{id}/priority`, `POST /{id}/cancel`.
-- Customers: `GET /customers`, `/statistics`, `/{id}`, `/{id}/queue-sessions`; clients see only their own.
-- Config: `departments`, `stations`, `workflows`, `workflow-steps`, `users`, `users/{id}/facilities`, `invitations` (role-gated).
-- Reports: `GET /reports/summary`; export endpoints (`feature:advanced_reports`).
-- Devices: `kiosk-devices`, `display-devices` (tenant_admin/facility_admin; quota-gated).
-- Billing: `GET/POST /billing/subscription`, `POST /billing/subscription/cancel`, `POST /billing/pay` (tenant_admin).
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/customer/profile` | Own customer record |
+| POST / PUT | `/api/customer/profile` | Create / update own record |
+| GET | `/api/customer/queue-sessions` | Own visits |
+| GET | `/api/customer/queue-sessions/{id}` | Own visit detail |
+| POST | `/api/customer/bookings` | Book an online visit for self |
 
-## TenantAdmin Portal — `auth:sanctum` + `tenant` + `context:platform_portal` + `role:tenant_admin`
+## App — `ctx:app`, `role:tenant_admin`
 
-Base `/portal`. Same controllers as the tenant API; the frontend calls tenant-
-shaped paths and the API client prefixes `/portal`.
+Organization-wide management. Tenant is the authenticated account's tenant.
 
-- `GET /portal/dashboard?facility_id=&date=` — org overview.
-- `GET/POST/PUT /portal/facilities`; `users`, `users/{id}/facilities`, `invitations`.
-- Facility-scoped config behind `X-Facility-Id`: `departments`, `stations`, `workflows`, `reports/*`.
-- Org monitoring: `GET /portal/queue/monitor`, `/queue-sessions*`, `/customers*`, `/audit-logs`.
-- Billing: `/portal/billing/*`.
+- `GET /api/app/dashboard`; `facilities` (`GET/POST/GET{id}/PUT{id}`); `users` + `users/{id}/facilities` + `invitations`.
+- Facility-scoped config via `X-Facility-Id`: `departments`, `stations`, `workflows`, `workflow-steps`.
+- Monitoring: `GET /api/app/queue/monitor`, `/queue-sessions*`, `/customers*`, `/audit-logs`.
+- Reports: `GET /api/app/reports/summary` (`feature:report_queue_overview`); exports and `download` also require `feature:report_export`.
+- Billing: `GET/POST /api/app/billing/subscription`, `POST /api/app/billing/subscription/cancel`, `GET /api/app/billing/entitlements`, `GET /api/app/billing/plans`, `POST /api/app/billing/pay`.
 
-## Platform administration — `auth:sanctum` + `platform` + `context:platform_portal`
+## Tenant — `ctx:tenant`, roles `facility_admin|operator|staff`, tenant-origin bound
 
-Base `/platform`. `platform_admin` only.
+Guest, tenant-origin-bound:
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/tenant/public/queue` | Signage read model |
+| GET | `/api/tenant/public/departments/active` | Kiosk departments |
+| GET | `/api/tenant/public/tracking/{token}` | Visit tracking by token |
+| POST | `/api/tenant/devices/kiosk/pair`, `/api/tenant/devices/display/pair` | Device pairing |
+| POST | `/api/tenant/intake/kiosk`, `/online-checkin`; `GET /intake/online-lookup/{id}` | Device intake (kiosk credential) |
+
+Authenticated:
+
+- Intake: `POST /api/tenant/intake/manual`, `POST /api/tenant/intake/online` (facility_admin/operator).
+- Reception: `GET /reception/queue`, `POST /reception/call-next`, `/complete-registration`, `/{ticket}/recall|skip|no-show` (facility_admin/operator).
+- Queue: `POST /queue/call-next`; `POST /tickets/{id}/start|hold|resume|recall|complete|skip|no-show|cancel`; `POST /tickets/{id}/transfer` (staff).
+- Service transfers, queue sessions, customers, departments/stations/workflows, users/facility assignments/invitations: as before, roles enforced per route.
+- Devices: `kiosk-devices`, `display-devices` (facility_admin; quota-gated).
+- Reports: `GET /reports/summary` (facility_admin/operator); exports + `download` require `report_queue_overview` **and** `report_export`.
+- WhatsApp: `POST /api/tenant/whatsapp/messages` (`feature:whatsapp_notifications`).
+
+## Portal — `ctx:portal`, `role:platform_admin`, `tenant_id = NULL`
+
+Base `/api/portal`. Platform administration only; no tenant impersonation.
 
 | Area | Endpoints |
 |---|---|
-| Dashboard | `GET /platform/dashboard?from=&to=` (tenant/subscription counts, MRR, collection, failures, device usage) |
-| Tenants | `GET /platform/tenants` (paginated/filter), `POST`, `GET /{id}`, `POST /{id}/suspend`, `POST /{id}/reactivate` |
-| Subscriptions | `GET /platform/subscriptions`, `GET /{id}` (read-only; activation via webhook) |
-| Payments | `GET /platform/payments`, `GET /{id}`, `GET /platform/payments-webhooks` |
-| Plans | `GET/POST /platform/plans`, `GET/PUT /{id}`, `POST /{id}/prices`, `PUT /{id}/entitlements` |
-| Reports | `GET /platform/reports/revenue`, `/growth`, `/subscriptions` |
-| Support | `GET/POST /platform/support-access`, `POST /{id}/end` (reason + expiry required) |
-| Audit | `GET /platform/audit-logs` |
-| Settings | `GET/PUT /platform/settings` (registration policy + reserved subdomains) |
+| Dashboard | `GET /portal/dashboard` |
+| Tenants | `GET /portal/tenants`, `POST`, `GET /{id}`, `POST /{id}/suspend`, `POST /{id}/reactivate` (suspend requires `reason`) |
+| Subscriptions | `GET /portal/subscriptions`, `GET /{id}` |
+| Payments | `GET /portal/payments`, `GET /{id}`, `GET /portal/payments-webhooks` |
+| Plans | `GET/POST /portal/plans`, `GET/PUT /{id}`, `POST /{id}/prices`, `PUT /{id}/entitlements` |
+| Reports | `GET /portal/reports/revenue`, `/growth`, `/subscriptions` |
+| Audit / Settings | `GET /portal/audit-logs`; `GET/PUT /portal/settings` |
 
-Dashboards and reports are computed from real rows. MRR is normalised recurring
-revenue from ACTIVE subscriptions; it is not the same as cash collected.
+The old `/platform/tenants/{tenant}/manage/*` impersonation group and the
+`/portal/support-access*` grant endpoints are removed; historical
+`support_accesses` records and their audit trail are preserved.
+
+## Webhooks — provider signature
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/webhooks/payments/{provider}` | Signature-verified, idempotent; not user-authenticated |
 
 ## Pagination
 

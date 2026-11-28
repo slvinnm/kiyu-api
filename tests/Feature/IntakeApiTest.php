@@ -18,7 +18,7 @@ beforeEach(function () {
 });
 
 test('kiosk walk-in creates client-less visit, acquisition and registration queue ticket', function () {
-    $response = $this->postJson('/api/intake/kiosk', [
+    $response = $this->postJson('/api/tenant/intake/kiosk', [
         'department_id' => $this->generalDepartment->id,
     ]);
 
@@ -49,7 +49,7 @@ test('kiosk walk-in creates client-less visit, acquisition and registration queu
 });
 
 test('manual intake creates client-less visit and registration queue ticket', function () {
-    $response = $this->postJson('/api/intake/manual', [
+    $response = $this->postJson('/api/tenant/intake/manual', [
         'department_id' => $this->generalDepartment->id,
         'priority' => 2,
         'registered_by_user_id' => 'receptionist-1',
@@ -64,7 +64,7 @@ test('manual intake creates client-less visit and registration queue ticket', fu
 });
 
 test('online booking links existing client, sets status AWAITING_CHECKIN, and creates NO queue ticket yet', function () {
-    $response = $this->postJson('/api/intake/online', [
+    $response = $this->postJson('/api/tenant/intake/online', [
         'customer_id' => $this->sampleCustomer->id,
         'department_id' => $this->generalDepartment->id,
         'priority' => 1,
@@ -85,7 +85,7 @@ test('online booking links existing client, sets status AWAITING_CHECKIN, and cr
 
 test('online client self check-in via kiosk transitions visit to WAITING and creates registration queue ticket', function () {
     // 1. Create online booking
-    $bookingResponse = $this->postJson('/api/intake/online', [
+    $bookingResponse = $this->postJson('/api/tenant/intake/online', [
         'customer_id' => $this->sampleCustomer->id,
         'department_id' => $this->generalDepartment->id,
     ]);
@@ -94,7 +94,7 @@ test('online client self check-in via kiosk transitions visit to WAITING and cre
     $sessionId = $bookingResponse->json('data.queue_session.id');
 
     // 2. Perform online check-in using the active key
-    $checkinResponse = $this->postJson('/api/intake/online-checkin', [
+    $checkinResponse = $this->postJson('/api/tenant/intake/online-checkin', [
         'booking_identifier' => $activeKey,
     ]);
 
@@ -116,7 +116,7 @@ test('online client self check-in via kiosk transitions visit to WAITING and cre
 });
 
 test('online check-in rejects already checked-in visit', function () {
-    $bookingResponse = $this->postJson('/api/intake/online', [
+    $bookingResponse = $this->postJson('/api/tenant/intake/online', [
         'customer_id' => $this->sampleCustomer->id,
         'department_id' => $this->generalDepartment->id,
     ]);
@@ -124,12 +124,12 @@ test('online check-in rejects already checked-in visit', function () {
     $activeKey = $bookingResponse->json('data.queue_session.online_active_key');
 
     // First check-in
-    $this->postJson('/api/intake/online-checkin', [
+    $this->postJson('/api/tenant/intake/online-checkin', [
         'booking_identifier' => $activeKey,
     ])->assertStatus(200);
 
     // Second check-in must fail
-    $secondCheckin = $this->postJson('/api/intake/online-checkin', [
+    $secondCheckin = $this->postJson('/api/tenant/intake/online-checkin', [
         'booking_identifier' => $activeKey,
     ]);
 
@@ -141,7 +141,7 @@ test('idempotency key returns same result for identical payload and 409 for conf
     $key = 'idemp-test-12345';
 
     // 1st call
-    $res1 = $this->postJson('/api/intake/kiosk', [
+    $res1 = $this->postJson('/api/tenant/intake/kiosk', [
         'department_id' => $this->generalDepartment->id,
         'idempotency_key' => $key,
     ])->assertStatus(201);
@@ -149,7 +149,7 @@ test('idempotency key returns same result for identical payload and 409 for conf
     $sessionId1 = $res1->json('data.queue_session.id');
 
     // 2nd call with same parameters
-    $res2 = $this->postJson('/api/intake/kiosk', [
+    $res2 = $this->postJson('/api/tenant/intake/kiosk', [
         'department_id' => $this->generalDepartment->id,
         'idempotency_key' => $key,
     ])->assertStatus(201);
@@ -157,7 +157,7 @@ test('idempotency key returns same result for identical payload and 409 for conf
     expect($res2->json('data.queue_session.id'))->toBe($sessionId1);
 
     // 3rd call with different parameters but same idempotency key -> conflict 409
-    $this->postJson('/api/intake/kiosk', [
+    $this->postJson('/api/tenant/intake/kiosk', [
         'department_id' => $this->supportDepartment->id,
         'idempotency_key' => $key,
     ])->assertStatus(409);
@@ -167,14 +167,14 @@ test('public visit tracking is rate limited', function () {
     $token = (string) Str::uuid();
 
     for ($i = 0; $i < 60; $i++) {
-        $this->getJson("/api/queue-sessions/{$token}/track")->assertStatus(422);
+        $this->getJson("/api/tenant/public/tracking/{$token}")->assertStatus(422);
     }
 
-    $this->getJson("/api/queue-sessions/{$token}/track")->assertStatus(429);
+    $this->getJson("/api/tenant/public/tracking/{$token}")->assertStatus(429);
 });
 
 test('kiosk intake ignores a client-supplied priority', function () {
-    $response = $this->postJson('/api/intake/kiosk', [
+    $response = $this->postJson('/api/tenant/intake/kiosk', [
         'department_id' => $this->generalDepartment->id,
         'priority' => 3,
     ]);
@@ -185,29 +185,29 @@ test('kiosk intake ignores a client-supplied priority', function () {
 });
 
 test('online lookup only resolves the booking key, not a visit id', function () {
-    $booking = $this->postJson('/api/intake/online', [
+    $booking = $this->postJson('/api/tenant/intake/online', [
         'customer_id' => $this->sampleCustomer->id,
         'department_id' => $this->generalDepartment->id,
     ])->json('data');
 
     $activeKey = $booking['queue_session']['online_active_key'];
 
-    $this->getJson("/api/intake/online-lookup/{$activeKey}")
+    $this->getJson("/api/tenant/intake/online-lookup/{$activeKey}")
         ->assertOk()
         ->assertJsonMissingPath('data.booking_identifier')
         ->assertJsonMissingPath('data.client_preview.mrn')
         ->assertJsonMissingPath('data.priority');
 
     // A sequential visit id or the visit number must not resolve.
-    $this->getJson("/api/intake/online-lookup/{$booking['queue_session']['id']}")
+    $this->getJson("/api/tenant/intake/online-lookup/{$booking['queue_session']['id']}")
         ->assertStatus(422);
 
-    $this->getJson("/api/intake/online-lookup/{$booking['queue_session']['session_number']}")
+    $this->getJson("/api/tenant/intake/online-lookup/{$booking['queue_session']['session_number']}")
         ->assertStatus(422);
 });
 
 test('the database rejects a duplicate idempotency key for a tenant', function () {
-    $this->postJson('/api/intake/kiosk', [
+    $this->postJson('/api/tenant/intake/kiosk', [
         'department_id' => $this->generalDepartment->id,
         'idempotency_key' => 'db-unique-1',
     ])->assertCreated();

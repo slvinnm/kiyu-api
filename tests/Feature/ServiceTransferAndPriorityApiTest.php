@@ -14,7 +14,7 @@ beforeEach(function () {
 
 test('service transfer creates target visit in target department and initial queue ticket', function () {
     // 1. Create visit in General Department
-    $intake = $this->postJson('/api/intake/online', [
+    $intake = $this->postJson('/api/tenant/intake/online', [
         'customer_id' => $this->sampleCustomer->id,
         'department_id' => $this->generalDepartment->id,
     ])->json('data');
@@ -24,7 +24,7 @@ test('service transfer creates target visit in target department and initial que
     // 2. Create ServiceTransfer to Support Department (Staff-only action).
     $this->actAsStaff();
 
-    $transferRes = $this->postJson('/api/service-transfers', [
+    $transferRes = $this->postJson('/api/tenant/service-transfers', [
         'source_queue_session_id' => $sourceVisitId,
         'target_department_id' => $this->supportDepartment->id,
         'priority' => Priority::Priority->value,
@@ -40,7 +40,7 @@ test('service transfer creates target visit in target department and initial que
         ->assertJsonPath('data.target_ticket.status', QueueTicketStatus::Created->value);
 
     // Verify rejection of service transfer to same department
-    $sameDeptRes = $this->postJson('/api/service-transfers', [
+    $sameDeptRes = $this->postJson('/api/tenant/service-transfers', [
         'source_queue_session_id' => $sourceVisitId,
         'target_department_id' => $this->generalDepartment->id,
     ]);
@@ -50,7 +50,7 @@ test('service transfer creates target visit in target department and initial que
 
 test('updating session priority propagates to active tickets only and preserves historical tickets', function () {
     // Create walk-in visit
-    $intake = $this->postJson('/api/intake/kiosk', [
+    $intake = $this->postJson('/api/tenant/intake/kiosk', [
         'department_id' => $this->generalDepartment->id,
         'priority' => Priority::Normal->value,
     ])->json('data');
@@ -58,10 +58,10 @@ test('updating session priority propagates to active tickets only and preserves 
     $sessionId = $intake['queue_session']['id'];
 
     // Call registration ticket
-    $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
+    $this->postJson('/api/tenant/reception/call-next', ['department_id' => $this->generalDepartment->id]);
 
     // Complete registration -> Registration ticket becomes COMPLETED, Nurse ticket is created
-    $this->postJson('/api/reception/complete-registration', [
+    $this->postJson('/api/tenant/reception/complete-registration', [
         'acquisition_id' => $intake['acquisition']['id'],
         'customer_id' => $this->sampleCustomer->id,
     ]);
@@ -70,7 +70,7 @@ test('updating session priority propagates to active tickets only and preserves 
     // Registration ticket is COMPLETED (priority = 1)
 
     // Elevate Visit Priority to EMERGENCY (3)
-    $priorityRes = $this->patchJson("/api/queue-sessions/{$sessionId}/priority", [
+    $priorityRes = $this->patchJson("/api/tenant/queue-sessions/{$sessionId}/priority", [
         'priority' => Priority::Emergency->value,
     ]);
 
@@ -103,15 +103,15 @@ test('updating session priority propagates to active tickets only and preserves 
 
 test('public queue display exposes operational numbers without any customer PII', function () {
     // 1. Create walk-in
-    $intake = $this->postJson('/api/intake/kiosk', [
+    $intake = $this->postJson('/api/tenant/intake/kiosk', [
         'department_id' => $this->generalDepartment->id,
     ])->json('data');
 
     // 2. Call ticket
-    $this->postJson('/api/reception/call-next', ['department_id' => $this->generalDepartment->id]);
+    $this->postJson('/api/tenant/reception/call-next', ['department_id' => $this->generalDepartment->id]);
 
     // 3. Query public queue
-    $publicRes = $this->getJson('/api/public/queue');
+    $publicRes = $this->getJson('/api/tenant/public/queue');
 
     $publicRes->assertStatus(200);
 

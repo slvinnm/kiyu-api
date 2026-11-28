@@ -26,7 +26,7 @@ function seedTrialPlan(): void
 test('public signup creates an organization, owner, facility and a trialing subscription', function () {
     seedTrialPlan();
 
-    $response = $this->postJson('/api/auth/signup', [
+    $response = $this->postJson('/api/app/auth/signup', [
         'organization_name' => 'Acme Services',
         'owner_name' => 'Ada Owner',
         'owner_email' => 'ada@acme.test',
@@ -57,7 +57,7 @@ test('public signup creates an organization, owner, facility and a trialing subs
 test('public signup rejects a reserved slug', function () {
     seedTrialPlan();
 
-    $this->postJson('/api/auth/signup', [
+    $this->postJson('/api/app/auth/signup', [
         'organization_name' => 'Acme',
         'slug' => 'app',
         'owner_name' => 'Ada',
@@ -70,7 +70,7 @@ test('public signup rejects a duplicate owner email', function () {
     seedTrialPlan();
     User::factory()->create(['email' => 'dupe@acme.test']);
 
-    $this->postJson('/api/auth/signup', [
+    $this->postJson('/api/app/auth/signup', [
         'organization_name' => 'Another Org',
         'owner_name' => 'Dupe',
         'owner_email' => 'dupe@acme.test',

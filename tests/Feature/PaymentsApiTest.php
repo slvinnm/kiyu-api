@@ -94,7 +94,7 @@ test('starting a charge creates a pending payment and returns a snap token', fun
     $tenant = payingClinic();
 
     $this->actingAs($tenant['admin'], 'sanctum')
-        ->postJson('/api/billing/pay')
+        ->postJson('/api/app/billing/pay')
         ->assertCreated()
         ->assertJsonPath('data.token', 'snap-token-123');
 
@@ -112,7 +112,7 @@ test('a valid webhook activates the subscription and marks the payment paid', fu
     Http::fake(['*/transactions' => Http::response(['token' => 't', 'redirect_url' => 'r'])]);
 
     $tenant = payingClinic();
-    $this->actingAs($tenant['admin'], 'sanctum')->postJson('/api/billing/pay')->assertCreated();
+    $this->actingAs($tenant['admin'], 'sanctum')->postJson('/api/app/billing/pay')->assertCreated();
 
     $payment = Payment::query()->firstOrFail();
     $orderId = $payment->provider_transaction_id;
@@ -131,7 +131,7 @@ test('a webhook with a bad signature is rejected and changes nothing', function 
     Http::fake(['*/transactions' => Http::response(['token' => 't', 'redirect_url' => 'r'])]);
 
     $tenant = payingClinic();
-    $this->actingAs($tenant['admin'], 'sanctum')->postJson('/api/billing/pay')->assertCreated();
+    $this->actingAs($tenant['admin'], 'sanctum')->postJson('/api/app/billing/pay')->assertCreated();
 
     $payment = Payment::query()->firstOrFail();
 
@@ -149,7 +149,7 @@ test('a replayed webhook is idempotent', function () {
     Http::fake(['*/transactions' => Http::response(['token' => 't', 'redirect_url' => 'r'])]);
 
     $tenant = payingClinic();
-    $this->actingAs($tenant['admin'], 'sanctum')->postJson('/api/billing/pay')->assertCreated();
+    $this->actingAs($tenant['admin'], 'sanctum')->postJson('/api/app/billing/pay')->assertCreated();
 
     $payment = Payment::query()->firstOrFail();
     $payload = midtransPayload($payment->provider_transaction_id, ['transaction_id' => 'txn-fixed']);
@@ -168,7 +168,7 @@ test('a non-admin cannot start a charge', function () {
     $staff = User::factory()->create(['role' => 'staff', 'tenant_id' => $tenant['tenant']->id]);
 
     $this->actingAs($staff, 'sanctum')
-        ->postJson('/api/billing/pay')
+        ->postJson('/api/app/billing/pay')
         ->assertForbidden();
 });
 
@@ -177,8 +177,8 @@ test('two charges on the same subscription never share an order id', function ()
 
     $tenant = payingClinic();
 
-    $this->actingAs($tenant['admin'], 'sanctum')->postJson('/api/billing/pay')->assertCreated();
-    $this->actingAs($tenant['admin'], 'sanctum')->postJson('/api/billing/pay')->assertCreated();
+    $this->actingAs($tenant['admin'], 'sanctum')->postJson('/api/app/billing/pay')->assertCreated();
+    $this->actingAs($tenant['admin'], 'sanctum')->postJson('/api/app/billing/pay')->assertCreated();
 
     $ids = Payment::query()->orderBy('id')->pluck('provider_transaction_id');
 
@@ -192,7 +192,7 @@ test('a webhook retry that omits the transaction id is still idempotent', functi
     Http::fake(['*/transactions' => Http::response(['token' => 't', 'redirect_url' => 'r'])]);
 
     $tenant = payingClinic();
-    $this->actingAs($tenant['admin'], 'sanctum')->postJson('/api/billing/pay')->assertCreated();
+    $this->actingAs($tenant['admin'], 'sanctum')->postJson('/api/app/billing/pay')->assertCreated();
 
     $payment = Payment::query()->firstOrFail();
     $payload = midtransPayload($payment->provider_transaction_id);

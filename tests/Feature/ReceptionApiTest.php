@@ -15,14 +15,14 @@ beforeEach(function () {
 
 test('reception call-next automatically resolves registration station and calls highest priority first', function () {
     // 1. Create NORMAL intake (seq 1)
-    $this->postJson('/api/intake/manual', [
+    $this->postJson('/api/tenant/intake/manual', [
         'department_id' => $this->generalDepartment->id,
         'priority' => Priority::Normal->value,
     ])->assertStatus(201);
 
     // 2. Create EMERGENCY intake (seq 2). Priority is staff-set: the kiosk
     // endpoint always creates NORMAL tickets.
-    $emergencyRes = $this->postJson('/api/intake/manual', [
+    $emergencyRes = $this->postJson('/api/tenant/intake/manual', [
         'department_id' => $this->generalDepartment->id,
         'priority' => Priority::Emergency->value,
     ])->assertStatus(201);
@@ -30,7 +30,7 @@ test('reception call-next automatically resolves registration station and calls 
     $emergencyTicketId = $emergencyRes->json('data.ticket.id');
 
     // 3. Receptionist calls next
-    $callResponse = $this->postJson('/api/reception/call-next', [
+    $callResponse = $this->postJson('/api/tenant/reception/call-next', [
         'department_id' => $this->generalDepartment->id,
     ]);
 
@@ -53,7 +53,7 @@ test('reception call-next automatically resolves registration station and calls 
 
 test('reception complete-registration links client, completes ticket, creates next queue ticket, and keeps visit WAITING', function () {
     // 1. Create kiosk intake
-    $intake = $this->postJson('/api/intake/kiosk', [
+    $intake = $this->postJson('/api/tenant/intake/kiosk', [
         'department_id' => $this->generalDepartment->id,
     ])->json('data');
 
@@ -61,12 +61,12 @@ test('reception complete-registration links client, completes ticket, creates ne
     $sessionId = $intake['queue_session']['id'];
 
     // 2. Call ticket
-    $this->postJson('/api/reception/call-next', [
+    $this->postJson('/api/tenant/reception/call-next', [
         'department_id' => $this->generalDepartment->id,
     ])->assertStatus(200);
 
     // 3. Complete registration linking existing client
-    $completeRes = $this->postJson('/api/reception/complete-registration', [
+    $completeRes = $this->postJson('/api/tenant/reception/complete-registration', [
         'acquisition_id' => $acqId,
         'customer_id' => $this->sampleCustomer->id,
         'registered_by_user_id' => $this->adminUser->id,
@@ -101,13 +101,13 @@ test('reception complete-registration links client, completes ticket, creates ne
 });
 
 test('reception complete-registration can create a new client on the fly', function () {
-    $intake = $this->postJson('/api/intake/manual', [
+    $intake = $this->postJson('/api/tenant/intake/manual', [
         'department_id' => $this->generalDepartment->id,
     ])->json('data');
 
     $acqId = $intake['acquisition']['id'];
 
-    $completeRes = $this->postJson('/api/reception/complete-registration', [
+    $completeRes = $this->postJson('/api/tenant/reception/complete-registration', [
         'acquisition_id' => $acqId,
         'customer_data' => [
             'name' => 'Siti Nurhaliza',
@@ -126,25 +126,25 @@ test('reception complete-registration can create a new client on the fly', funct
 });
 
 test('reception double-completion is prevented and returns conflict 409', function () {
-    $intake = $this->postJson('/api/intake/kiosk', [
+    $intake = $this->postJson('/api/tenant/intake/kiosk', [
         'department_id' => $this->generalDepartment->id,
     ])->json('data');
 
     $acqId = $intake['acquisition']['id'];
 
     // Call ticket
-    $this->postJson('/api/reception/call-next', [
+    $this->postJson('/api/tenant/reception/call-next', [
         'department_id' => $this->generalDepartment->id,
     ])->assertStatus(200);
 
     // 1st completion succeeds
-    $this->postJson('/api/reception/complete-registration', [
+    $this->postJson('/api/tenant/reception/complete-registration', [
         'acquisition_id' => $acqId,
         'customer_id' => $this->sampleCustomer->id,
     ])->assertStatus(200);
 
     // 2nd completion must fail with conflict (409)
-    $secondRes = $this->postJson('/api/reception/complete-registration', [
+    $secondRes = $this->postJson('/api/tenant/reception/complete-registration', [
         'acquisition_id' => $acqId,
         'customer_id' => $this->sampleCustomer->id,
     ]);
@@ -155,19 +155,19 @@ test('reception double-completion is prevented and returns conflict 409', functi
 
 test('reception queue view displays current calling and waiting tickets for the department', function () {
     // 1. Create walk-in 1
-    $res1 = $this->postJson('/api/intake/manual', [
+    $res1 = $this->postJson('/api/tenant/intake/manual', [
         'department_id' => $this->generalDepartment->id,
         'priority' => Priority::Normal->value,
     ])->json('data');
 
     // 2. Create walk-in 2
-    $res2 = $this->postJson('/api/intake/manual', [
+    $res2 = $this->postJson('/api/tenant/intake/manual', [
         'department_id' => $this->generalDepartment->id,
         'priority' => Priority::Priority->value,
     ])->json('data');
 
     // View queue before call
-    $viewRes = $this->getJson("/api/reception/queue?department_id={$this->generalDepartment->id}");
+    $viewRes = $this->getJson("/api/tenant/reception/queue?department_id={$this->generalDepartment->id}");
     $viewRes->assertStatus(200)
         ->assertJsonPath('message', 'Reception queue retrieved.')
         ->assertJsonPath('data.waiting_count', 2)
@@ -176,12 +176,12 @@ test('reception queue view displays current calling and waiting tickets for the 
         ->assertJsonPath('data.waiting.0.priority', Priority::Priority->value);
 
     // Call first
-    $this->postJson('/api/reception/call-next', [
+    $this->postJson('/api/tenant/reception/call-next', [
         'department_id' => $this->generalDepartment->id,
     ])->assertStatus(200);
 
     // View queue again
-    $viewAfterCall = $this->getJson("/api/reception/queue?department_id={$this->generalDepartment->id}");
+    $viewAfterCall = $this->getJson("/api/tenant/reception/queue?department_id={$this->generalDepartment->id}");
     $viewAfterCall->assertStatus(200)
         ->assertJsonPath('data.waiting_count', 1)
         ->assertJsonPath('data.current_calling.queue_number', $res2['ticket']['queue_number']);

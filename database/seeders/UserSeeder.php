@@ -30,7 +30,7 @@ class UserSeeder extends Seeder
             ['role' => UserRole::FacilityAdmin, 'email' => 'facility@kiyu.id', 'name' => 'Facility Administrator', 'station' => null],
             ['role' => UserRole::Operator, 'email' => 'operator@kiyu.id', 'name' => 'Front Desk Operator', 'station' => $intakeStation],
             ['role' => UserRole::Staff, 'email' => 'staff@kiyu.id', 'name' => 'Service Staff', 'station' => $serviceStation],
-            ['role' => UserRole::Client, 'email' => 'client@kiyu.id', 'name' => 'Sample Client', 'station' => null],
+            ['role' => UserRole::Customer, 'email' => 'customer@kiyu.id', 'name' => 'Sample Customer', 'station' => null],
         ];
 
         foreach ($accounts as $account) {
