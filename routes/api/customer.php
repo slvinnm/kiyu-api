@@ -28,13 +28,12 @@ Route::middleware(['auth:sanctum', 'context:customer', 'tenant.bind', 'tenant', 
             Route::post('/logout', 'logout');
         });
 
-        Route::middleware('facility')->group(function () {
-            Route::get('/profile', [ProfileController::class, 'show']);
-            Route::post('/profile', [ProfileController::class, 'store']);
-            Route::put('/profile', [ProfileController::class, 'update']);
+        Route::get('/profile', [ProfileController::class, 'show']);
+        Route::post('/profile', [ProfileController::class, 'store']);
+        Route::put('/profile', [ProfileController::class, 'update']);
 
-            Route::get('/queue-sessions', [SessionController::class, 'index']);
-            Route::post('/bookings', [SessionController::class, 'book']);
-            Route::get('/queue-sessions/{id}', [SessionController::class, 'show'])->whereNumber('id');
-        });
+        Route::get('/queue-sessions', [SessionController::class, 'index']);
+        // Booking names its facility via `facility_id` in the body (no header).
+        Route::post('/bookings', [SessionController::class, 'book']);
+        Route::get('/queue-sessions/{id}', [SessionController::class, 'show'])->whereNumber('id');
     });

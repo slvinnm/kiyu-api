@@ -69,11 +69,11 @@ Route::middleware(['auth:sanctum', 'context:tenant', 'tenant.bind', 'tenant', 'r
         });
 
         Route::post('/intake/manual', [IntakeController::class, 'manual'])
-            ->middleware(['facility', 'role:facility_admin,operator']);
+            ->middleware(['role:facility_admin,operator']);
 
         // Online booking on behalf of a customer (reception staff).
         Route::post('/intake/online', [IntakeController::class, 'online'])
-            ->middleware(['facility', 'role:facility_admin,operator']);
+            ->middleware(['role:facility_admin,operator']);
 
         Route::prefix('queue-acquisitions')
             ->middleware('role:facility_admin,operator')
@@ -85,7 +85,7 @@ Route::middleware(['auth:sanctum', 'context:tenant', 'tenant.bind', 'tenant', 'r
             });
 
         Route::prefix('reception')
-            ->middleware(['facility', 'role:facility_admin,operator'])
+            ->middleware(['role:facility_admin,operator'])
             ->controller(ReceptionController::class)
             ->group(function () {
                 Route::get('/queue', 'queue');
@@ -97,10 +97,10 @@ Route::middleware(['auth:sanctum', 'context:tenant', 'tenant.bind', 'tenant', 'r
             });
 
         Route::post('/queue/call-next', [QueueController::class, 'callNext'])
-            ->middleware(['facility', 'role:facility_admin,operator,staff']);
+            ->middleware(['role:facility_admin,operator,staff']);
 
         Route::prefix('tickets')
-            ->middleware(['facility', 'role:facility_admin,operator,staff'])
+            ->middleware(['role:facility_admin,operator,staff'])
             ->group(function () {
                 Route::get('/', [TicketController::class, 'index']);
                 Route::get('/statistics', [TicketController::class, 'statistics']);
@@ -157,7 +157,6 @@ Route::middleware(['auth:sanctum', 'context:tenant', 'tenant.bind', 'tenant', 'r
 
         Route::prefix('departments')
             ->controller(DepartmentController::class)
-            ->middleware('facility')
             ->group(function () {
                 Route::get('/', 'index')
                     ->middleware('role:facility_admin,operator,staff');
@@ -174,11 +173,10 @@ Route::middleware(['auth:sanctum', 'context:tenant', 'tenant.bind', 'tenant', 'r
             });
 
         Route::get('/queue/monitor', [QueueMonitorController::class, 'index'])
-            ->middleware(['facility', 'role:facility_admin,operator,staff']);
+            ->middleware(['role:facility_admin,operator,staff']);
 
         Route::prefix('stations')
             ->controller(StationController::class)
-            ->middleware('facility')
             ->group(function () {
                 Route::get('/', 'index')->middleware('role:facility_admin,operator,staff');
                 Route::get('/options', 'options')->middleware('role:facility_admin,operator,staff');
@@ -190,7 +188,6 @@ Route::middleware(['auth:sanctum', 'context:tenant', 'tenant.bind', 'tenant', 'r
 
         Route::prefix('workflows')
             ->controller(WorkflowController::class)
-            ->middleware('facility')
             ->group(function () {
                 Route::get('/', 'index')->middleware('role:facility_admin,operator,staff');
                 Route::get('/statistics', 'statistics')->middleware('role:facility_admin,operator,staff');
@@ -203,9 +200,9 @@ Route::middleware(['auth:sanctum', 'context:tenant', 'tenant.bind', 'tenant', 'r
             ->controller(WorkflowController::class)
             ->group(function () {
                 Route::put('/{id}', 'updateStep')->whereNumber('id')
-                    ->middleware(['facility', 'role:facility_admin']);
+                    ->middleware(['role:facility_admin']);
                 Route::delete('/{id}', 'deleteStep')->whereNumber('id')
-                    ->middleware(['facility', 'role:facility_admin']);
+                    ->middleware(['role:facility_admin']);
             });
 
         Route::prefix('kiosk-devices')
@@ -230,7 +227,6 @@ Route::middleware(['auth:sanctum', 'context:tenant', 'tenant.bind', 'tenant', 'r
 
         Route::prefix('reports')
             ->controller(ReportController::class)
-            ->middleware('facility')
             ->group(function () {
                 Route::get('/summary', 'summary')
                     ->middleware(['role:facility_admin,operator', 'feature:report_queue_overview']);

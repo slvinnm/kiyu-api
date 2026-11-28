@@ -23,12 +23,13 @@ class QueueMonitorController extends Controller
     public function index(Request $request): JsonResponse
     {
         $validated = $request->validate([
+            'facility_id' => ['nullable', 'integer', 'exists:facilities,id'],
             'station_id' => ['nullable', 'integer', 'exists:stations,id'],
             'department_id' => ['nullable', 'integer', 'exists:departments,id'],
         ]);
 
         return response()->json([
-            'data' => StationQueueSnapshot::forFacility($this->facility(), $validated),
+            'data' => StationQueueSnapshot::forFacility($this->facility($request), $validated),
         ]);
     }
 }

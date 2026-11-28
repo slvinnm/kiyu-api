@@ -5,7 +5,6 @@ use App\Http\Middleware\EnsureFeatureAccess;
 use App\Http\Middleware\EnsureTenantOriginBinding;
 use App\Http\Middleware\EnsureUserRole;
 use App\Http\Middleware\ResolveAppTenant;
-use App\Http\Middleware\ResolveFacility;
 use App\Http\Middleware\ResolveKioskDevice;
 use App\Http\Middleware\ResolveTenant;
 use App\Http\Middleware\ResolveTenantFromOrigin;
@@ -29,7 +28,6 @@ return Application::configure(basePath: dirname(__DIR__))
             'app.tenant' => ResolveAppTenant::class,
             'tenant.origin' => ResolveTenantFromOrigin::class,
             'tenant.bind' => EnsureTenantOriginBinding::class,
-            'facility' => ResolveFacility::class,
             'kiosk' => ResolveKioskDevice::class,
             'feature' => EnsureFeatureAccess::class,
             'context' => EnsureApplicationContext::class,

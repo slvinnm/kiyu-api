@@ -60,6 +60,11 @@ function billingTenant(string $slug = 'billing-tenant'): array
         'value' => ['limit' => 2],
     ]);
 
+    $plan->entitlements()->create([
+        'feature_code' => Feature::ReportQueueOverview->value,
+        'value' => null,
+    ]);
+
     return compact('tenant', 'facility', 'admin', 'plan');
 }
 
@@ -131,7 +136,7 @@ test('hasFeature reflects the plan entitlements', function () {
     $service->start($tenant['tenant'], $tenant['plan'], BillingInterval::Monthly, 30);
 
     expect($service->hasFeature($tenant['tenant'], Feature::QueueManagement))->toBeTrue()
-        ->and($service->hasFeature($tenant['tenant'], Feature::AdvancedReports))->toBeFalse();
+        ->and($service->hasFeature($tenant['tenant'], Feature::ReportExport))->toBeFalse();
 });
 
 test('a limit entitlement reports its cap and usage', function () {
@@ -287,18 +292,22 @@ test('the expiry command cancels a subscription at its period end', function () 
         ->and($trial->fresh()->cancelled_at)->not->toBeNull();
 });
 
-test('the tenant can read resolved entitlements with advanced implying basic', function () {
+test('the tenant can read resolved entitlement objects from the engine', function () {
     $tenant = billingTenant();
 
-    // The fixture plan grants basic_reports + advanced_reports + limits.
     app(SubscriptionService::class)->start($tenant['tenant'], $tenant['plan'], BillingInterval::Monthly, 30);
 
     $this->actingAs($tenant['admin'], 'sanctum')
         ->getJson('/api/app/billing/entitlements')
         ->assertOk()
-        ->assertJsonPath('data.queue_management', true)
-        ->assertJsonPath('data.basic_reports', false)
-        ->assertJsonPath('data.max_kiosk_devices', 2);
+        ->assertJsonPath('data.queue_management.released', true)
+        ->assertJsonPath('data.queue_management.entitled', true)
+        ->assertJsonPath('data.queue_management.available', true)
+        ->assertJsonPath('data.queue_management.type', 'boolean')
+        ->assertJsonPath('data.report_queue_overview.available', true)
+        ->assertJsonPath('data.max_kiosk_devices.type', 'capacity')
+        ->assertJsonPath('data.max_kiosk_devices.limit', 2)
+        ->assertJsonPath('data.max_facilities.available', false);
 });
 
 test('the tenant plan catalogue marks the current plan', function () {
@@ -326,8 +335,9 @@ test('a plan without basic_reports cannot reach the reports summary', function (
 test('report_export alone does not grant access to the queue overview report', function () {
     $tenant = billingTenant();
 
-    // Per-report gates replace the old "advanced implies basic" shortcut:
-    // holding only the export entitlement must not expose report data.
+    // Remove the overview grant so the plan holds only the export entitlement.
+    // Holding only export must not expose report data.
+    $tenant['plan']->entitlements()->where('feature_code', Feature::ReportQueueOverview->value)->delete();
     $tenant['plan']->entitlements()->create([
         'feature_code' => Feature::ReportExport->value,
         'value' => null,

@@ -99,13 +99,13 @@ function facilityContextFixture(): array
     return compact('tenant', 'facility', 'otherFacility', 'owner', 'supervisor', 'operator');
 }
 
-test('a multi-facility operator must name a facility with X-Facility-Id', function () {
+test('a multi-facility operator must name a facility with facility_id', function () {
     ['operator' => $operator] = facilityContextFixture();
 
     $this->actingAs($operator, 'sanctum')
         ->getJson('/api/tenant/departments')
-        ->assertStatus(400)
-        ->assertJsonPath('message', 'This tenant has several facilities. Send X-Facility-Id to choose one.');
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('facility_id');
 });
 
 test('an operator sees only the departments of the facility they select', function () {
@@ -113,7 +113,7 @@ test('an operator sees only the departments of the facility they select', functi
         facilityContextFixture();
 
     $own = $this->actingAs($operator, 'sanctum')
-        ->getJson('/api/tenant/departments/options', ['X-Facility-Id' => (string) $facility->id])
+        ->getJson('/api/tenant/departments/options?facility_id=' . $facility->id)
         ->assertOk()
         ->json('data');
 
@@ -129,7 +129,7 @@ test('an operator sees only the departments of the facility they select', functi
     ]);
 
     $this->actingAs($operator, 'sanctum')
-        ->getJson('/api/tenant/departments/options', ['X-Facility-Id' => (string) $unassigned->id])
+        ->getJson('/api/tenant/departments/options?facility_id=' . $unassigned->id)
         ->assertForbidden();
 });
 
@@ -139,7 +139,7 @@ test('a facility admin may select any facility it is assigned to', function () {
 
     foreach ([$facility, $otherFacility] as $target) {
         $this->actingAs($supervisor, 'sanctum')
-            ->getJson('/api/tenant/departments/options', ['X-Facility-Id' => (string) $target->id])
+            ->getJson('/api/tenant/departments/options?facility_id=' . $target->id)
             ->assertOk();
     }
 });
@@ -161,17 +161,17 @@ test('a facility id from another tenant is not found', function () {
     ]);
 
     $this->actingAs($operator, 'sanctum')
-        ->getJson('/api/tenant/departments/options', ['X-Facility-Id' => (string) $foreignFacility->id])
+        ->getJson('/api/tenant/departments/options?facility_id=' . $foreignFacility->id)
         ->assertNotFound();
 });
 
-test('a malformed X-Facility-Id is a bad request', function () {
+test('a malformed facility_id is rejected', function () {
     ['operator' => $operator] = facilityContextFixture();
 
     foreach (['abc', '-1', '1.5'] as $value) {
         $this->actingAs($operator, 'sanctum')
-            ->getJson('/api/tenant/departments/options', ['X-Facility-Id' => $value])
-            ->assertStatus(400);
+            ->getJson('/api/tenant/departments/options?facility_id=' . $value)
+            ->assertStatus(422);
     }
 });
 
@@ -181,11 +181,11 @@ test('an inactive facility cannot be selected', function () {
     $otherFacility->update(['is_active' => false]);
 
     $this->actingAs($supervisor, 'sanctum')
-        ->getJson('/api/tenant/departments/options', ['X-Facility-Id' => (string) $otherFacility->id])
+        ->getJson('/api/tenant/departments/options?facility_id=' . $otherFacility->id)
         ->assertNotFound();
 });
 
-test('a user with no reachable facility is forbidden rather than asked for a header', function () {
+test('a user with no reachable facility is forbidden', function () {
     ['tenant' => $tenant] = facilityContextFixture();
 
     $orphan = User::factory()->create([
@@ -198,7 +198,7 @@ test('a user with no reachable facility is forbidden rather than asked for a hea
         ->assertForbidden();
 });
 
-test('a single-facility tenant needs no header at all', function () {
+test('a single-facility tenant needs no facility_id', function () {
     $tenant = Tenant::query()->create([
         'name' => 'Single Org',
         'slug' => 'single-' . uniqid(),

@@ -14,11 +14,7 @@ use Illuminate\Validation\ValidationException;
 abstract class Controller
 {
     /**
-     * Whether the authenticated user is a client account.
-     *
-     * A client may only touch resources belonging to their own profile. Staff
-     * roles are handled by their own operational rules and are not restricted
-     * by this check.
+     * Whether the authenticated user is a customer account.
      */
     protected function isCustomer(Request $request): bool
     {
@@ -26,8 +22,8 @@ abstract class Controller
     }
 
     /**
-     * The authenticated client's own `customers.id`, or `null` when the user is
-     * not a client or has not completed onboarding.
+     * The authenticated customer's own `customers.id`, or `null` when the user
+     * is not a customer or has not completed onboarding.
      */
     protected function customerId(Request $request): ?int
     {
@@ -70,16 +66,43 @@ abstract class Controller
     }
 
     /**
-     * The facility resolved for this request. V1 tenants have exactly one
-     * active facility, so it is always available to tenant routes.
+     * The facility this request operates on.
+     *
+     * There is no facility middleware: the facility is taken from the request
+     * (`facility_id` in the body or query), or resolved implicitly when the
+     * caller can reach exactly one active facility. A device or public-tenant
+     * middleware may already have bound it. An ambiguous request with no
+     * `facility_id` fails validation rather than guessing, and the selected
+     * facility is always checked against the tenant and the caller's access.
      */
-    protected function facility(): Facility
+    protected function facility(?Request $request = null): Facility
     {
-        $facility = request()->attributes->get('facility');
+        $request ??= request();
 
-        abort_unless($facility instanceof Facility, 403, 'No facility is resolved for this request.');
+        // An explicit selection is authoritative and is validated regardless of
+        // any facility the middleware bound implicitly. This prevents a stale or
+        // wrong selector from being silently replaced by the implicit facility.
+        $requested = $this->requestedFacilityId($request);
 
-        return $facility;
+        if ($requested !== null) {
+            return $this->authorizedFacility($request, $requested);
+        }
+
+        $bound = $request->attributes->get('facility');
+
+        if ($bound instanceof Facility) {
+            return $bound;
+        }
+
+        $implicit = $this->singleReachableFacility($request);
+
+        if ($implicit !== null) {
+            return $implicit;
+        }
+
+        throw ValidationException::withMessages([
+            'facility_id' => ['Choose the facility for this request.'],
+        ]);
     }
 
     /**
@@ -91,46 +114,89 @@ abstract class Controller
     }
 
     /**
+     * The facility id named on the request, if any.
+     */
+    protected function requestedFacilityId(Request $request): ?int
+    {
+        $value = $request->input('facility_id', $request->query('facility_id'));
+
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        abort_unless(
+            is_numeric($value) && (int) $value > 0 && (string) (int) $value === (string) $value,
+            422,
+            'The facility_id must be a positive integer.',
+        );
+
+        return (int) $value;
+    }
+
+    /**
+     * A facility of the current tenant the caller may act at, or 404/403.
+     */
+    protected function authorizedFacility(Request $request, int $facilityId): Facility
+    {
+        $facility = Facility::query()
+            ->whereKey($facilityId)
+            ->where('tenant_id', $this->tenantId())
+            ->where('is_active', true)
+            ->first();
+
+        abort_if($facility === null, 404, 'Facility not found.');
+
+        $user = $request->user();
+
+        abort_if($user === null, 401, 'Unauthenticated.');
+
+        abort_unless(
+            $user->canAccessFacility($facility->id),
+            403,
+            'You do not have access to this facility.',
+        );
+
+        return $facility;
+    }
+
+    /**
+     * The single active facility the caller can reach, or null when zero/many.
+     */
+    private function singleReachableFacility(Request $request): ?Facility
+    {
+        $tenant = $this->tenant();
+        $user = $request->user();
+
+        $query = $tenant->facilities()->where('is_active', true);
+
+        if ($user !== null && $user->role?->isFacilityScoped()) {
+            $query->whereIn('id', $user->facilityAssignments()->select('facility_id'));
+        }
+
+        $facilities = $query->limit(2)->get();
+
+        if ($facilities->isEmpty()) {
+            abort(403, 'You have no facility to operate at.');
+        }
+
+        return $facilities->count() === 1 ? $facilities->first() : null;
+    }
+
+    /**
      * The facility a device record belongs to.
      *
-     * Device creation is the one place a caller may name a facility explicitly:
-     * a tenant admin provisioning kiosks across several locations picks the
-     * location per device. Order: the explicit id (validated against the tenant
-     * and the caller's reach), then the request-context facility when the user
-     * can reach exactly one. It never guesses among several.
+     * A caller may name a facility explicitly (`facility_id`); otherwise it is
+     * the request-context facility. It never guesses among several.
      *
      * @throws ValidationException when no facility can be determined
      */
     protected function resolveDeviceFacility(Request $request, ?int $requested): int
     {
         if ($requested !== null) {
-            $facility = Facility::query()
-                ->whereKey($requested)
-                ->where('tenant_id', $this->tenantId())
-                ->first();
-
-            abort_if($facility === null, 404, 'Facility not found.');
-
-            $user = $request->user();
-
-            abort_unless(
-                $user !== null && $user->canAccessFacility($facility->id),
-                403,
-                'You cannot manage devices at this facility.',
-            );
-
-            return $facility->id;
+            return $this->authorizedFacility($request, $requested)->id;
         }
 
-        $context = request()->attributes->get('facility');
-
-        if ($context instanceof Facility) {
-            return $context->id;
-        }
-
-        throw ValidationException::withMessages([
-            'facility_id' => ['Choose the facility this device belongs to.'],
-        ]);
+        return $this->facility()->id;
     }
 
     /**
@@ -160,7 +226,7 @@ abstract class Controller
     }
 
     /**
-     * A validation rule that only accepts a client of the current tenant.
+     * A validation rule that only accepts a customer of the current tenant.
      */
     protected function customerRule(): Exists
     {

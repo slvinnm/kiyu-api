@@ -12,9 +12,10 @@ use Symfony\Component\HttpFoundation\Response;
  * Resolve the tenant for an authenticated App request from the account itself.
  *
  * The App origin is not tenant-specific, so the tenant is always the one linked
- * to the authenticated TenantAdmin. The tenant admin is organization-wide, so a
- * facility is bound only when `X-Facility-Id` names one (validated later by the
- * facility middleware); it is never guessed.
+ * to the authenticated TenantAdmin. The tenant admin is organization-wide; a
+ * facility is bound implicitly only when the tenant has a single active
+ * facility. Otherwise controllers resolve the facility from `facility_id` in the
+ * request.
  */
 class ResolveAppTenant
 {

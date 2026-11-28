@@ -3,7 +3,6 @@
 namespace App\Models;
 
 use App\Enums\BillingInterval;
-use App\Enums\Feature;
 use App\Enums\SubscriptionStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -70,55 +69,15 @@ class Subscription extends Model
     }
 
     /**
-     * Whether the subscription's plan grants the feature.
+     * The entitlements snapshotted onto this subscription at activation.
      *
-     * For a toggle a granted row means "on"; for a limit a granted row means a
-     * positive cap (a limit of 0 is treated as not granted).
+     * Feature decisions read this snapshot (plus active add-on snapshots) via the
+     * Feature Access Engine; the subscription model deliberately does not read
+     * the mutable plan catalogue.
      */
-    public function hasFeature(Feature $feature): bool
+    public function entitlements(): HasMany
     {
-        if (! $this->isEffective()) {
-            return false;
-        }
-
-        $entitlement = $this->plan->entitlements
-            ->firstWhere('feature_code', $feature->value);
-
-        if ($entitlement === null) {
-            return false;
-        }
-
-        return $feature->isToggle() || $this->readLimit($entitlement) > 0;
-    }
-
-    /**
-     * The numeric limit granted for a feature, or the feature's default when
-     * the plan does not grant it.
-     */
-    public function featureLimit(Feature $feature): int
-    {
-        if (! $this->isEffective()) {
-            return $feature->defaultLimit();
-        }
-
-        $entitlement = $this->plan->entitlements
-            ->firstWhere('feature_code', $feature->value);
-
-        if ($entitlement === null) {
-            return $feature->defaultLimit();
-        }
-
-        return $this->readLimit($entitlement);
-    }
-
-    /**
-     * Read the integer limit stored in an entitlement's value.
-     */
-    private function readLimit(PlanEntitlement $entitlement): int
-    {
-        $value = $entitlement->value ?? [];
-
-        return (int) ($value['limit'] ?? 0);
+        return $this->hasMany(SubscriptionEntitlement::class);
     }
 
     /**
@@ -151,14 +110,6 @@ class Subscription extends Model
     public function payments(): HasMany
     {
         return $this->hasMany(Payment::class);
-    }
-
-    /**
-     * The entitlements snapshotted onto this subscription at activation.
-     */
-    public function entitlements(): HasMany
-    {
-        return $this->hasMany(SubscriptionEntitlement::class);
     }
 
     /**

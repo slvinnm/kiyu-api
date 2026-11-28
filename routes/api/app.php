@@ -77,50 +77,50 @@ Route::middleware(['auth:sanctum', 'context:app', 'role:tenant_admin', 'app.tena
         Route::delete('/{id}', 'revoke')->whereNumber('id');
     });
 
-    // Facility-scoped configuration (X-Facility-Id selects the facility).
-    Route::middleware('facility')->group(function () {
-        Route::prefix('departments')->controller(DepartmentController::class)->group(function () {
-            Route::get('/', 'index');
-            Route::get('/options', 'options');
-            Route::post('/', 'store');
-            Route::get('/{id}', 'show')->whereNumber('id');
-            Route::put('/{id}', 'update')->whereNumber('id');
-            Route::get('/{id}/stations', 'stations')->whereNumber('id');
-            Route::get('/{id}/workflows', 'workflows')->whereNumber('id');
-        });
-
-        Route::prefix('stations')->controller(StationController::class)->group(function () {
-            Route::get('/', 'index');
-            Route::get('/options', 'options');
-            Route::post('/', 'store');
-            Route::get('/{id}', 'show')->whereNumber('id');
-            Route::put('/{id}', 'update')->whereNumber('id');
-            Route::get('/{id}/queue', 'queue')->whereNumber('id');
-        });
-
-        Route::prefix('workflows')->controller(WorkflowController::class)->group(function () {
-            Route::get('/', 'index');
-            Route::get('/statistics', 'statistics');
-            Route::post('/', 'store');
-            Route::get('/{id}', 'show')->whereNumber('id');
-            Route::post('/{id}/steps', 'addStep')->whereNumber('id');
-        });
-
-        Route::prefix('workflow-steps')->controller(WorkflowController::class)->group(function () {
-            Route::put('/{id}', 'updateStep')->whereNumber('id');
-            Route::delete('/{id}', 'deleteStep')->whereNumber('id');
-        });
-
-        Route::get('/reports/summary', [ReportController::class, 'summary'])
-            ->middleware('feature:report_queue_overview');
-        Route::get('/reports/queue-sessions/export', [ReportController::class, 'exportQueueSessions'])
-            ->middleware(['feature:report_queue_overview', 'feature:report_export']);
-        Route::post('/reports/queue-sessions/export-file', [ReportController::class, 'exportFile'])
-            ->middleware(['feature:report_queue_overview', 'feature:report_export']);
-        Route::get('/reports/download', [ReportController::class, 'download'])
-            ->name('app.reports.download')
-            ->middleware(['feature:report_queue_overview', 'feature:report_export']);
+    // Facility-scoped configuration. The facility is named per request via
+    // `facility_id` (body/query) or resolved implicitly; there is no facility
+    // middleware/header.
+    Route::prefix('departments')->controller(DepartmentController::class)->group(function () {
+        Route::get('/', 'index');
+        Route::get('/options', 'options');
+        Route::post('/', 'store');
+        Route::get('/{id}', 'show')->whereNumber('id');
+        Route::put('/{id}', 'update')->whereNumber('id');
+        Route::get('/{id}/stations', 'stations')->whereNumber('id');
+        Route::get('/{id}/workflows', 'workflows')->whereNumber('id');
     });
+
+    Route::prefix('stations')->controller(StationController::class)->group(function () {
+        Route::get('/', 'index');
+        Route::get('/options', 'options');
+        Route::post('/', 'store');
+        Route::get('/{id}', 'show')->whereNumber('id');
+        Route::put('/{id}', 'update')->whereNumber('id');
+        Route::get('/{id}/queue', 'queue')->whereNumber('id');
+    });
+
+    Route::prefix('workflows')->controller(WorkflowController::class)->group(function () {
+        Route::get('/', 'index');
+        Route::get('/statistics', 'statistics');
+        Route::post('/', 'store');
+        Route::get('/{id}', 'show')->whereNumber('id');
+        Route::post('/{id}/steps', 'addStep')->whereNumber('id');
+    });
+
+    Route::prefix('workflow-steps')->controller(WorkflowController::class)->group(function () {
+        Route::put('/{id}', 'updateStep')->whereNumber('id');
+        Route::delete('/{id}', 'deleteStep')->whereNumber('id');
+    });
+
+    Route::get('/reports/summary', [ReportController::class, 'summary'])
+        ->middleware('feature:report_queue_overview');
+    Route::get('/reports/queue-sessions/export', [ReportController::class, 'exportQueueSessions'])
+        ->middleware(['feature:report_queue_overview', 'feature:report_export']);
+    Route::post('/reports/queue-sessions/export-file', [ReportController::class, 'exportFile'])
+        ->middleware(['feature:report_queue_overview', 'feature:report_export']);
+    Route::get('/reports/download', [ReportController::class, 'download'])
+        ->name('app.reports.download')
+        ->middleware(['feature:report_queue_overview', 'feature:report_export']);
 
     // Organization-wide monitoring (tenant scope, facility filter).
     Route::get('/queue/monitor', [QueueMonitorController::class, 'index']);

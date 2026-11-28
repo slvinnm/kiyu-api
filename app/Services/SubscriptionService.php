@@ -5,13 +5,14 @@ namespace App\Services;
 use App\Enums\BillingInterval;
 use App\Enums\Feature;
 use App\Enums\SubscriptionStatus;
-use App\Enums\UserRole;
 use App\Exceptions\BusinessConflictException;
 use App\Exceptions\InvalidStateException;
 use App\Models\Plan;
 use App\Models\PlanPrice;
 use App\Models\Subscription;
 use App\Models\Tenant;
+use App\Services\Access\FeatureAccessEngine;
+use App\Services\Access\UsageLimitResolver;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -217,11 +218,14 @@ class SubscriptionService
     }
 
     /**
-     * Whether the tenant's effective subscription grants the given feature.
+     * Whether the tenant's subscription grants the given feature.
+     *
+     * Delegates to the Feature Access Engine so release, entitlement snapshot and
+     * dependency rules all apply; there is no plan-catalogue-only shortcut.
      */
     public function hasFeature(Tenant $tenant, Feature $feature): bool
     {
-        return $this->effectiveSubscription($tenant)?->hasFeature($feature) ?? false;
+        return app(FeatureAccessEngine::class)->canAccess($tenant, $feature)->allowed;
     }
 
     /**
@@ -229,59 +233,31 @@ class SubscriptionService
      */
     public function limit(Tenant $tenant, Feature $feature): int
     {
-        return $this->effectiveSubscription($tenant)?->featureLimit($feature)
-            ?? $feature->defaultLimit();
+        return app(FeatureAccessEngine::class)->resolveLimit($tenant, $feature);
     }
 
     /**
      * Current usage of a limited resource for the tenant.
-     *
-     * Only resources that are actually in use count against the quota. A
-     * device that is inactive (revoked) or past its expiry no longer occupies a
-     * slot, so deactivating one frees the seat for a replacement (PRD §15).
      */
     public function usage(Tenant $tenant, Feature $feature): int
     {
-        return match ($feature) {
-            Feature::MaxFacilities => $tenant->facilities()->count(),
-            Feature::MaxStaff => $tenant->users()->where('role', '!=', UserRole::Customer->value)->count(),
-            Feature::MaxKioskDevices => $this->activeDeviceCount($tenant, 'kiosk'),
-            Feature::MaxDisplayDevices => $this->activeDeviceCount($tenant, 'display'),
-            default => 0,
-        };
-    }
-
-    /**
-     * Count devices that consume quota: active and not expired.
-     *
-     * A device mid-pairing (registered, not yet paired) still holds its slot so
-     * two people cannot both claim the last seat with pending codes.
-     */
-    private function activeDeviceCount(Tenant $tenant, string $kind): int
-    {
-        $query = $kind === 'kiosk'
-            ? $tenant->kioskDevices()
-            : $tenant->displayDevices();
-
-        return $query
-            ->where('is_active', true)
-            ->where(function ($q): void {
-                $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
-            })
-            ->count();
+        return app(UsageLimitResolver::class)->usage($tenant, $feature);
     }
 
     /**
      * Whether the tenant may add one more unit of the limited resource.
      *
-     * Limits are only enforced once the tenant has an effective subscription.
-     * A freshly onboarded tenant without a plan is not quota-blocked, so
-     * provisioning and pre-billing setups keep working.
+     * Delegates to the engine. A tenant with no granting subscription is not
+     * quota-blocked, matching the previous onboarding behaviour.
      */
     public function hasCapacityFor(Tenant $tenant, Feature $feature): bool
     {
-        if ($this->effectiveSubscription($tenant) === null) {
+        if ($this->grantingSubscription($tenant) === null) {
             return true;
+        }
+
+        if (! $this->hasFeature($tenant, $feature)) {
+            return false;
         }
 
         return $this->usage($tenant, $feature) < $this->limit($tenant, $feature);
@@ -290,22 +266,24 @@ class SubscriptionService
     /**
      * Throw when the tenant is at its limit for the feature.
      *
-     * Controllers call this before creating a limited resource so the check
-     * lives in one place rather than being duplicated per endpoint.
+     * Delegates to the engine; converts a denial into a 409 business conflict so
+     * controllers keep their existing error handling.
      *
      * @throws BusinessConflictException
      */
     public function ensureCapacity(Tenant $tenant, Feature $feature): void
     {
-        if (! $this->hasCapacityFor($tenant, $feature)) {
-            throw new BusinessConflictException(
-                sprintf(
-                    'Your plan allows at most %d %s. Upgrade to add more.',
-                    $this->limit($tenant, $feature),
-                    str_replace('max_', '', $feature->value),
-                ),
-            );
+        if ($this->hasCapacityFor($tenant, $feature)) {
+            return;
         }
+
+        throw new BusinessConflictException(
+            sprintf(
+                'Your plan allows at most %d %s. Upgrade to add more.',
+                $this->limit($tenant, $feature),
+                str_replace('max_', '', $feature->value),
+            ),
+        );
     }
 
     /**

@@ -7,11 +7,13 @@ use App\Enums\QueueSessionStatus;
 use App\Http\Controllers\Api\Concerns\HandlesTableQuery;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
+use App\Models\Facility;
 use App\Models\QueueSession;
 use App\Services\IntakeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Exists;
 
 /**
  * A customer's own visits and bookings.
@@ -86,8 +88,11 @@ class SessionController extends Controller
      */
     public function book(Request $request): JsonResponse
     {
+        // The department belongs to a facility; a customer books by department,
+        // so the facility is derived from it (scoped to the tenant) rather than
+        // requiring a separate facility_id.
         $validated = $request->validate([
-            'department_id' => ['required', 'integer', $this->departmentRule()],
+            'department_id' => ['required', 'integer', $this->customerDepartmentRule()],
             'idempotency_key' => ['nullable', 'string', 'max:100'],
         ]);
 
@@ -103,6 +108,19 @@ class SessionController extends Controller
             'message' => 'Online booking created successfully. Check in at the kiosk upon arrival.',
             'data' => $result,
         ], 201);
+    }
+
+    /**
+     * A rule that accepts a department of any facility in the current tenant.
+     */
+    private function customerDepartmentRule(): Exists
+    {
+        return Rule::exists('departments', 'id')->where(
+            fn($query) => $query->whereIn(
+                'facility_id',
+                Facility::query()->where('tenant_id', $this->tenantId())->select('id'),
+            ),
+        );
     }
 
     /**

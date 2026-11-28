@@ -109,23 +109,16 @@ class ReportController extends Controller
     /**
      * The facility a report is scoped to.
      *
-     * Uses the facility bound by the facility middleware, or the tenant's single
-     * active facility. The tenant admin is not facility-scoped, so a multi-
-     * facility tenant must select one with `X-Facility-Id`.
+     * The facility is named with `facility_id` (query/body) or resolved to the
+     * tenant's single active facility. The tenant admin is not facility-scoped,
+     * so a multi-facility tenant must pass `facility_id`.
      */
     private function reportFacilityId(Request $request): int
     {
-        $facility = $request->attributes->get('facility');
+        $request->validate([
+            'facility_id' => ['nullable', 'integer', 'exists:facilities,id'],
+        ]);
 
-        if ($facility instanceof Facility) {
-            return $facility->id;
-        }
-
-        return Facility::query()
-            ->where('tenant_id', $this->tenantId())
-            ->where('is_active', true)
-            ->orderBy('id')
-            ->firstOrFail()
-            ->id;
+        return $this->facility($request)->id;
     }
 }

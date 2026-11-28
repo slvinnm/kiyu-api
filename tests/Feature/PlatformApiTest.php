@@ -189,7 +189,7 @@ test('platform can create a plan, add a price and set entitlements', function ()
             ],
             'entitlements' => [
                 ['feature_code' => 'max_facilities', 'limit' => 5],
-                ['feature_code' => 'basic_reports'],
+                ['feature_code' => 'report_queue_overview'],
             ],
         ])
         ->assertCreated()

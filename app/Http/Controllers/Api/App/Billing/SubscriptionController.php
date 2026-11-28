@@ -7,6 +7,7 @@ use App\Enums\Feature;
 use App\Http\Controllers\Controller;
 use App\Models\Plan;
 use App\Models\Tenant;
+use App\Services\Access\FeatureAccessEngine;
 use App\Services\SubscriptionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,10 +22,11 @@ class SubscriptionController extends Controller
 {
     public function __construct(
         private readonly SubscriptionService $subscriptions,
+        private readonly FeatureAccessEngine $engine,
     ) {}
 
     /**
-     * The tenant's current subscription and its plan entitlements.
+     * The tenant's current subscription and its resolved entitlements.
      */
     public function show(): JsonResponse
     {
@@ -41,14 +43,12 @@ class SubscriptionController extends Controller
     }
 
     /**
-     * The tenant's resolved feature entitlements, for navigation and gating.
+     * The tenant's resolved feature entitlements.
      *
-     * A single map of `feature_code => bool` (toggles) and
-     * `feature_code => int` (limits). Advanced reporting implies basic
-     * reporting, so a tenant on an advanced plan is never denied the basic
-     * reports menu (PRD §10.6 hierarchy).
-     *
-     * @return array<string, bool|int>
+     * Each feature is an object distinguishing release, entitlement and
+     * availability, with limit/used/remaining for capacity and quota (PRD §13.3).
+     * Every value comes from the Feature Access Engine, never a raw catalogue
+     * read, so an unreleased or unentitled feature is never reported available.
      */
     public function entitlements(): JsonResponse
     {
@@ -100,21 +100,33 @@ class SubscriptionController extends Controller
     }
 
     /**
-     * @return array<string, bool|int>
+     * Per-feature entitlement objects, straight from the engine.
+     *
+     * @return array<string, array<string, mixed>>
      */
     private function entitlementMap(Tenant $tenant): array
     {
         $map = [];
 
         foreach (Feature::cases() as $feature) {
-            $map[$feature->value] = $feature->isLimit()
-                ? $this->subscriptions->limit($tenant, $feature)
-                : $this->subscriptions->hasFeature($tenant, $feature);
-        }
+            $decision = $this->engine->canAccess($tenant, $feature);
 
-        // Advanced reporting implies the basic reports menu.
-        if (! empty($map[Feature::AdvancedReports->value])) {
-            $map[Feature::BasicReports->value] = true;
+            $entry = [
+                'released' => $decision->isFeatureReleased,
+                'available' => $decision->allowed,
+                'entitled' => $decision->isEntitled,
+                'sources' => $decision->sources,
+                'type' => strtolower($feature->valueType()->value),
+                'reason_code' => $decision->reasonCode->value,
+            ];
+
+            if (! $feature->isToggle()) {
+                $entry['limit'] = $decision->limit ?? $this->engine->resolveLimit($tenant, $feature);
+                $entry['used'] = $decision->used;
+                $entry['remaining'] = $decision->remaining;
+            }
+
+            $map[$feature->value] = $entry;
         }
 
         return $map;

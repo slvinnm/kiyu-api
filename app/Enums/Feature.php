@@ -12,9 +12,9 @@ namespace App\Enums;
  * while granting it to a plan is plain data.
  *
  * Every feature is a toggle (on/off), an additive capacity, or a period quota.
- * The legacy aggregate codes `basic_reports` and `advanced_reports` are kept
- * only until report routes migrate to the per-report codes; they are never a
- * permanent fallback.
+ * The legacy aggregate codes `basic_reports` and `advanced_reports` are **not**
+ * part of this catalogue: each report has its own entitlement, and no aggregate
+ * code is a runtime gate.
  */
 enum Feature: string
 {
@@ -42,10 +42,6 @@ enum Feature: string
     case MaxStaff = 'max_staff';
     case MaxKioskDevices = 'max_kiosk_devices';
     case MaxDisplayDevices = 'max_display_devices';
-
-    // Legacy aggregate report toggles (retired once report routes migrate).
-    case BasicReports = 'basic_reports';
-    case AdvancedReports = 'advanced_reports';
 
     /**
      * The kind of value this feature carries.
