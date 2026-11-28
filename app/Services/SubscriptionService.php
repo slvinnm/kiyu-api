@@ -116,6 +116,25 @@ class SubscriptionService
     }
 
     /**
+     * The subscription that currently grants access (TRIALING/ACTIVE only).
+     *
+     * PAST_DUE and PENDING_PAYMENT occupy the tenant's slot but grant nothing, so
+     * they are excluded here. An ended trial or paid period also grants nothing.
+     */
+    public function grantingSubscription(Tenant $tenant): ?Subscription
+    {
+        return Subscription::query()
+            ->where('tenant_id', $tenant->id)
+            ->whereIn('status', [SubscriptionStatus::Trialing->value, SubscriptionStatus::Active->value])
+            ->where(function ($query): void {
+                $query->whereNull('current_period_end')
+                    ->orWhere('current_period_end', '>', now());
+            })
+            ->latest('id')
+            ->first();
+    }
+
+    /**
      * Whether the tenant's effective subscription grants the given feature.
      */
     public function hasFeature(Tenant $tenant, Feature $feature): bool

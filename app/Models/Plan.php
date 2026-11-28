@@ -54,4 +54,12 @@ class Plan extends Model
     {
         return $this->hasMany(Subscription::class);
     }
+
+    /**
+     * Add-ons this plan may buy.
+     */
+    public function addonEligibilities(): HasMany
+    {
+        return $this->hasMany(PlanAddonEligibility::class);
+    }
 }

@@ -152,4 +152,20 @@ class Subscription extends Model
     {
         return $this->hasMany(Payment::class);
     }
+
+    /**
+     * The entitlements snapshotted onto this subscription at activation.
+     */
+    public function entitlements(): HasMany
+    {
+        return $this->hasMany(SubscriptionEntitlement::class);
+    }
+
+    /**
+     * The add-ons purchased on this subscription.
+     */
+    public function addons(): HasMany
+    {
+        return $this->hasMany(SubscriptionAddon::class);
+    }
 }

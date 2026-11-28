@@ -1,7 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnsureApplicationContext;
-use App\Http\Middleware\EnsurePlanFeature;
+use App\Http\Middleware\EnsureFeatureAccess;
 use App\Http\Middleware\EnsureTenantOriginBinding;
 use App\Http\Middleware\EnsureUserRole;
 use App\Http\Middleware\ResolveAppTenant;
@@ -31,7 +31,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'tenant.bind' => EnsureTenantOriginBinding::class,
             'facility' => ResolveFacility::class,
             'kiosk' => ResolveKioskDevice::class,
-            'feature' => EnsurePlanFeature::class,
+            'feature' => EnsureFeatureAccess::class,
             'context' => EnsureApplicationContext::class,
         ]);
     })
