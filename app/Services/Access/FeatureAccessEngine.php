@@ -58,7 +58,8 @@ class FeatureAccessEngine
         }
 
         $map = $this->entitlements->allFor($tenant);
-        $entitled = $this->isEntitled($feature, $map[$feature->value] ?? null);
+        $present = array_key_exists($feature->value, $map);
+        $entitled = $this->isEntitled($feature, $map[$feature->value] ?? null, $present);
 
         if (! $entitled) {
             return FeatureAccessDecision::deny($feature, ReasonCode::EntitlementRequired, released: true, context: $context);
@@ -67,9 +68,9 @@ class FeatureAccessEngine
         // Dependency check: a report needs queue_management; a quota needs the
         // notification toggle.
         foreach ($feature->dependencies() as $dependency) {
-            $dependencyMap = $map[$dependency->value] ?? null;
+            $dependencyPresent = array_key_exists($dependency->value, $map);
 
-            if (! $this->isEntitled($dependency, $dependencyMap)) {
+            if (! $this->isEntitled($dependency, $map[$dependency->value] ?? null, $dependencyPresent)) {
                 return FeatureAccessDecision::deny($feature, ReasonCode::FeatureDependencyMissing, released: true, entitled: true, context: $context);
             }
         }
@@ -133,6 +134,16 @@ class FeatureAccessEngine
     }
 
     /**
+     * Resolve the effective limit for a capacity/quota feature.
+     */
+    public function resolveLimit(Tenant $tenant, Feature $feature): int
+    {
+        $map = $this->entitlements->allFor($tenant);
+
+        return $this->readLimit($map[$feature->value] ?? null);
+    }
+
+    /**
      * Whether the feature is globally released, or null when unregistered.
      *
      * The registry is authoritative once seeded. Before it is seeded (a fresh
@@ -152,19 +163,18 @@ class FeatureAccessEngine
     }
 
     /**
-     * Whether a stored entitlement value grants the feature.
+     * Whether a stored entitlement grants the feature.
+     *
+     * A boolean toggle is granted by the mere presence of a snapshot row (its
+     * value is typically null); a capacity/quota needs a positive limit.
      */
-    private function isEntitled(Feature $feature, mixed $value): bool
+    private function isEntitled(Feature $feature, mixed $value, bool $present = false): bool
     {
-        if ($value === null) {
-            return false;
-        }
-
         if ($feature->isToggle()) {
-            return (bool) $value;
+            return $present || (bool) $value;
         }
 
-        return $this->readLimit($value) > 0;
+        return $present && $this->readLimit($value) > 0;
     }
 
     private function readLimit(mixed $value): int
