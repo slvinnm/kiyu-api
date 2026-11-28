@@ -27,4 +27,4 @@ yarn-error.log
 /.vscode
 /.zed
 .env.before_lerd
-.claude/settings.json
+.claude/settings.jsonstorage/
