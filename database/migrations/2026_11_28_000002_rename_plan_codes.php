@@ -32,7 +32,7 @@ return new class extends Migration
 
             if ($collision) {
                 throw new RuntimeException(
-                    "Cannot rename plan '{$from}' to '{$to}': a plan with code '{$to}' already exists. ".
+                    "Cannot rename plan '{$from}' to '{$to}': a plan with code '{$to}' already exists. " .
                     'Merge the two plans manually before running this migration.',
                 );
             }

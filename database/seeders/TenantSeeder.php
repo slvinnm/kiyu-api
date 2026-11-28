@@ -4,7 +4,6 @@ namespace Database\Seeders;
 
 use App\Enums\TenantStatus;
 use App\Models\Facility;
-use App\Models\KioskDevice;
 use App\Models\Tenant;
 use Illuminate\Database\Seeder;
 
@@ -29,19 +28,6 @@ class TenantSeeder extends Seeder
                 'name' => 'KIYU Demo Facility',
                 'address' => 'Jl. Sudirman No. 1, Jakarta',
                 'is_active' => true,
-            ]
-        );
-
-        $rawToken = 'kiyu-demo-kiosk-token';
-
-        KioskDevice::query()->firstOrCreate(
-            ['credential_hash' => hash('sha256', $rawToken)],
-            [
-                'tenant_id' => $tenant->id,
-                'facility_id' => $facility->id,
-                'name' => 'Demo Kiosk',
-                'is_active' => true,
-                'paired_at' => now(),
             ]
         );
     }
