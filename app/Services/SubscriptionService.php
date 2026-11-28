@@ -27,12 +27,16 @@ class SubscriptionService
     /**
      * Start a trial, or a paid subscription that awaits its first payment.
      *
-     * A subscription without a trial is created PastDue and grants nothing:
-     * only a verified provider webhook (see PaymentService) marks it Active.
-     * Anything else would hand out a paid plan for free.
+     * A paid subscription is created PENDING_PAYMENT and grants nothing: only a
+     * verified provider webhook (see PaymentService::activate) marks it Active.
      *
-     * Any previously effective subscription is cancelled first, so history is
-     * preserved and only one subscription is ever in force.
+     * A new subscription does NOT cancel the tenant's current one. The tenant
+     * keeps its existing access until the new payment is verified, so an
+     * abandoned or failed checkout never strands a paying customer. Superseding
+     * the old subscription happens at activation, not here.
+     *
+     * Trial days are decided server-side by the caller (signup/provisioning);
+     * this method trusts its own argument, never a client request.
      */
     public function start(
         Tenant $tenant,
@@ -57,17 +61,28 @@ class SubscriptionService
 
         return DB::transaction(function () use ($tenant, $plan, $interval, $trialDays, $price): Subscription {
             $this->lockTenant($tenant);
-            $this->cancelEffective($tenant);
 
             $now = Carbon::now();
             $isTrial = $trialDays !== null && $trialDays > 0;
+
+            // A trial cannot be started while another subscription still grants
+            // access; the checkout path handles paid plan changes instead.
+            if ($isTrial && $this->grantingSubscription($tenant) !== null) {
+                throw new InvalidStateException('The tenant already has a granting subscription.');
+            }
+
+            // A trial is one per tenant: refuse if any trial ever existed, unless a
+            // platform admin grants it explicitly (a separate audited path).
+            if ($isTrial && $tenant->subscriptions()->whereNotNull('trial_ends_at')->exists()) {
+                throw new InvalidStateException('This tenant has already used its trial.');
+            }
 
             $subscription = new Subscription([
                 'tenant_id' => $tenant->id,
                 'plan_id' => $plan->id,
                 'plan_price_id' => $price?->id,
                 'billing_interval' => $interval,
-                'status' => $isTrial ? SubscriptionStatus::Trialing : SubscriptionStatus::PastDue,
+                'status' => $isTrial ? SubscriptionStatus::Trialing : SubscriptionStatus::PendingPayment,
                 'cancel_at_period_end' => false,
             ]);
 
@@ -79,8 +94,68 @@ class SubscriptionService
 
             $subscription->save();
 
+            // A trial is active immediately and snapshots its entitlements now.
+            if ($isTrial) {
+                $this->snapshotEntitlements($subscription);
+            }
+
             return $subscription;
         });
+    }
+
+    /**
+     * Activate a paid subscription after a verified payment.
+     *
+     * Snapshots the plan entitlements, sets the billing period, and supersedes
+     * any other granting subscription so only one is ever in force. Runs inside
+     * the webhook transaction; idempotent because activation sets the same final
+     * state.
+     */
+    public function activate(Subscription $subscription): Subscription
+    {
+        return DB::transaction(function () use ($subscription): Subscription {
+            $tenant = $subscription->tenant;
+
+            $this->lockTenant($tenant);
+
+            // Supersede the tenant's other granting subscriptions, keeping rows.
+            Subscription::query()
+                ->where('tenant_id', $tenant->id)
+                ->where('id', '!=', $subscription->id)
+                ->whereIn('status', SubscriptionStatus::grantingValues())
+                ->update(['status' => SubscriptionStatus::Cancelled->value, 'cancelled_at' => Carbon::now()]);
+
+            $now = Carbon::now();
+
+            $subscription->update([
+                'status' => SubscriptionStatus::Active,
+                'current_period_start' => $now,
+                'current_period_end' => $now->copy()->addMonths($subscription->billing_interval->months()),
+            ]);
+
+            $this->snapshotEntitlements($subscription);
+
+            return $subscription->fresh();
+        });
+    }
+
+    /**
+     * Copy the plan's catalogue entitlements onto the subscription snapshot.
+     *
+     * The snapshot is what the engine reads later, so catalogue edits never
+     * retroactively change what was bought. Idempotent: re-running replaces the
+     * same set.
+     */
+    public function snapshotEntitlements(Subscription $subscription): void
+    {
+        $planEntitlements = $subscription->plan->entitlements()->get();
+
+        foreach ($planEntitlements as $entitlement) {
+            $subscription->entitlements()->updateOrCreate(
+                ['feature_code' => $entitlement->feature_code],
+                ['value' => $entitlement->value],
+            );
+        }
     }
 
     /**
@@ -125,10 +200,17 @@ class SubscriptionService
     {
         return Subscription::query()
             ->where('tenant_id', $tenant->id)
-            ->whereIn('status', [SubscriptionStatus::Trialing->value, SubscriptionStatus::Active->value])
             ->where(function ($query): void {
-                $query->whereNull('current_period_end')
-                    ->orWhere('current_period_end', '>', now());
+                // ACTIVE: in period (or no period end set).
+                $query->where(function ($q): void {
+                    $q->where('status', SubscriptionStatus::Active->value)
+                        ->where(fn($inner) => $inner->whereNull('current_period_end')->orWhere('current_period_end', '>', now()));
+                })
+                    // TRIALING: not past the trial end.
+                    ->orWhere(function ($q): void {
+                        $q->where('status', SubscriptionStatus::Trialing->value)
+                            ->where(fn($inner) => $inner->whereNull('trial_ends_at')->orWhere('trial_ends_at', '>', now()));
+                    });
             })
             ->latest('id')
             ->first();

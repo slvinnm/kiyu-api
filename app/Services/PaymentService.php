@@ -126,6 +126,9 @@ class PaymentService
     /**
      * Update the payment row and activate the subscription on success.
      *
+     * Activation snapshots the plan entitlements and supersedes the tenant's
+     * previous granting subscription, all inside the webhook transaction.
+     *
      * @param  array<string, mixed>  $payload
      */
     private function applyPayment(string $provider, array $payload): void
@@ -157,11 +160,6 @@ class PaymentService
             return;
         }
 
-        // A paid charge activates the subscription for its period.
-        $subscription->update([
-            'status' => SubscriptionStatus::Active,
-            'current_period_start' => Carbon::now(),
-            'current_period_end' => Carbon::now()->addMonths($subscription->billing_interval->months()),
-        ]);
+        app(SubscriptionService::class)->activate($subscription);
     }
 }

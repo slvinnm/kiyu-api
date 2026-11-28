@@ -3,10 +3,10 @@
 namespace App\Services\Access;
 
 use App\Enums\Feature;
-use App\Enums\SubscriptionStatus;
 use App\Models\Subscription;
 use App\Models\SubscriptionAddon;
 use App\Models\Tenant;
+use App\Services\SubscriptionService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 
@@ -126,15 +126,7 @@ class EntitlementResolver
      */
     private function accessSubscription(Tenant $tenant): ?Subscription
     {
-        return $tenant->subscriptions()
-            ->whereIn('status', [SubscriptionStatus::Trialing->value, SubscriptionStatus::Active->value])
-            ->where(function ($query): void {
-                // A trial must not be past its end; a paid plan must be in period.
-                $query->whereNull('current_period_end')
-                    ->orWhere('current_period_end', '>', now());
-            })
-            ->latest('id')
-            ->first();
+        return app(SubscriptionService::class)->grantingSubscription($tenant);
     }
 
     /**

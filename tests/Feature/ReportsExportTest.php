@@ -54,6 +54,7 @@ function exportClinic(bool $advanced = true): array
     ]);
 
     $plan = Plan::query()->create(['code' => 'E-' . uniqid(), 'name' => 'E', 'is_active' => true]);
+    $plan->entitlements()->create(['feature_code' => Feature::QueueManagement->value, 'value' => null]);
     $plan->entitlements()->create(['feature_code' => Feature::ReportQueueOverview->value, 'value' => null]);
 
     if ($advanced) {

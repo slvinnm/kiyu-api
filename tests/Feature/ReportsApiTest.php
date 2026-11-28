@@ -53,6 +53,7 @@ function reportClinic(bool $advanced = false): array
     ]);
 
     $plan = Plan::query()->create(['code' => 'P-' . Str::random(6), 'name' => 'P', 'is_active' => true]);
+    $plan->entitlements()->create(['feature_code' => Feature::QueueManagement->value, 'value' => null]);
     $plan->entitlements()->create(['feature_code' => Feature::ReportQueueOverview->value, 'value' => null]);
 
     if ($advanced) {

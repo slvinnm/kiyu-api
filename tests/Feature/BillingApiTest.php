@@ -79,21 +79,24 @@ test('starting a trial creates a trialing subscription', function () {
         ->and($subscription->plan_price_id)->not->toBeNull();
 });
 
-test('only one subscription is ever effective per tenant', function () {
+test('a new subscription does not cancel the current one until activation', function () {
     $tenant = billingTenant();
     $service = app(SubscriptionService::class);
 
     $first = $service->start($tenant['tenant'], $tenant['plan'], BillingInterval::Monthly, 7);
     $second = $service->start($tenant['tenant'], $tenant['plan'], BillingInterval::Monthly);
 
-    $effective = Subscription::query()
-        ->where('tenant_id', $tenant['tenant']->id)
-        ->whereIn('status', SubscriptionStatus::effectiveValues())
-        ->count();
+    // The paid checkout is pending and both rows exist; the trial keeps access.
+    expect($first->fresh()->status)->toBe(SubscriptionStatus::Trialing)
+        ->and($second->fresh()->status)->toBe(SubscriptionStatus::PendingPayment)
+        ->and($service->grantingSubscription($tenant['tenant'])->id)->toBe($first->id);
 
-    expect($effective)->toBe(1)
-        ->and($first->fresh()->status)->toBe(SubscriptionStatus::Cancelled)
-        ->and($second->fresh()->status)->toBe(SubscriptionStatus::PastDue);
+    // Activating the paid subscription supersedes the trial.
+    $service->activate($second);
+
+    expect($first->fresh()->status)->toBe(SubscriptionStatus::Cancelled)
+        ->and($second->fresh()->status)->toBe(SubscriptionStatus::Active)
+        ->and($service->grantingSubscription($tenant['tenant'])->id)->toBe($second->id);
 });
 
 test('a subscription without a trial is not effective until it is paid', function () {
@@ -105,7 +108,7 @@ test('a subscription without a trial is not effective until it is paid', functio
         BillingInterval::Monthly,
     );
 
-    expect($subscription->status)->toBe(SubscriptionStatus::PastDue)
+    expect($subscription->status)->toBe(SubscriptionStatus::PendingPayment)
         ->and($subscription->isEffective())->toBeFalse()
         ->and($subscription->current_period_start)->toBeNull();
 });
@@ -145,7 +148,7 @@ test('a limit entitlement reports its cap and usage', function () {
         ->and($service->hasCapacityFor($tenant['tenant'], Feature::MaxKioskDevices))->toBeTrue();
 });
 
-test('a tenant admin can view and start a subscription over the API', function () {
+test('a tenant admin can view and start a paid subscription over the API', function () {
     $tenant = billingTenant();
 
     $this->actingAs($tenant['admin'], 'sanctum')
@@ -157,16 +160,17 @@ test('a tenant admin can view and start a subscription over the API', function (
         ->postJson('/api/app/billing/subscription', [
             'plan_code' => 'STANDARD',
             'billing_interval' => 'MONTHLY',
-            'trial_days' => 14,
+            // A client can no longer request a trial; it is ignored/absent.
         ])
         ->assertCreated()
-        ->assertJsonPath('data.status', SubscriptionStatus::Trialing->value)
+        ->assertJsonPath('data.status', SubscriptionStatus::PendingPayment->value)
         ->assertJsonPath('data.plan.code', 'STANDARD');
 
+    // Pending does not grant access.
     $this->actingAs($tenant['admin'], 'sanctum')
         ->getJson('/api/app/billing/subscription')
         ->assertOk()
-        ->assertJsonPath('data.is_effective', true);
+        ->assertJsonPath('data.is_effective', false);
 });
 
 test('starting a paid plan over the API does not activate it without payment', function () {
@@ -178,12 +182,27 @@ test('starting a paid plan over the API does not activate it without payment', f
             'billing_interval' => 'MONTHLY',
         ])
         ->assertCreated()
-        ->assertJsonPath('data.status', SubscriptionStatus::PastDue->value)
+        ->assertJsonPath('data.status', SubscriptionStatus::PendingPayment->value)
         ->assertJsonPath('data.is_effective', false)
         ->assertJsonPath('data.payment_required', true);
 
     expect(app(SubscriptionService::class)->hasFeature($tenant['tenant'], Feature::QueueManagement))
         ->toBeFalse();
+});
+
+test('the API rejects a client-supplied trial duration', function () {
+    $tenant = billingTenant();
+
+    // `trial_days` is not part of the request contract; the body value is
+    // ignored and the subscription is still a paid PENDING_PAYMENT checkout.
+    $this->actingAs($tenant['admin'], 'sanctum')
+        ->postJson('/api/app/billing/subscription', [
+            'plan_code' => 'STANDARD',
+            'billing_interval' => 'MONTHLY',
+            'trial_days' => 365,
+        ])
+        ->assertCreated()
+        ->assertJsonPath('data.status', SubscriptionStatus::PendingPayment->value);
 });
 
 test('a non-admin tenant user cannot start a subscription', function () {

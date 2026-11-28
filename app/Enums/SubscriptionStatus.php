@@ -7,6 +7,7 @@ enum SubscriptionStatus: string
     case Trialing = 'TRIALING';
     case Active = 'ACTIVE';
     case PastDue = 'PAST_DUE';
+    case PendingPayment = 'PENDING_PAYMENT';
     case Cancelled = 'CANCELLED';
     case Expired = 'EXPIRED';
 
@@ -15,22 +16,39 @@ enum SubscriptionStatus: string
      */
     public function isEffective(): bool
     {
-        return in_array($this, [self::Trialing, self::Active], true);
+        return in_array($this, self::grantingStatuses(), true);
+    }
+
+    /**
+     * Statuses that actually grant features and capacity (TRIALING/ACTIVE).
+     *
+     * @return list<self>
+     */
+    public static function grantingStatuses(): array
+    {
+        return [self::Trialing, self::Active];
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function grantingValues(): array
+    {
+        return array_map(fn(self $status): string => $status->value, self::grantingStatuses());
     }
 
     /**
      * Statuses that occupy the tenant's single subscription slot.
      *
-     * This is deliberately wider than {@see isEffective()}: PAST_DUE means the
-     * tenant has a subscription on file that it has not paid for. It reserves
-     * the slot and is what a charge is raised against, but it grants no
-     * features and no capacity until a payment promotes it to ACTIVE.
+     * This is deliberately wider than granting: PENDING_PAYMENT and PAST_DUE
+     * reserve the slot and are what a charge is raised against, but they grant
+     * no features or capacity until a verified payment promotes them to ACTIVE.
      *
      * @return list<self>
      */
     public static function effectiveStatuses(): array
     {
-        return [self::Trialing, self::Active, self::PastDue];
+        return [self::Trialing, self::Active, self::PastDue, self::PendingPayment];
     }
 
     /**

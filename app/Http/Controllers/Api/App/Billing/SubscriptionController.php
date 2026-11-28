@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api\App\Billing;
 
 use App\Enums\BillingInterval;
 use App\Enums\Feature;
-use App\Enums\SubscriptionStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Plan;
 use App\Models\Tenant;
@@ -122,14 +121,13 @@ class SubscriptionController extends Controller
     }
 
     /**
-     * Switch the tenant to a plan (trial or immediate activation).
+     * Switch the tenant to a plan (paid; trial is signup-only).
      */
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'plan_code' => ['required', 'string'],
             'billing_interval' => ['required', 'string', 'in:MONTHLY,YEARLY'],
-            'trial_days' => ['nullable', 'integer', 'min:1', 'max:365'],
             'currency' => ['nullable', 'string', 'size:3'],
         ]);
 
@@ -140,18 +138,18 @@ class SubscriptionController extends Controller
 
         $tenant = $this->tenant();
 
+        // Trial duration is never taken from the request: it is server-side only
+        // and granted at signup/provisioning.
         $subscription = $this->subscriptions->start(
             tenant: $tenant,
             plan: $plan,
             interval: BillingInterval::from($validated['billing_interval']),
-            trialDays: $validated['trial_days'] ?? null,
+            trialDays: null,
             currency: $validated['currency'] ?? null,
         );
 
         return response()->json([
-            'message' => $subscription->status === SubscriptionStatus::Trialing
-                ? 'Subscription started.'
-                : 'Subscription created. Complete the payment to activate it.',
+            'message' => 'Subscription created. Complete the payment to activate it.',
             'data' => [
                 ...$subscription->load('plan.entitlements')->toArray(),
                 'is_effective' => $subscription->isEffective(),

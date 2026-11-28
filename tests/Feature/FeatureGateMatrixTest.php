@@ -46,6 +46,8 @@ function gateClinic(array $toggles, string $role = 'facility_admin'): array
 
     $plan = Plan::query()->create(['code' => 'G-' . uniqid(), 'name' => 'G', 'is_active' => true]);
 
+    $plan->entitlements()->create(['feature_code' => Feature::QueueManagement->value, 'value' => null]);
+
     foreach ($toggles as $feature) {
         $plan->entitlements()->create(['feature_code' => $feature->value, 'value' => null]);
     }
