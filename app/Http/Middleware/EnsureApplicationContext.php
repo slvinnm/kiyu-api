@@ -29,21 +29,9 @@ use Symfony\Component\HttpFoundation\Response;
  * later middleware regardless.
  *
  * Usage: `->middleware('context:app')`.
- *
- * The two legacy context names (`tenant_workspace`, `platform_portal`) are
- * accepted only while the pre-split route file is being retired. They keep the
- * old, more permissive behaviour (wildcard and transient tokens pass) so the
- * refactor can land incrementally; they are removed when `routes/api.php` no
- * longer references them.
  */
 class EnsureApplicationContext
 {
-    /** @var array<string, ApplicationContext> */
-    private const LEGACY = [
-        'tenant_workspace' => ApplicationContext::Tenant,
-        'platform_portal' => ApplicationContext::Portal,
-    ];
-
     public function __construct(
         private readonly OriginContextResolver $origins,
         private readonly ContextTokenIssuer $issuer,
@@ -51,10 +39,6 @@ class EnsureApplicationContext
 
     public function handle(Request $request, Closure $next, string $context): Response
     {
-        if (isset(self::LEGACY[$context])) {
-            return $this->handleLegacy($request, $next, $context);
-        }
-
         $expected = ApplicationContext::tryFrom($context);
 
         abort_if($expected === null || $expected->tokenAbility() === null, 500, 'Unknown application context.');
@@ -103,35 +87,6 @@ class EnsureApplicationContext
         abort_unless($tokenContext === $expected, 403, 'This session was issued for a different application.');
 
         $this->bind($request, $expected);
-
-        return $next($request);
-    }
-
-    /**
-     * Pre-split behaviour: a wildcard or ability-less token passes, and a
-     * transient token needs no Origin. Removed with the legacy route file.
-     */
-    private function handleLegacy(Request $request, Closure $next, string $context): Response
-    {
-        $user = $request->user();
-
-        abort_if($user === null, 401, 'Unauthenticated.');
-
-        $token = $user->currentAccessToken();
-
-        if ($token === null || $token instanceof TransientToken) {
-            $this->bind($request, self::LEGACY[$context]);
-
-            return $next($request);
-        }
-
-        abort_unless(
-            $token->can("ctx:{$context}"),
-            403,
-            'This session was issued for a different application.',
-        );
-
-        $this->bind($request, self::LEGACY[$context]);
 
         return $next($request);
     }

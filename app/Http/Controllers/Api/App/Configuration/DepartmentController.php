@@ -12,9 +12,9 @@ use Illuminate\Http\Request;
 /**
  * Department configuration from the TenantAdmin App.
  *
- * The TenantAdmin picks a facility with `X-Facility-Id` (resolved and
- * authorized by the facility middleware); this controller only ever acts
- * inside that facility.
+ * The TenantAdmin names the facility with `facility_id` (validated against the
+ * tenant and the caller's access); this controller only ever acts inside that
+ * facility.
  */
 class DepartmentController extends Controller
 {

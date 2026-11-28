@@ -23,6 +23,8 @@ class IntakeController extends Controller
 
     public function kiosk(Request $request): JsonResponse
     {
+        $this->assertDevice($request);
+
         $validated = $request->validate([
             'department_id' => ['required', 'integer', $this->departmentRule()],
             'idempotency_key' => ['nullable', 'string', 'max:100'],
@@ -91,6 +93,8 @@ class IntakeController extends Controller
 
     public function onlineCheckin(Request $request): JsonResponse
     {
+        $this->assertDevice($request);
+
         $validated = $request->validate([
             'booking_identifier' => ['required', 'string'],
         ]);
@@ -106,8 +110,10 @@ class IntakeController extends Controller
         ]);
     }
 
-    public function onlineLookup(string $identifier): JsonResponse
+    public function onlineLookup(Request $request, string $identifier): JsonResponse
     {
+        $this->assertDevice($request);
+
         $result = $this->intakeService->lookupOnlineBooking(
             tenant: $this->tenant(),
             bookingIdentifier: $identifier,

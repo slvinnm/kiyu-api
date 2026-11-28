@@ -32,15 +32,4 @@ enum ApplicationContext: string
             self::Portal => 'ctx:portal',
         };
     }
-
-    /**
-     * Whether the context requires a validated browser Origin.
-     *
-     * Public endpoints are origin-optional; every protected context is bound to
-     * one origin so a token minted for another application cannot be replayed.
-     */
-    public function requiresOrigin(): bool
-    {
-        return $this !== self::Public;
-    }
 }

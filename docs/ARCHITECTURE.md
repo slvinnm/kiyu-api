@@ -99,9 +99,11 @@ controllers are thin adapters.
    render at all.
 2. **Middleware** — `context` (EnsureApplicationContext), `tenant.bind`
    (origin ↔ actor tenant), `app.tenant` (tenant from the TenantAdmin),
-   `tenant.origin` (guest tenant resolution), `tenant` (ResolveTenant), `facility`
-   (ResolveFacility: explicit `X-Facility-Id`, validated), `role`, `kiosk`
-   (device credential), `feature` (Feature Access Engine entitlement gate).
+   `tenant.origin` (guest tenant resolution; also resolves a paired
+   `X-Kiosk-Token`/`X-Display-Token` device and pins tenant + facility),
+   `tenant` (ResolveTenant), `role`, `feature` (Feature Access Engine
+   entitlement gate). There is no facility middleware: the facility comes from
+   `facility_id` in the request or is resolved implicitly.
 3. **Controllers/services** — every query is tenant-scoped; cross-tenant and
    cross-facility references are rejected.
 

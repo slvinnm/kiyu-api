@@ -12,8 +12,8 @@ use Illuminate\Http\Request;
 /**
  * Department configuration inside a FacilityAdmin's assigned facility.
  *
- * The facility is resolved from `X-Facility-Id` and authorized by the facility
- * middleware before this controller runs.
+ * The facility is resolved from `facility_id` (validated against the tenant and
+ * the caller's access) before this controller acts.
  */
 class DepartmentController extends Controller
 {

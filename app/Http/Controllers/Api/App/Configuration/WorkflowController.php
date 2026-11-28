@@ -11,8 +11,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * Workflow configuration from the TenantAdmin App, inside the facility selected
- * with `X-Facility-Id`.
+ * Workflow configuration from the TenantAdmin App, inside the facility named by
+ * `facility_id`.
  */
 class WorkflowController extends Controller
 {

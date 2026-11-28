@@ -13,8 +13,8 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 /**
- * Station configuration from the TenantAdmin App, inside the facility selected
- * with `X-Facility-Id`.
+ * Station configuration from the TenantAdmin App, inside the facility named by
+ * `facility_id`.
  */
 class StationController extends Controller
 {

@@ -42,6 +42,10 @@ class ResolveTenantFromOrigin
             $request->attributes->set('tenant', $device->tenant);
             $request->attributes->set('facility', $device->facility);
             $request->attributes->set('origin_tenant_slug', $device->tenant->slug);
+            // A paired device is the authoritative identity for device endpoints;
+            // controllers that require a device assert this attribute (no separate
+            // kiosk middleware).
+            $request->attributes->set('device', $device);
 
             return $next($request);
         }

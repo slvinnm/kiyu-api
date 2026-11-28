@@ -66,6 +66,26 @@ abstract class Controller
     }
 
     /**
+     * Assert the request was authenticated by a paired kiosk/display device.
+     *
+     * The device credential is resolved by the `tenant.origin` middleware and
+     * placed on the request as the `device` attribute. Device-only endpoints
+     * (kiosk intake, online check-in, pairing lookup) call this so a request
+     * without a valid device credential is refused rather than silently falling
+     * back to a slug tenant. There is no separate kiosk middleware.
+     */
+    protected function assertDevice(?Request $request = null): void
+    {
+        $request ??= request();
+
+        abort_unless(
+            $request->attributes->get('device') !== null,
+            403,
+            'A device credential is required.',
+        );
+    }
+
+    /**
      * The facility this request operates on.
      *
      * There is no facility middleware: the facility is taken from the request

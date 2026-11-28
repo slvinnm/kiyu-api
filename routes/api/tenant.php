@@ -53,9 +53,9 @@ Route::middleware('tenant.origin')->group(function () {
     Route::post('/devices/display/pair', [DisplayPairingController::class, 'pair'])->middleware('throttle:10,1');
 
     Route::prefix('intake')->controller(IntakeController::class)->group(function () {
-        Route::post('/kiosk', 'kiosk')->middleware(['kiosk', 'throttle:30,1']);
-        Route::get('/online-lookup/{identifier}', 'onlineLookup')->middleware(['kiosk', 'throttle:60,1']);
-        Route::post('/online-checkin', 'onlineCheckin')->middleware(['kiosk', 'throttle:30,1']);
+        Route::post('/kiosk', 'kiosk')->middleware(['throttle:30,1']);
+        Route::get('/online-lookup/{identifier}', 'onlineLookup')->middleware(['throttle:60,1']);
+        Route::post('/online-checkin', 'onlineCheckin')->middleware(['throttle:30,1']);
     });
 });
 
